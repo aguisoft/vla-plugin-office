@@ -1,0 +1,7 @@
+{
+  "name": "@vla/plugin-sdk",
+  "version": "1.0.0",
+  "description": "SDK oficial para desarrollar plugins del sistema VLA",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts"
+}
