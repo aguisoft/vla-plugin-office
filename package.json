@@ -1,11 +1,13 @@
 {
-  "name": "my-vla-plugin",
+  "name": "vla-plugin-office",
   "version": "1.0.0",
-  "description": "Mi plugin para VLA System",
+  "description": "Office presence plugin for VLA System",
   "private": true,
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
+    "dev": "npm run build && node scripts/dev-install.js",
+    "dev:watch": "tsc --watch",
     "pack": "node scripts/pack.js",
     "release": "npm run build && npm run pack"
   },
