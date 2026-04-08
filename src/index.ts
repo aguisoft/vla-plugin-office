@@ -79,6 +79,24 @@ const plugin: PluginDefinition = {
       res.json(await snapshot.getAll());
     });
 
+    // ── Photo proxy (avoids browser CDN/CORS issues with Bitrix URLs) ──────────
+    ctx.router.get('/photo/:userId', ctx.requireAuth(), async (req, res) => {
+      const rawUrl = await bitrix.getPhotoUrl(req.params.userId);
+      if (!rawUrl) return res.status(404).end();
+      try {
+        const safeUrl = rawUrl.replace(/ /g, '%20');
+        const upstream = await fetch(safeUrl);
+        if (!upstream.ok) return res.status(404).end();
+        const ct = upstream.headers.get('content-type') ?? 'image/jpeg';
+        res.setHeader('Content-Type', ct);
+        res.setHeader('Cache-Control', 'public, max-age=3600');
+        const buf = await upstream.arrayBuffer();
+        res.send(Buffer.from(buf));
+      } catch {
+        res.status(500).end();
+      }
+    });
+
     ctx.router.patch('/me/avatar', ctx.requireAuth(), async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });

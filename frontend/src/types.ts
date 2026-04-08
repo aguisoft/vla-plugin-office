@@ -21,6 +21,7 @@ export interface UserSnapshot {
   positionX?: number;
   positionY?: number;
   lastActivityAt: string;
+  checkedInAt?: string;
   photoUrl?: string;
   avatar: AvatarCfg | null;
 }

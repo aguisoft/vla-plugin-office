@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { STATUS_CFG } from '../App';
 import type { AvatarCfg } from '../types';
+
 
 interface Props {
   cfg: AvatarCfg | null;
@@ -9,10 +10,15 @@ interface Props {
   status: string;
   isCheckedIn?: boolean;
   name?: string;
+  /** When true, shows initials instead of SVG avatar when there is no photo */
+  useInitials?: boolean;
 }
 
-export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true, name }: Props) {
+export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true, name, useInitials = false }: Props) {
   const [photoFailed, setPhotoFailed] = useState(false);
+
+  // Reset failure state whenever photoUrl changes (e.g. toggle photo/avatar)
+  useEffect(() => { setPhotoFailed(false); }, [photoUrl]);
   const dot   = STATUS_CFG[status]?.dot ?? 'bg-gray-300';
   const s     = size;
 
@@ -32,8 +38,10 @@ export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true
 
   const emoji = cfg?.emoji;
 
-  // ── Initials avatar (no photo, no custom cfg) ────────────────────────────────
-  if (!photoUrl && !cfg) {
+  // ── Initials avatar ──────────────────────────────────────────────────────────
+  // Show initials when: no photo+cfg (always), OR useInitials=true and no photo available/loaded
+  const noPhoto = !photoUrl || photoFailed;
+  if (noPhoto && (!cfg || useInitials)) {
     const words = (name ?? '?').trim().split(/\s+/);
     const initials = (words.length >= 2
       ? words[0][0] + words[words.length - 1][0]

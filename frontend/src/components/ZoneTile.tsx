@@ -13,13 +13,15 @@ const STATUS_RING: Record<string, string> = {
   BRB:        '#facc15',
 };
 
-export function ZoneTile({ zone, users }: { zone: Zone; users: UserSnapshot[] }) {
+
+export function ZoneTile({ zone, users, usePhotos }: { zone: Zone; users: UserSnapshot[]; usePhotos?: boolean }) {
   const [hoveredUser, setHoveredUser] = useState<string | null>(null);
+  const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   const online = users.filter(u => u.isCheckedIn);
 
   return (
     <div
-      className="absolute rounded-2xl border overflow-visible flex flex-col transition-shadow hover:shadow-md"
+      className="absolute rounded-2xl border flex flex-col transition-shadow hover:shadow-md"
       style={{
         left: zone.x * TILE,
         top: zone.y * TILE,
@@ -27,6 +29,7 @@ export function ZoneTile({ zone, users }: { zone: Zone; users: UserSnapshot[] })
         height: zone.height * TILE,
         backgroundColor: zone.color ? `${zone.color}44` : '#F9FAFB',
         borderColor: zone.color ? `${zone.color}99` : '#E5E7EB',
+        overflow: 'visible',
       }}
     >
       {/* Header */}
@@ -41,8 +44,8 @@ export function ZoneTile({ zone, users }: { zone: Zone; users: UserSnapshot[] })
         )}
       </div>
 
-      {/* Avatars */}
-      <div className="flex-1 flex flex-wrap gap-2 px-2 pb-2 content-start overflow-hidden pt-0.5">
+      {/* Avatars — pt-4 leaves room for emoji badges that extend above the avatar */}
+      <div className="flex-1 flex flex-wrap gap-2 px-2 pb-2 content-start pt-4" style={{ overflow: 'visible' }}>
         {users.map(u => {
           const ringColor = u.isCheckedIn ? (STATUS_RING[u.status] ?? '#4ade80') : undefined;
           const isPulse = u.isCheckedIn && u.status === 'AVAILABLE';
@@ -50,48 +53,73 @@ export function ZoneTile({ zone, users }: { zone: Zone; users: UserSnapshot[] })
           return (
             <div
               key={u.userId}
-              className="relative cursor-pointer flex-shrink-0"
-              style={{ width: 36, height: 36 }}
-              onMouseEnter={() => setHoveredUser(u.userId)}
-              onMouseLeave={() => setHoveredUser(null)}
+              className="flex flex-col items-center cursor-pointer flex-shrink-0 gap-0.5"
+              style={{ width: 44 }}
+              onMouseEnter={(e) => {
+                setHoveredUser(u.userId);
+                setAnchorRect((e.currentTarget as HTMLElement).getBoundingClientRect());
+              }}
+              onMouseLeave={() => {
+                setHoveredUser(null);
+                setAnchorRect(null);
+              }}
             >
-              {/* Pulse ring for AVAILABLE */}
-              {isPulse && (
-                <span
-                  className="absolute inset-0 rounded-full animate-ping pointer-events-none"
-                  style={{ backgroundColor: ringColor, opacity: 0.3 }}
-                />
-              )}
-              {/* Static ring for other online statuses */}
-              {u.isCheckedIn && !isPulse && (
-                <span
-                  className="absolute inset-0 rounded-full pointer-events-none"
-                  style={{ boxShadow: `0 0 0 2px ${ringColor}`, borderRadius: '50%' }}
-                />
-              )}
-              {/* Avatar */}
-              <div
-                className="absolute inset-0 flex items-center justify-center transition-opacity duration-200"
+              {/* Avatar with rings */}
+              <div className="relative flex-shrink-0" style={{ width: 36, height: 36 }}>
+                {isPulse && (
+                  <span
+                    className="absolute inset-0 rounded-full animate-ping pointer-events-none"
+                    style={{ backgroundColor: ringColor, opacity: 0.3 }}
+                  />
+                )}
+                {u.isCheckedIn && !isPulse && (
+                  <span
+                    className="absolute inset-0 rounded-full pointer-events-none"
+                    style={{ boxShadow: `0 0 0 2px ${ringColor}`, borderRadius: '50%' }}
+                  />
+                )}
+                <div
+                  className="absolute inset-0 flex items-center justify-center transition-opacity duration-200"
+                  style={{
+                    opacity: u.isCheckedIn ? 1 : 0.4,
+                    filter: u.isCheckedIn ? 'none' : 'grayscale(50%)',
+                  }}
+                >
+                  <AvatarSVG
+                    cfg={u.avatar}
+                    photoUrl={usePhotos ? u.photoUrl : undefined}
+                    useInitials={usePhotos}
+                    size={32}
+                    status={u.status}
+                    isCheckedIn={true}
+                    name={`${u.firstName} ${u.lastName}`}
+                  />
+                </div>
+              </div>
+              {/* Name */}
+              <span
+                className="text-center leading-tight select-none"
                 style={{
-                  opacity: u.isCheckedIn ? 1 : 0.4,
-                  filter: u.isCheckedIn ? 'none' : 'grayscale(50%)',
+                  fontSize: 8,
+                  color: u.isCheckedIn ? '#374151' : '#9ca3af',
+                  width: 44,
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
                 }}
               >
-                <AvatarSVG
-                  cfg={u.avatar}
-                  photoUrl={u.photoUrl}
-                  size={32}
-                  status={u.status}
-                  isCheckedIn={true}
-                  name={`${u.firstName} ${u.lastName}`}
-                />
-              </div>
-              {/* Hover card */}
-              {hoveredUser === u.userId && <HoverCard user={u} />}
+                {u.firstName}
+              </span>
             </div>
           );
         })}
       </div>
+
+      {/* Portal hover card */}
+      {hoveredUser && anchorRect && (() => {
+        const u = users.find(x => x.userId === hoveredUser);
+        return u ? <HoverCard user={u} zoneName={zone.name} anchorRect={anchorRect} /> : null;
+      })()}
     </div>
   );
 }
