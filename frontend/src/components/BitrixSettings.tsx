@@ -10,7 +10,9 @@ export function BitrixSettings({ onClose }: { onClose: () => void }) {
   const [config, setConfig]     = useState<BitrixConfig | null>(null);
   const [url, setUrl]           = useState('');
   const [saving, setSaving]     = useState(false);
-  const [syncing, setSyncing]   = useState(false);
+  const [syncing, setSyncing]         = useState(false);
+  const [syncingTimeman, setSyncingTimeman] = useState(false);
+  const [timemanResult, setTimemanResult]   = useState<{ synced: number; errors: number } | null>(null);
   const [testing, setTesting]   = useState(false);
   const [testResult, setTestResult] = useState<{ ok: boolean; user?: string; error?: string } | null>(null);
   const [syncResult, setSyncResult] = useState<{ synced: number; skipped: number } | null>(null);
@@ -123,7 +125,44 @@ export function BitrixSettings({ onClose }: { onClose: () => void }) {
         {/* Divider */}
         <div className="border-t border-gray-100 my-4" />
 
-        {/* Sync section */}
+        {/* Timeman sync section */}
+        <div className="mb-4">
+          <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
+            Sincronización de presencia (Timeman)
+          </p>
+          <p className="text-[11px] text-gray-400 mb-3">
+            Sincroniza el estado de entrada/salida de Bitrix24 Timeman con la oficina virtual.
+            Se sincroniza automáticamente cada 2 minutos.
+          </p>
+          <button
+            onClick={async () => {
+              setSyncingTimeman(true);
+              setTimemanResult(null);
+              try {
+                const r = await api.post<{ ok: boolean; synced: number; errors: number }>('/p/office/bitrix/sync-timeman');
+                setTimemanResult({ synced: r.synced, errors: r.errors });
+              } finally { setSyncingTimeman(false); }
+            }}
+            disabled={syncingTimeman || !config?.configured}
+            className="w-full py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold transition-colors disabled:opacity-50 flex items-center justify-center gap-1.5"
+          >
+            {syncingTimeman
+              ? <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" />Sincronizando...</>
+              : 'Sincronizar presencia ahora'
+            }
+          </button>
+          {timemanResult && (
+            <p className={`text-[11px] text-center mt-2 ${timemanResult.synced > 0 ? 'text-green-600' : 'text-gray-400'}`}>
+              ✓ {timemanResult.synced} usuarios actualizados
+              {timemanResult.errors > 0 && ` · ${timemanResult.errors} errores`}
+            </p>
+          )}
+        </div>
+
+        {/* Divider */}
+        <div className="border-t border-gray-100 my-4" />
+
+        {/* Photo sync section */}
         <div>
           <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wider mb-2">
             Sincronización de fotos

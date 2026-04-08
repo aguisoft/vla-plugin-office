@@ -132,6 +132,26 @@ export class BitrixService {
     }
   }
 
+  // ── Timeman bulk sync ──────────────────────────────────────────────────────
+
+  async syncTimemanStatuses(): Promise<Array<{ userId: string; isOpen: boolean }>> {
+    if (!this.isConfigured()) return [];
+
+    const mappings = await this.ctx.prisma.bitrixUserMapping.findMany() as any[];
+    if (mappings.length === 0) return [];
+
+    const results = await Promise.allSettled(
+      mappings.map(async (m: any) => {
+        const status = await this.getTimemanStatusForUser(m.bitrixUserId);
+        return { userId: m.userId as string, isOpen: status?.STATUS === 'OPENED' };
+      }),
+    );
+
+    return results
+      .filter((r): r is PromiseFulfilledResult<{ userId: string; isOpen: boolean }> => r.status === 'fulfilled')
+      .map(r => r.value);
+  }
+
   // ── Connection test ────────────────────────────────────────────────────────
 
   async testConnection(): Promise<{ ok: boolean; user?: string; error?: string }> {

@@ -7,9 +7,10 @@ interface Props {
   size?: number;
   status: string;
   isCheckedIn?: boolean;
+  name?: string;
 }
 
-export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true }: Props) {
+export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true, name }: Props) {
   const dot   = STATUS_CFG[status]?.dot ?? 'bg-gray-300';
   const s     = size;
 
@@ -28,6 +29,33 @@ export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true
   const dotCy = s - dotR - 1;
 
   const emoji = cfg?.emoji;
+
+  // ── Initials avatar (no photo, no custom cfg) ────────────────────────────────
+  if (!photoUrl && !cfg) {
+    const words = (name ?? '?').trim().split(/\s+/);
+    const initials = (words.length >= 2
+      ? words[0][0] + words[words.length - 1][0]
+      : (words[0] ?? '?').slice(0, 2)
+    ).toUpperCase();
+    const PALETTE = ['#6366f1','#8b5cf6','#ec4899','#f43f5e','#f97316','#eab308','#22c55e','#14b8a6','#0ea5e9','#3b82f6'];
+    const bgColor = PALETTE[(name ?? '').split('').reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTE.length];
+    return (
+      <div className="relative inline-flex flex-col items-center" style={{ width: s, height: s + (emoji ? 14 : 0) }}>
+        <div style={{ width: s, height: s, opacity: isCheckedIn ? 1 : 0.45, position: 'relative' }}>
+          <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
+            <circle cx={s / 2} cy={s / 2} r={s / 2} fill={bgColor} />
+            <text
+              x={s / 2} y={s / 2 + s * 0.13}
+              textAnchor="middle" fill="white"
+              fontSize={s * 0.38} fontWeight="600"
+              fontFamily="-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
+            >{initials}</text>
+            <circle cx={dotCx} cy={dotCy} r={dotR} fill={dotColor} stroke="white" strokeWidth={1.5} />
+          </svg>
+        </div>
+      </div>
+    );
+  }
 
   // ── Photo avatar ────────────────────────────────────────────────────────────
   if (photoUrl) {

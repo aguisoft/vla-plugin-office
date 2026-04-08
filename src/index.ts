@@ -147,6 +147,12 @@ const plugin: PluginDefinition = {
       res.json({ ok: true, ...result });
     });
 
+    // Sincronización manual de timeman (admin)
+    ctx.router.post('/bitrix/sync-timeman', ctx.requireAuth('ADMIN'), async (_req, res) => {
+      const result = await runTimemanSync();
+      res.json({ ok: true, ...result });
+    });
+
     // ── Layout ────────────────────────────────────────────────────────────────
 
     ctx.router.get('/layout', ctx.requireAuth(), async (_req, res) => {
@@ -208,6 +214,35 @@ const plugin: PluginDefinition = {
     // ── Cron: sincronizar fotos de Bitrix cada 6 horas ────────────────────────
     ctx.cron('0 */6 * * *', async () => {
       await bitrix.syncPhotos();
+    });
+
+    // ── Helper: sync timeman → presence ───────────────────────────────────────
+    async function runTimemanSync(): Promise<{ synced: number; errors: number }> {
+      const statuses = await bitrix.syncTimemanStatuses();
+      let synced = 0;
+      let errors = 0;
+      for (const { userId, isOpen } of statuses) {
+        try {
+          const current = await ctx.prisma.presenceStatus.findFirst({ where: { userId } }) as any;
+          if (isOpen && !current?.isCheckedIn) {
+            await presence.checkIn(userId, 'BITRIX');
+            synced++;
+          } else if (!isOpen && current?.isCheckedIn) {
+            await presence.checkOut(userId, 'BITRIX');
+            synced++;
+          }
+        } catch (e) {
+          ctx.logger.warn(`timeman sync error for ${userId}: ${e}`);
+          errors++;
+        }
+      }
+      if (synced > 0) ctx.logger.log(`Timeman sync: ${synced} usuarios actualizados`);
+      return { synced, errors };
+    }
+
+    // ── Cron: sincronizar timeman de Bitrix cada 2 minutos ────────────────────
+    ctx.cron('*/2 * * * *', async () => {
+      await runTimemanSync();
     });
   },
 
