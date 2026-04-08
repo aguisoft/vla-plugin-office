@@ -1,6 +1,7 @@
 import type { PluginDefinition } from '@vla/plugin-sdk';
 import { PresenceService } from './services/presence.service';
 import { LayoutService } from './services/layout.service';
+import { SnapshotService } from './services/snapshot.service';
 
 const plugin: PluginDefinition = {
   async register(ctx) {
@@ -8,10 +9,9 @@ const plugin: PluginDefinition = {
 
     const presence = new PresenceService(ctx);
     const layout = new LayoutService(ctx);
+    const snapshot = new SnapshotService(ctx);
 
     // ── Real-time SSE ──────────────────────────────────────────────────────────
-    // Clientes se conectan a GET /api/v1/p/office/events para recibir eventos
-    // en tiempo real (Server-Sent Events — funciona con cualquier HTTP client).
     ctx.router.get('/events', ctx.requireAuth(), (req, res) => {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
@@ -28,6 +28,10 @@ const plugin: PluginDefinition = {
       res.json(await presence.getAll());
     });
 
+    ctx.router.get('/presence/all', ctx.requireAuth(), async (_req, res) => {
+      res.json(await presence.getAllIncludingOffline());
+    });
+
     ctx.router.get('/presence/:userId', ctx.requireAuth(), async (req, res) => {
       const record = await presence.getOne(req.params.userId);
       if (!record) return res.status(404).json({ message: 'Usuario no encontrado' });
@@ -35,10 +39,10 @@ const plugin: PluginDefinition = {
     });
 
     ctx.router.patch('/presence/status', ctx.requireAuth(), async (req, res) => {
-      const { status, customStatus } = req.body as { status: string; customStatus?: string };
+      const { status, statusMessage } = req.body as { status: string; statusMessage?: string };
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-      res.json(await presence.updateStatus(userId as any, status as any, customStatus));
+      res.json(await presence.updateStatus(userId as any, status as any, statusMessage));
     });
 
     // ── Check-in / Check-out manual ────────────────────────────────────────────
@@ -46,19 +50,30 @@ const plugin: PluginDefinition = {
     ctx.router.post('/checkin', ctx.requireAuth(), async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-      res.json(await presence.checkIn(userId, 'MANUAL'));
+      res.json(await presence.checkIn(userId, 'WEB'));
     });
 
     ctx.router.post('/checkout', ctx.requireAuth(), async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-      await presence.checkOut(userId, 'MANUAL');
+      await presence.checkOut(userId, 'WEB');
+      res.json({ ok: true });
+    });
+
+    // ── Snapshot (users + presence + avatars) ────────────────────────────────
+
+    ctx.router.get('/snapshot', ctx.requireAuth(), async (_req, res) => {
+      res.json(await snapshot.getAll());
+    });
+
+    ctx.router.patch('/me/avatar', ctx.requireAuth(), async (req, res) => {
+      const userId = (req as any).user?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      await snapshot.updateAvatar(userId, req.body);
       res.json({ ok: true });
     });
 
     // ── Webhook Bitrix24 ──────────────────────────────────────────────────────
-    // Configurar en Bitrix24 → OnTimeMenOpen / OnTimeMenClose
-    // URL: POST /api/v1/p/office/bitrix/webhook
     ctx.router.post('/bitrix/webhook', async (req, res) => {
       const event = req.body?.event as string;
       const bitrixUserId = String(req.body?.data?.USER_ID ?? '');
@@ -124,7 +139,7 @@ const plugin: PluginDefinition = {
     ctx.hooks.registerAction('core.user.created', async ({ user }: { user: { id: string } }) => {
       await ctx.prisma.presenceStatus.upsert({
         where: { userId: user.id },
-        create: { userId: user.id, isInOffice: false, status: 'AWAY' },
+        create: { userId: user.id, isCheckedIn: false, status: 'OFFLINE' },
         update: {},
       });
     });
@@ -138,10 +153,10 @@ const plugin: PluginDefinition = {
     ctx.cron('*/5 * * * *', async () => {
       const threshold = new Date(Date.now() - 8 * 60 * 60 * 1000);
       const stale = await ctx.prisma.presenceStatus.findMany({
-        where: { isInOffice: true, lastSeenAt: { lt: threshold } },
+        where: { isCheckedIn: true, lastActivityAt: { lt: threshold } },
       });
       for (const p of stale) {
-        await presence.checkOut((p as any).userId, 'API');
+        await presence.checkOut((p as any).userId, 'WEB');
         ctx.logger.warn(`Auto checkout por inactividad: ${(p as any).userId}`);
       }
     });

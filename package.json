@@ -6,10 +6,11 @@
   "scripts": {
     "build": "tsc",
     "build:watch": "tsc --watch",
+    "build:frontend": "cd frontend && npm install && npm run build",
     "dev": "npm run build && node scripts/dev-install.js",
     "dev:watch": "tsc --watch",
     "pack": "node scripts/pack.js",
-    "release": "npm run build && npm run pack"
+    "release": "npm run build && npm run build:frontend && npm run pack"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

@@ -2,15 +2,15 @@ import type { PluginContext } from '@vla/plugin-sdk';
 
 const PRESENCE_CACHE_TTL = 120; // seconds
 
-export type OfficeStatus = 'IN_OFFICE' | 'REMOTE' | 'BREAK' | 'LUNCH' | 'MEETING' | 'AWAY';
-export type CheckSource = 'BITRIX' | 'MANUAL' | 'API';
+export type OfficeStatus = 'AVAILABLE' | 'BUSY' | 'IN_MEETING' | 'FOCUS' | 'LUNCH' | 'BRB' | 'OFFLINE';
+export type CheckSource = 'WEB' | 'BITRIX' | 'MOBILE';
 
 export interface PresenceRecord {
   userId: string;
   status: OfficeStatus;
-  isInOffice: boolean;
-  customStatus?: string;
-  checkedInAt?: Date;
+  isCheckedIn: boolean;
+  statusMessage?: string;
+  currentZoneId?: string;
 }
 
 /**
@@ -20,104 +20,109 @@ export interface PresenceRecord {
 export class PresenceService {
   constructor(private readonly ctx: PluginContext) {}
 
-  async checkIn(userId: string, source: CheckSource = 'MANUAL'): Promise<PresenceRecord> {
+  async checkIn(userId: string, source: CheckSource = 'WEB'): Promise<PresenceRecord> {
     const now = new Date();
 
-    // Upsert presence status
     const presence = await this.ctx.prisma.presenceStatus.upsert({
       where: { userId },
       create: {
         userId,
-        isInOffice: true,
-        status: 'IN_OFFICE',
-        checkedInAt: now,
-        lastSeenAt: now,
+        isCheckedIn: true,
+        status: 'AVAILABLE',
+        lastActivityAt: now,
       },
       update: {
-        isInOffice: true,
-        status: 'IN_OFFICE',
-        checkedInAt: now,
-        lastSeenAt: now,
+        isCheckedIn: true,
+        status: 'AVAILABLE',
+        lastActivityAt: now,
       },
     });
 
-    // Create check-in record
+    // Close any open check-in record first, then create new one
+    await this.ctx.prisma.checkInRecord.updateMany({
+      where: { userId, checkOutAt: null },
+      data: { checkOutAt: now },
+    });
+
     await this.ctx.prisma.checkInRecord.create({
-      data: {
-        userId,
-        action: 'CHECK_IN',
-        source,
-        timestamp: now,
-      },
+      data: { userId, source, checkInAt: now },
     });
 
     const record = this.toRecord(presence);
-
-    // Cache presence + emit events
     await this.ctx.redis.setJson(`presence:${userId}`, record, PRESENCE_CACHE_TTL);
     await this.ctx.hooks.doAction('office.user.checked_in', { userId, source });
-
-    // Broadcast SSE event
     this.broadcast({ type: 'user:joined', userId });
 
     return record;
   }
 
-  async checkOut(userId: string, source: CheckSource = 'MANUAL'): Promise<void> {
+  async checkOut(userId: string, source: CheckSource = 'WEB'): Promise<void> {
     const now = new Date();
 
     await this.ctx.prisma.presenceStatus.upsert({
       where: { userId },
       create: {
         userId,
-        isInOffice: false,
-        status: 'AWAY',
-        lastSeenAt: now,
+        isCheckedIn: false,
+        status: 'OFFLINE',
+        lastActivityAt: now,
       },
       update: {
-        isInOffice: false,
-        status: 'AWAY',
-        checkedOutAt: now,
-        lastSeenAt: now,
+        isCheckedIn: false,
+        status: 'OFFLINE',
+        currentZoneId: null,
+        positionX: null,
+        positionY: null,
+        lastActivityAt: now,
       },
     });
 
-    await this.ctx.prisma.checkInRecord.create({
-      data: {
-        userId,
-        action: 'CHECK_OUT',
-        source,
-        timestamp: now,
-      },
+    // Close the open check-in record
+    const open = await this.ctx.prisma.checkInRecord.findFirst({
+      where: { userId, checkOutAt: null },
+      orderBy: { checkInAt: 'desc' },
     });
+    if (open) {
+      const totalMinutes = Math.floor((now.getTime() - open.checkInAt.getTime()) / 60000);
+      await this.ctx.prisma.checkInRecord.update({
+        where: { id: open.id },
+        data: { checkOutAt: now, totalMinutes },
+      });
+    }
 
     await this.ctx.redis.del(`presence:${userId}`);
     await this.ctx.hooks.doAction('office.user.checked_out', { userId });
-
     this.broadcast({ type: 'user:left', userId });
   }
 
-  async updateStatus(userId: string, status: OfficeStatus, customStatus?: string): Promise<PresenceRecord> {
+  async updateStatus(userId: string, status: OfficeStatus, statusMessage?: string): Promise<PresenceRecord> {
     const now = new Date();
 
     const presence = await this.ctx.prisma.presenceStatus.upsert({
       where: { userId },
-      create: { userId, status, isInOffice: true, customStatus: customStatus ?? null, lastSeenAt: now },
-      update: { status, customStatus: customStatus ?? null, lastSeenAt: now },
+      create: { userId, status, isCheckedIn: true, statusMessage: statusMessage ?? null, lastActivityAt: now },
+      update: { status, statusMessage: statusMessage ?? null, lastActivityAt: now },
     });
 
     const record = this.toRecord(presence);
     await this.ctx.redis.setJson(`presence:${userId}`, record, PRESENCE_CACHE_TTL);
     await this.ctx.hooks.doAction('office.user.status_changed', { userId, status });
-    this.broadcast({ type: 'user:status', userId, status, customStatus });
+    this.broadcast({ type: 'user:status', userId, status, statusMessage });
 
     return record;
   }
 
   async getAll(): Promise<PresenceRecord[]> {
     const records = await this.ctx.prisma.presenceStatus.findMany({
-      where: { isInOffice: true },
-      orderBy: { checkedInAt: 'asc' },
+      where: { isCheckedIn: true },
+      orderBy: { lastActivityAt: 'asc' },
+    });
+    return records.map((r: any) => this.toRecord(r));
+  }
+
+  async getAllIncludingOffline(): Promise<PresenceRecord[]> {
+    const records = await this.ctx.prisma.presenceStatus.findMany({
+      orderBy: { lastActivityAt: 'asc' },
     });
     return records.map((r: any) => this.toRecord(r));
   }
@@ -150,9 +155,9 @@ export class PresenceService {
     return {
       userId: p.userId,
       status: p.status,
-      isInOffice: p.isInOffice,
-      customStatus: p.customStatus ?? undefined,
-      checkedInAt: p.checkedInAt ?? undefined,
+      isCheckedIn: p.isCheckedIn,
+      statusMessage: p.statusMessage ?? undefined,
+      currentZoneId: p.currentZoneId ?? undefined,
     };
   }
 }
