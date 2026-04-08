@@ -20,7 +20,7 @@ export function Sidebar({ users, myUserId, onAvatarClick }: {
           onClick={isMe ? onAvatarClick : undefined}
           style={{ cursor: isMe ? 'pointer' : 'default' }}
         >
-          <AvatarSVG cfg={u.avatar} size={34} status={u.status} isCheckedIn={u.isCheckedIn} />
+          <AvatarSVG cfg={u.avatar} photoUrl={u.photoUrl} size={34} status={u.status} isCheckedIn={u.isCheckedIn} />
           {isMe && (
             <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-white rounded-full flex items-center justify-center border border-gray-200">
               <svg className="w-2.5 h-2.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">

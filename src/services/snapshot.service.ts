@@ -1,4 +1,5 @@
 import type { PluginContext } from '@vla/plugin-sdk';
+import type { BitrixService } from './bitrix.service';
 
 export interface UserSnapshot {
   userId: string;
@@ -14,6 +15,7 @@ export interface UserSnapshot {
   positionX?: number;
   positionY?: number;
   lastActivityAt: string;
+  photoUrl?: string;
   avatar: {
     skinColor: string;
     hairStyle: string;
@@ -25,7 +27,10 @@ export interface UserSnapshot {
 }
 
 export class SnapshotService {
-  constructor(private readonly ctx: PluginContext) {}
+  constructor(
+    private readonly ctx: PluginContext,
+    private readonly bitrix?: BitrixService,
+  ) {}
 
   async getAll(): Promise<UserSnapshot[]> {
     const [users, presences, avatars] = await Promise.all([
@@ -39,6 +44,12 @@ export class SnapshotService {
 
     const presenceMap = new Map(presences.map((p: any) => [p.userId, p]));
     const avatarMap   = new Map(avatars.map((a: any) => [a.userId, a]));
+
+    // Fetch Bitrix photos from Redis (non-blocking, best-effort)
+    const userIds = users.map((u: any) => u.id);
+    const photoMap = this.bitrix
+      ? await this.bitrix.getAllPhotoUrls(userIds)
+      : new Map<string, string>();
 
     return users.map((u: any) => {
       const p = presenceMap.get(u.id) as any;
@@ -57,6 +68,7 @@ export class SnapshotService {
         positionX:     p?.positionX    ?? undefined,
         positionY:     p?.positionY    ?? undefined,
         lastActivityAt: (p?.lastActivityAt ?? new Date()).toISOString(),
+        photoUrl: photoMap.get(u.id) ?? undefined,
         avatar: a ? {
           skinColor:  a.skinColor,
           hairStyle:  a.hairStyle,

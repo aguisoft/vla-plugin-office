@@ -1,20 +1,73 @@
 import { STATUS_CFG } from '../App';
 import type { AvatarCfg } from '../types';
 
-export function AvatarSVG({ cfg, size = 40, status, isCheckedIn = true }: {
+interface Props {
   cfg: AvatarCfg | null;
+  photoUrl?: string;
   size?: number;
   status: string;
   isCheckedIn?: boolean;
-}) {
+}
+
+export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true }: Props) {
+  const dot   = STATUS_CFG[status]?.dot ?? 'bg-gray-300';
+  const s     = size;
+
+  const dotColors: Record<string, string> = {
+    'bg-green-400':  '#4ade80',
+    'bg-red-400':    '#f87171',
+    'bg-purple-400': '#c084fc',
+    'bg-blue-400':   '#60a5fa',
+    'bg-orange-400': '#fb923c',
+    'bg-yellow-400': '#facc15',
+    'bg-gray-300':   '#d1d5db',
+  };
+  const dotColor = dotColors[dot] ?? '#d1d5db';
+  const dotR = s * 0.11;
+  const dotCx = s - dotR - 1;
+  const dotCy = s - dotR - 1;
+
+  const emoji = cfg?.emoji;
+
+  // ── Photo avatar ────────────────────────────────────────────────────────────
+  if (photoUrl) {
+    return (
+      <div className="relative inline-flex flex-col items-center" style={{ width: s, height: s + (emoji ? 14 : 0) }}>
+        {emoji && (
+          <span className="absolute -top-3 select-none" style={{ fontSize: s * 0.3, zIndex: 1 }}>{emoji}</span>
+        )}
+        <div style={{ width: s, height: s, opacity: isCheckedIn ? 1 : 0.35, position: 'relative' }}>
+          <img
+            src={photoUrl}
+            alt=""
+            style={{
+              width: s,
+              height: s,
+              borderRadius: '50%',
+              objectFit: 'cover',
+              display: 'block',
+            }}
+            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+          />
+          {/* Status dot */}
+          <svg
+            width={s} height={s}
+            style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}
+            viewBox={`0 0 ${s} ${s}`}
+          >
+            <circle cx={dotCx} cy={dotCy} r={dotR} fill={dotColor} stroke="white" strokeWidth={1.5} />
+          </svg>
+        </div>
+      </div>
+    );
+  }
+
+  // ── SVG avatar ──────────────────────────────────────────────────────────────
   const skin  = cfg?.skinColor  ?? '#F5CBA7';
   const hair  = cfg?.hairColor  ?? '#2C2C2C';
   const shirt = cfg?.shirtColor ?? '#3498DB';
   const style = cfg?.hairStyle  ?? 'short';
   const acc   = cfg?.accessory  ?? 'none';
-  const emoji = cfg?.emoji;
-  const dot   = STATUS_CFG[status]?.dot ?? 'bg-gray-300';
-  const s     = size;
   const cx    = s / 2;
   const r     = s * 0.28;
 
@@ -29,40 +82,22 @@ export function AvatarSVG({ cfg, size = 40, status, isCheckedIn = true }: {
     buzz:     `M${cx - r * 0.95},${cx * 0.72} Q${cx},${cx * 0.38} ${cx + r * 0.95},${cx * 0.72}`,
   };
 
-  // Map Tailwind dot class to hex color for SVG use
-  const dotColors: Record<string, string> = {
-    'bg-green-400':  '#4ade80',
-    'bg-red-400':    '#f87171',
-    'bg-purple-400': '#c084fc',
-    'bg-blue-400':   '#60a5fa',
-    'bg-orange-400': '#fb923c',
-    'bg-yellow-400': '#facc15',
-    'bg-gray-300':   '#d1d5db',
-  };
-  const dotColor = dotColors[dot] ?? '#d1d5db';
-
   return (
     <div className="relative inline-flex flex-col items-center" style={{ width: s, height: s + (emoji ? 14 : 0) }}>
       {emoji && (
         <span className="absolute -top-3 select-none" style={{ fontSize: s * 0.3 }}>{emoji}</span>
       )}
       <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`} style={{ opacity: isCheckedIn ? 1 : 0.35 }}>
-        {/* Shirt/body */}
         <ellipse cx={cx} cy={s * 0.88} rx={r * 1.15} ry={r * 0.7} fill={shirt} />
-        {/* Head */}
         <circle cx={cx} cy={cx * 0.95} r={r} fill={skin} />
-        {/* Hair */}
         {style !== 'bald' && hairPath[style] && (
           <path d={hairPath[style]} fill={hair} stroke={hair}
             strokeWidth={style === 'mohawk' ? 3 : 0} strokeLinecap="round" />
         )}
-        {/* Eyes */}
         <circle cx={cx - r * 0.32} cy={cx * 0.9} r={r * 0.1} fill="#2C2C2C" />
         <circle cx={cx + r * 0.32} cy={cx * 0.9} r={r * 0.1} fill="#2C2C2C" />
-        {/* Smile */}
         <path d={`M${cx - r * 0.25},${cx * 1.05} Q${cx},${cx * 1.18} ${cx + r * 0.25},${cx * 1.05}`}
           fill="none" stroke="#8B4513" strokeWidth={r * 0.12} strokeLinecap="round" />
-        {/* Accessories */}
         {acc === 'glasses' && (
           <g fill="none" stroke="#555" strokeWidth={r * 0.1}>
             <circle cx={cx - r * 0.3} cy={cx * 0.9} r={r * 0.2} />
@@ -86,8 +121,7 @@ export function AvatarSVG({ cfg, size = 40, status, isCheckedIn = true }: {
             <circle cx={cx + r * 0.95} cy={cx * 0.95} r={r * 0.12} />
           </g>
         )}
-        {/* Status dot */}
-        <circle cx={s - r * 0.4} cy={s - r * 0.4} r={s * 0.11} fill={dotColor} stroke="white" strokeWidth={1.5} />
+        <circle cx={dotCx} cy={dotCy} r={dotR} fill={dotColor} stroke="white" strokeWidth={1.5} />
       </svg>
     </div>
   );

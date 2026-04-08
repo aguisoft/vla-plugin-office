@@ -6,6 +6,7 @@ import { ZoneTile } from './components/ZoneTile';
 import { AvatarModal } from './components/AvatarModal';
 import { StatusSelector } from './components/StatusSelector';
 import { Sidebar } from './components/Sidebar';
+import { BitrixSettings } from './components/BitrixSettings';
 import type { UserSnapshot, LayoutData, AvatarCfg } from './types';
 
 const STATUSES = ['AVAILABLE', 'BUSY', 'IN_MEETING', 'FOCUS', 'LUNCH', 'BRB'] as const;
@@ -32,7 +33,8 @@ export default function App() {
   const [connected, setConnected]         = useState(false);
   const [isCheckedIn, setIsCheckedIn]     = useState(false);
   const [myStatus, setMyStatus]           = useState('OFFLINE');
-  const [showAvatarModal, setShowAvatarModal] = useState(false);
+  const [showAvatarModal, setShowAvatarModal]       = useState(false);
+  const [showBitrixSettings, setShowBitrixSettings] = useState(false);
   const sseRef = useRef<EventSource | null>(null);
 
   // ── Bootstrap: get current user then load data ─────────────────────────────
@@ -160,6 +162,10 @@ export default function App() {
         />
       )}
 
+      {showBitrixSettings && (
+        <BitrixSettings onClose={() => setShowBitrixSettings(false)} />
+      )}
+
       {/* Header */}
       <div className="flex-shrink-0 flex items-center gap-3 px-5 py-2.5 bg-white border-b border-gray-100">
         <div>
@@ -177,13 +183,28 @@ export default function App() {
             {connected ? 'En vivo' : 'Reconectando...'}
           </span>
 
+          {/* Bitrix settings — admin only */}
+          {currentUser?.role === 'ADMIN' && (
+            <button
+              onClick={() => setShowBitrixSettings(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] text-gray-500 hover:bg-gray-100 transition-colors"
+              title="Configuración Bitrix24"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+              </svg>
+              Bitrix24
+            </button>
+          )}
+
           {myUser && (
             <button
               onClick={() => setShowAvatarModal(true)}
               className="flex items-center gap-2 px-2 py-1 rounded-xl hover:bg-gray-100 transition-colors group"
               title="Personalizar avatar"
             >
-              <AvatarSVG cfg={myUser.avatar} size={28} status={myStatus} />
+              <AvatarSVG cfg={myUser.avatar} photoUrl={myUser.photoUrl} size={28} status={myStatus} />
               <svg className="w-3 h-3 text-gray-300 group-hover:text-gray-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
               </svg>

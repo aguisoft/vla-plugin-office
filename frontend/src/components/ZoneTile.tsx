@@ -42,7 +42,7 @@ export function ZoneTile({ zone, users }: { zone: Zone; users: UserSnapshot[] })
             onMouseLeave={() => setHoveredUser(null)}
           >
             {hoveredUser === u.userId && <HoverCard user={u} />}
-            <AvatarSVG cfg={u.avatar} size={32} status={u.status} isCheckedIn={u.isCheckedIn} />
+            <AvatarSVG cfg={u.avatar} photoUrl={u.photoUrl} size={32} status={u.status} isCheckedIn={u.isCheckedIn} />
           </div>
         ))}
       </div>

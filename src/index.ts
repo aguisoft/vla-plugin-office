@@ -2,14 +2,21 @@ import type { PluginDefinition } from '@vla/plugin-sdk';
 import { PresenceService } from './services/presence.service';
 import { LayoutService } from './services/layout.service';
 import { SnapshotService } from './services/snapshot.service';
+import { BitrixService } from './services/bitrix.service';
 
 const plugin: PluginDefinition = {
   async register(ctx) {
     ctx.logger.log('Office plugin iniciado');
 
     const presence = new PresenceService(ctx);
-    const layout = new LayoutService(ctx);
-    const snapshot = new SnapshotService(ctx);
+    const layout   = new LayoutService(ctx);
+    const bitrix   = new BitrixService(ctx);
+    const snapshot = new SnapshotService(ctx, bitrix);
+
+    // Sync Bitrix photos on startup — delayed 5s to let hydrateConfig complete first
+    setTimeout(() => {
+      bitrix.syncPhotos().catch((e) => ctx.logger.warn(`Bitrix sync startup: ${e}`));
+    }, 5000);
 
     // ── Real-time SSE ──────────────────────────────────────────────────────────
     ctx.router.get('/events', ctx.requireAuth(), (req, res) => {
@@ -60,7 +67,7 @@ const plugin: PluginDefinition = {
       res.json({ ok: true });
     });
 
-    // ── Snapshot (users + presence + avatars) ────────────────────────────────
+    // ── Snapshot (users + presence + avatars + bitrix photos) ─────────────────
 
     ctx.router.get('/snapshot', ctx.requireAuth(), async (_req, res) => {
       res.json(await snapshot.getAll());
@@ -73,7 +80,9 @@ const plugin: PluginDefinition = {
       res.json({ ok: true });
     });
 
-    // ── Webhook Bitrix24 ──────────────────────────────────────────────────────
+    // ── Bitrix24 ──────────────────────────────────────────────────────────────
+
+    // Webhook entrante (check-in/out desde Bitrix)
     ctx.router.post('/bitrix/webhook', async (req, res) => {
       const event = req.body?.event as string;
       const bitrixUserId = String(req.body?.data?.USER_ID ?? '');
@@ -101,6 +110,41 @@ const plugin: PluginDefinition = {
       }
 
       res.json({ ok: true });
+    });
+
+    // Config: leer la configuración actual de Bitrix (admin)
+    ctx.router.get('/bitrix/config', ctx.requireAuth('ADMIN'), (_req, res) => {
+      const url = bitrix.getWebhookUrl();
+      res.json({
+        configured: bitrix.isConfigured(),
+        webhookUrl: url ? url.replace(/\/rest\/\d+\/[^/]+\//, '/rest/****/*****/') : null,
+      });
+    });
+
+    // Config: guardar webhook URL (admin)
+    ctx.router.patch('/bitrix/config', ctx.requireAuth('ADMIN'), async (req, res) => {
+      const { bitrixWebhookUrl } = req.body as { bitrixWebhookUrl: string };
+      if (!bitrixWebhookUrl?.startsWith('https://')) {
+        return res.status(400).json({ message: 'bitrixWebhookUrl debe ser una URL HTTPS válida' });
+      }
+      await ctx.prisma.plugin.update({
+        where: { name: ctx.plugin.name },
+        data: { config: { ...ctx.plugin.config, bitrixWebhookUrl } as any },
+      });
+      // Actualizar en memoria
+      (ctx.plugin.config as any).bitrixWebhookUrl = bitrixWebhookUrl;
+      res.json({ ok: true });
+    });
+
+    // Test de conexión con Bitrix (admin)
+    ctx.router.get('/bitrix/test', ctx.requireAuth('ADMIN'), async (_req, res) => {
+      res.json(await bitrix.testConnection());
+    });
+
+    // Sincronización manual de fotos (admin)
+    ctx.router.post('/bitrix/sync', ctx.requireAuth('ADMIN'), async (_req, res) => {
+      const result = await bitrix.syncPhotos();
+      res.json({ ok: true, ...result });
     });
 
     // ── Layout ────────────────────────────────────────────────────────────────
@@ -159,6 +203,11 @@ const plugin: PluginDefinition = {
         await presence.checkOut((p as any).userId, 'WEB');
         ctx.logger.warn(`Auto checkout por inactividad: ${(p as any).userId}`);
       }
+    });
+
+    // ── Cron: sincronizar fotos de Bitrix cada 6 horas ────────────────────────
+    ctx.cron('0 */6 * * *', async () => {
+      await bitrix.syncPhotos();
     });
   },
 

@@ -7,7 +7,7 @@ export function HoverCard({ user }: { user: UserSnapshot }) {
   return (
     <div className="absolute z-50 bottom-full left-1/2 -translate-x-1/2 mb-2 w-48 bg-white rounded-2xl shadow-xl border border-gray-100 p-3 pointer-events-none">
       <div className="flex items-center gap-3 mb-2">
-        <AvatarSVG cfg={user.avatar} size={40} status={user.status} isCheckedIn={user.isCheckedIn} />
+        <AvatarSVG cfg={user.avatar} photoUrl={user.photoUrl} size={40} status={user.status} isCheckedIn={user.isCheckedIn} />
         <div className="min-w-0">
           <p className="text-xs font-semibold text-gray-800 truncate">
             {user.firstName} {user.lastName}
