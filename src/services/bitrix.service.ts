@@ -182,18 +182,53 @@ export class BitrixService {
       return [];
     }
 
+    this.ctx.logger.log(`Timeman sync: ${matched.length} usuarios coincidentes por email`);
+
     const results = await Promise.allSettled(
       matched.map(async (bu) => {
         const userId = vlaByEmail.get(bu.EMAIL.toLowerCase())!;
         const status = await this.getTimemanStatusForUser(Number(bu.ID));
-        // OPENED = trabajando, PAUSED = en pausa (sigue en oficina)
-        const isOpen = status?.STATUS === 'OPENED' || status?.STATUS === 'PAUSED';
+        // OPENED = trabajando, PAUSED = en pausa, EXPIRED = sesión expiró pero sigue activo
+        const isOpen = status?.STATUS === 'OPENED'
+          || status?.STATUS === 'PAUSED'
+          || (status?.STATUS === 'EXPIRED' && status?.ACTIVE === true);
+        this.ctx.logger.log(
+          `Timeman [${bu.EMAIL}] bitrixId=${bu.ID} STATUS=${status?.STATUS ?? 'null'} ACTIVE=${status?.ACTIVE} → isOpen=${isOpen}`,
+        );
         return { userId, isOpen };
       }),
     );
 
     return results
       .filter((r): r is PromiseFulfilledResult<{ userId: string; isOpen: boolean }> => r.status === 'fulfilled')
+      .map(r => r.value);
+  }
+
+  // ── Timeman diagnostic (raw response per user) ─────────────────────────────
+
+  async debugTimeman(): Promise<Array<{ email: string; bitrixId: string; raw: any }>> {
+    if (!this.isConfigured()) return [];
+
+    const [bitrixUsers, vlaByEmail] = await Promise.all([
+      this.getBitrixUsers(),
+      this.getVlaEmailMap(),
+    ]);
+
+    const matched = bitrixUsers.filter(bu => bu.EMAIL && vlaByEmail.has(bu.EMAIL.toLowerCase()));
+
+    const results = await Promise.allSettled(
+      matched.map(async (bu) => {
+        try {
+          const raw = await this.callRaw<any>('timeman.status', { USER_ID: Number(bu.ID) });
+          return { email: bu.EMAIL, bitrixId: bu.ID, raw };
+        } catch (e) {
+          return { email: bu.EMAIL, bitrixId: bu.ID, raw: { error: String(e) } };
+        }
+      }),
+    );
+
+    return results
+      .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
       .map(r => r.value);
   }
 

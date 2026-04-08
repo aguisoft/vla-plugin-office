@@ -147,6 +147,11 @@ const plugin: PluginDefinition = {
       res.json(await bitrix.testConnection());
     });
 
+    // Debug: ver respuesta raw de timeman por usuario (admin)
+    ctx.router.get('/bitrix/debug-timeman', ctx.requireAuth('ADMIN'), async (_req, res) => {
+      res.json(await bitrix.debugTimeman());
+    });
+
     // Sincronización manual de fotos (admin)
     ctx.router.post('/bitrix/sync', ctx.requireAuth('ADMIN'), async (_req, res) => {
       const result = await bitrix.syncPhotos();
