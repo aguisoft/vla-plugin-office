@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { STATUS_CFG } from '../App';
 import type { AvatarCfg } from '../types';
 
@@ -11,6 +12,7 @@ interface Props {
 }
 
 export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true, name }: Props) {
+  const [photoFailed, setPhotoFailed] = useState(false);
   const dot   = STATUS_CFG[status]?.dot ?? 'bg-gray-300';
   const s     = size;
 
@@ -58,7 +60,7 @@ export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true
   }
 
   // ── Photo avatar ────────────────────────────────────────────────────────────
-  if (photoUrl) {
+  if (photoUrl && !photoFailed) {
     return (
       <div className="relative inline-flex flex-col items-center" style={{ width: s, height: s + (emoji ? 14 : 0) }}>
         {emoji && (
@@ -68,16 +70,9 @@ export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true
           <img
             src={photoUrl}
             alt=""
-            style={{
-              width: s,
-              height: s,
-              borderRadius: '50%',
-              objectFit: 'cover',
-              display: 'block',
-            }}
-            onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
+            style={{ width: s, height: s, borderRadius: '50%', objectFit: 'cover', display: 'block' }}
+            onError={() => setPhotoFailed(true)}
           />
-          {/* Status dot */}
           <svg
             width={s} height={s}
             style={{ position: 'absolute', top: 0, left: 0, pointerEvents: 'none' }}

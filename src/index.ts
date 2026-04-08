@@ -13,9 +13,15 @@ const plugin: PluginDefinition = {
     const bitrix   = new BitrixService(ctx);
     const snapshot = new SnapshotService(ctx, bitrix);
 
-    // Sync Bitrix photos on startup — delayed 5s to let hydrateConfig complete first
-    setTimeout(() => {
-      bitrix.syncPhotos().catch((e) => ctx.logger.warn(`Bitrix sync startup: ${e}`));
+    // Sync Bitrix photos + timeman on startup — delayed 5s to let hydrateConfig complete first
+    setTimeout(async () => {
+      try {
+        await bitrix.syncPhotos();
+      } catch (e) { ctx.logger.warn(`Bitrix startup syncPhotos: ${e}`); }
+      try {
+        const r = await runTimemanSync();
+        ctx.logger.log(`Bitrix startup timeman sync: ${r.synced} actualizados`);
+      } catch (e) { ctx.logger.warn(`Bitrix startup syncTimeman: ${e}`); }
     }, 5000);
 
     // ── Real-time SSE ──────────────────────────────────────────────────────────

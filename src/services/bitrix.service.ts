@@ -186,7 +186,9 @@ export class BitrixService {
       matched.map(async (bu) => {
         const userId = vlaByEmail.get(bu.EMAIL.toLowerCase())!;
         const status = await this.getTimemanStatusForUser(Number(bu.ID));
-        return { userId, isOpen: status?.STATUS === 'OPENED' };
+        // OPENED = trabajando, PAUSED = en pausa (sigue en oficina)
+        const isOpen = status?.STATUS === 'OPENED' || status?.STATUS === 'PAUSED';
+        return { userId, isOpen };
       }),
     );
 
