@@ -30,7 +30,7 @@ export class BitrixService {
     return !!this.getWebhookUrl();
   }
 
-  // ── API call helper ────────────────────────────────────────────────────────
+  // ── API call helpers ────────────────────────────────────────────────────────
 
   private async call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
     const base = this.getWebhookUrl();
@@ -49,28 +49,56 @@ export class BitrixService {
     return data.result;
   }
 
-  // ── User & photo sync ──────────────────────────────────────────────────────
+  /** Returns full API response including `next` cursor for paginated calls */
+  private async callRaw<T>(method: string, params: Record<string, unknown> = {}): Promise<{ result: T; next?: number; total?: number }> {
+    const base = this.getWebhookUrl();
+    if (!base) throw new Error('Bitrix webhook URL not configured');
+
+    const url = `${base.replace(/\/$/, '')}/${method}.json`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(params),
+    });
+
+    if (!res.ok) throw new Error(`Bitrix API error: ${res.status}`);
+    const data = await res.json() as { result: T; next?: number; total?: number; error?: string };
+    if (data.error) throw new Error(`Bitrix error: ${data.error}`);
+    return data;
+  }
+
+  // ── User list ───────────────────────────────────────────────────────────────
 
   async getBitrixUsers(): Promise<BitrixUser[]> {
     const users: BitrixUser[] = [];
     let start = 0;
 
     while (true) {
-      const result = await this.call<{ result: BitrixUser[]; next?: number }>('user.get', {
+      const { result: page, next } = await this.callRaw<BitrixUser[]>('user.get', {
         FILTER: { ACTIVE: true },
         SELECT: ['ID', 'NAME', 'LAST_NAME', 'EMAIL', 'PERSONAL_PHOTO'],
         start,
-      }) as any;
+      });
 
-      const page: BitrixUser[] = Array.isArray(result) ? result : result.result ?? [];
-      users.push(...page);
-
-      if (!result.next) break;
-      start = result.next;
+      users.push(...(page ?? []));
+      if (!next) break;
+      start = next;
     }
 
     return users;
   }
+
+  // ── Email-based VLA user lookup ────────────────────────────────────────────
+
+  private async getVlaEmailMap(): Promise<Map<string, string>> {
+    const vlaUsers = await this.ctx.prisma.user.findMany({
+      where: { isActive: true },
+      select: { id: true, email: true },
+    });
+    return new Map((vlaUsers as any[]).map((u: any) => [u.email.toLowerCase(), u.id as string]));
+  }
+
+  // ── Photo sync ─────────────────────────────────────────────────────────────
 
   async syncPhotos(): Promise<{ synced: number; skipped: number }> {
     if (!this.isConfigured()) {
@@ -80,25 +108,26 @@ export class BitrixService {
 
     this.ctx.logger.log('Iniciando sincronización de fotos desde Bitrix...');
 
-    const [bitrixUsers, mappings] = await Promise.all([
+    const [bitrixUsers, vlaByEmail] = await Promise.all([
       this.getBitrixUsers(),
-      this.ctx.prisma.bitrixUserMapping.findMany(),
+      this.getVlaEmailMap(),
     ]);
-
-    const bitrixMap = new Map(bitrixUsers.map((u: BitrixUser) => [Number(u.ID), u]));
 
     let synced = 0;
     let skipped = 0;
 
-    for (const mapping of mappings as any[]) {
-      const bu = bitrixMap.get(mapping.bitrixUserId);
-      if (!bu?.PERSONAL_PHOTO) { skipped++; continue; }
+    for (const bu of bitrixUsers) {
+      if (!bu.PERSONAL_PHOTO) { skipped++; continue; }
+      const email = bu.EMAIL?.toLowerCase();
+      if (!email) { skipped++; continue; }
+      const userId = vlaByEmail.get(email);
+      if (!userId) { skipped++; continue; }
 
-      await this.ctx.redis.set(PHOTO_KEY(mapping.userId), bu.PERSONAL_PHOTO, PHOTO_TTL);
+      await this.ctx.redis.set(PHOTO_KEY(userId), bu.PERSONAL_PHOTO, PHOTO_TTL);
       synced++;
     }
 
-    this.ctx.logger.log(`Fotos sincronizadas: ${synced}, sin foto: ${skipped}`);
+    this.ctx.logger.log(`Fotos sincronizadas: ${synced}, sin foto/usuario: ${skipped}`);
     return { synced, skipped };
   }
 
@@ -117,7 +146,7 @@ export class BitrixService {
     return map;
   }
 
-  // ── Timeman status ─────────────────────────────────────────────────────────
+  // ── Timeman status ──────────────────────────────────────────────────────────
 
   async getTimemanStatusForUser(bitrixUserId: number): Promise<BitrixTimemanStatus | null> {
     if (!this.isConfigured()) return null;
@@ -127,23 +156,37 @@ export class BitrixService {
       });
       return result;
     } catch (e) {
-      this.ctx.logger.warn(`timeman.status error for ${bitrixUserId}: ${e}`);
+      this.ctx.logger.warn(`timeman.status error for bitrix user ${bitrixUserId}: ${e}`);
       return null;
     }
   }
 
-  // ── Timeman bulk sync ──────────────────────────────────────────────────────
+  // ── Timeman bulk sync (matches by email) ───────────────────────────────────
 
   async syncTimemanStatuses(): Promise<Array<{ userId: string; isOpen: boolean }>> {
     if (!this.isConfigured()) return [];
 
-    const mappings = await this.ctx.prisma.bitrixUserMapping.findMany() as any[];
-    if (mappings.length === 0) return [];
+    const [bitrixUsers, vlaByEmail] = await Promise.all([
+      this.getBitrixUsers(),
+      this.getVlaEmailMap(),
+    ]);
+
+    // Only process Bitrix users that have a matching VLA account by email
+    const matched = bitrixUsers.filter(bu => {
+      const email = bu.EMAIL?.toLowerCase();
+      return email && vlaByEmail.has(email);
+    });
+
+    if (matched.length === 0) {
+      this.ctx.logger.warn('Timeman sync: no se encontraron usuarios de Bitrix con email coincidente en VLA');
+      return [];
+    }
 
     const results = await Promise.allSettled(
-      mappings.map(async (m: any) => {
-        const status = await this.getTimemanStatusForUser(m.bitrixUserId);
-        return { userId: m.userId as string, isOpen: status?.STATUS === 'OPENED' };
+      matched.map(async (bu) => {
+        const userId = vlaByEmail.get(bu.EMAIL.toLowerCase())!;
+        const status = await this.getTimemanStatusForUser(Number(bu.ID));
+        return { userId, isOpen: status?.STATUS === 'OPENED' };
       }),
     );
 
@@ -152,7 +195,7 @@ export class BitrixService {
       .map(r => r.value);
   }
 
-  // ── Connection test ────────────────────────────────────────────────────────
+  // ── Connection test ─────────────────────────────────────────────────────────
 
   async testConnection(): Promise<{ ok: boolean; user?: string; error?: string }> {
     try {
