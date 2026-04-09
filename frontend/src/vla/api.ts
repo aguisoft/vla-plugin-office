@@ -1,7 +1,3 @@
-/**
- * VLA Plugin API Client — shared across all plugins.
- * Handles authentication, 401 redirects, and typed responses.
- */
 const BASE = '/api/v1';
 
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
@@ -12,7 +8,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     body: body ? JSON.stringify(body) : undefined,
   });
   if (res.status === 401) {
-    window.location.href = '/login';
+    // If inside an iframe, redirect the parent window; otherwise redirect self
+    const target = window.parent !== window ? window.parent : window;
+    target.location.href = '/login';
     throw new Error('Unauthorized');
   }
   if (!res.ok) throw new Error(`${method} ${path} → ${res.status}`);
@@ -20,9 +18,9 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const api = {
-  get:    <T>(path: string)                 => request<T>('GET',    path),
-  post:   <T>(path: string, body?: unknown) => request<T>('POST',   path, body),
-  patch:  <T>(path: string, body?: unknown) => request<T>('PATCH',  path, body),
-  put:    <T>(path: string, body?: unknown) => request<T>('PUT',    path, body),
-  delete: <T>(path: string)                 => request<T>('DELETE', path),
+  get:    <T>(p: string)                 => request<T>('GET',    p),
+  post:   <T>(p: string, b?: unknown)    => request<T>('POST',   p, b),
+  patch:  <T>(p: string, b?: unknown)    => request<T>('PATCH',  p, b),
+  put:    <T>(p: string, b?: unknown)    => request<T>('PUT',    p, b),
+  delete: <T>(p: string)                 => request<T>('DELETE', p),
 };
