@@ -19,73 +19,24 @@ export interface BitrixTimemanStatus {
 const PHOTO_TTL = 60 * 60 * 24; // 24 h
 const PHOTO_KEY = (userId: string) => `photo:${userId}`;
 
+/**
+ * Domain-specific Bitrix helper for the office plugin.
+ * Delegates all API calls to ctx.bitrix (core OAuth2 client).
+ */
 export class BitrixService {
   constructor(private readonly ctx: PluginContext) {}
 
-  getWebhookUrl(): string | null {
-    return (this.ctx.plugin.config?.bitrixWebhookUrl as string) ?? null;
-  }
-
   isConfigured(): boolean {
-    return !!this.getWebhookUrl();
-  }
-
-  // ── API call helpers ────────────────────────────────────────────────────────
-
-  private async call<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
-    const base = this.getWebhookUrl();
-    if (!base) throw new Error('Bitrix webhook URL not configured');
-
-    const url = `${base.replace(/\/$/, '')}/${method}.json`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-    });
-
-    if (!res.ok) throw new Error(`Bitrix API error: ${res.status}`);
-    const data = await res.json() as { result: T; error?: string };
-    if (data.error) throw new Error(`Bitrix error: ${data.error}`);
-    return data.result;
-  }
-
-  /** Returns full API response including `next` cursor for paginated calls */
-  private async callRaw<T>(method: string, params: Record<string, unknown> = {}): Promise<{ result: T; next?: number; total?: number }> {
-    const base = this.getWebhookUrl();
-    if (!base) throw new Error('Bitrix webhook URL not configured');
-
-    const url = `${base.replace(/\/$/, '')}/${method}.json`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(params),
-    });
-
-    if (!res.ok) throw new Error(`Bitrix API error: ${res.status}`);
-    const data = await res.json() as { result: T; next?: number; total?: number; error?: string };
-    if (data.error) throw new Error(`Bitrix error: ${data.error}`);
-    return data;
+    return this.ctx.bitrix?.isConfigured() ?? false;
   }
 
   // ── User list ───────────────────────────────────────────────────────────────
 
   async getBitrixUsers(): Promise<BitrixUser[]> {
-    const users: BitrixUser[] = [];
-    let start = 0;
-
-    while (true) {
-      const { result: page, next } = await this.callRaw<BitrixUser[]>('user.get', {
-        FILTER: { ACTIVE: true },
-        SELECT: ['ID', 'NAME', 'LAST_NAME', 'EMAIL', 'PERSONAL_PHOTO'],
-        start,
-      });
-
-      users.push(...(page ?? []));
-      if (!next) break;
-      start = next;
-    }
-
-    return users;
+    return this.ctx.bitrix!.callAll<BitrixUser>('user.get', {
+      FILTER: { ACTIVE: true },
+      SELECT: ['ID', 'NAME', 'LAST_NAME', 'EMAIL', 'PERSONAL_PHOTO'],
+    });
   }
 
   // ── Email-based VLA user lookup ────────────────────────────────────────────
@@ -102,7 +53,7 @@ export class BitrixService {
 
   async syncPhotos(): Promise<{ synced: number; skipped: number }> {
     if (!this.isConfigured()) {
-      this.ctx.logger.warn('Bitrix sync skipped: webhook URL not configured');
+      this.ctx.logger.warn('Bitrix sync skipped: not configured');
       return { synced: 0, skipped: 0 };
     }
 
@@ -151,14 +102,64 @@ export class BitrixService {
   async getTimemanStatusForUser(bitrixUserId: number): Promise<BitrixTimemanStatus | null> {
     if (!this.isConfigured()) return null;
     try {
-      const result = await this.call<BitrixTimemanStatus>('timeman.status', {
+      return await this.ctx.bitrix!.call<BitrixTimemanStatus>('timeman.status', {
         USER_ID: bitrixUserId,
       });
-      return result;
     } catch (e) {
       this.ctx.logger.warn(`timeman.status error for bitrix user ${bitrixUserId}: ${e}`);
       return null;
     }
+  }
+
+  // ── Timeman open / close ───────────────────────────────────────────────────
+
+  async timemanOpen(bitrixUserId: number): Promise<boolean> {
+    if (!this.isConfigured()) return false;
+    try {
+      // Check current status first — if EXPIRED, close it before opening new day
+      const status = await this.getTimemanStatusForUser(bitrixUserId);
+      if (status?.STATUS === 'EXPIRED') {
+        this.ctx.logger.warn(`timeman: user ${bitrixUserId} has EXPIRED workday, attempting close first`);
+        try {
+          await this.ctx.bitrix!.call('timeman.close', { USER_ID: bitrixUserId });
+        } catch {
+          this.ctx.logger.warn(`timeman: could not close EXPIRED workday for ${bitrixUserId} (requires manual close in Bitrix UI)`);
+        }
+      }
+      await this.ctx.bitrix!.call('timeman.open', { USER_ID: bitrixUserId });
+      return true;
+    } catch (e) {
+      this.ctx.logger.warn(`timeman.open error for bitrix user ${bitrixUserId}: ${e}`);
+      return false;
+    }
+  }
+
+  async timemanClose(bitrixUserId: number): Promise<boolean> {
+    if (!this.isConfigured()) return false;
+    try {
+      // Check current status — EXPIRED workdays can't be closed via API
+      const status = await this.getTimemanStatusForUser(bitrixUserId);
+      if (status?.STATUS === 'EXPIRED') {
+        this.ctx.logger.warn(`timeman: user ${bitrixUserId} has EXPIRED workday — must be closed manually from Bitrix UI`);
+        return false;
+      }
+      if (status?.STATUS === 'CLOSED') {
+        return true; // already closed
+      }
+      await this.ctx.bitrix!.call('timeman.close', { USER_ID: bitrixUserId });
+      return true;
+    } catch (e) {
+      this.ctx.logger.warn(`timeman.close error for bitrix user ${bitrixUserId}: ${e}`);
+      return false;
+    }
+  }
+
+  /** Resolve VLA userId → Bitrix user ID via email mapping */
+  async getBitrixIdForVlaUser(userId: string): Promise<number | null> {
+    const mapping = await this.ctx.prisma.bitrixUserMapping.findFirst({
+      where: { userId },
+    });
+    return mapping?.bitrixUserId ?? null;
   }
 
   // ── Timeman bulk sync (matches by email) ───────────────────────────────────
@@ -171,7 +172,6 @@ export class BitrixService {
       this.getVlaEmailMap(),
     ]);
 
-    // Only process Bitrix users that have a matching VLA account by email
     const matched = bitrixUsers.filter(bu => {
       const email = bu.EMAIL?.toLowerCase();
       return email && vlaByEmail.has(email);
@@ -188,7 +188,6 @@ export class BitrixService {
       matched.map(async (bu) => {
         const userId = vlaByEmail.get(bu.EMAIL.toLowerCase())!;
         const status = await this.getTimemanStatusForUser(Number(bu.ID));
-        // OPENED = trabajando, PAUSED = en pausa, EXPIRED = sesión expiró pero sigue activo
         const isOpen = status?.STATUS === 'OPENED'
           || status?.STATUS === 'PAUSED'
           || (status?.STATUS === 'EXPIRED' && status?.ACTIVE === true);
@@ -204,7 +203,7 @@ export class BitrixService {
       .map(r => r.value);
   }
 
-  // ── Timeman diagnostic (raw response per user) ─────────────────────────────
+  // ── Timeman diagnostic ─────────────────────────────────────────────────────
 
   async debugTimeman(): Promise<Array<{ email: string; bitrixId: string; raw: any }>> {
     if (!this.isConfigured()) return [];
@@ -219,7 +218,7 @@ export class BitrixService {
     const results = await Promise.allSettled(
       matched.map(async (bu) => {
         try {
-          const raw = await this.callRaw<any>('timeman.status', { USER_ID: Number(bu.ID) });
+          const raw = await this.ctx.bitrix!.callRaw<any>('timeman.status', { USER_ID: Number(bu.ID) });
           return { email: bu.EMAIL, bitrixId: bu.ID, raw };
         } catch (e) {
           return { email: bu.EMAIL, bitrixId: bu.ID, raw: { error: String(e) } };
@@ -236,7 +235,7 @@ export class BitrixService {
 
   async testConnection(): Promise<{ ok: boolean; user?: string; error?: string }> {
     try {
-      const result = await this.call<any>('user.current');
+      const result = await this.ctx.bitrix!.call<any>('user.current');
       return {
         ok: true,
         user: `${result.NAME} ${result.LAST_NAME} (ID: ${result.ID})`,

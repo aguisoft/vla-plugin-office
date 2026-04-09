@@ -6,7 +6,7 @@ interface BitrixConfig {
   webhookUrl: string | null;
 }
 
-export function BitrixSettings({ onClose }: { onClose: () => void }) {
+export function BitrixSettings({ onClose, embedded }: { onClose: () => void; embedded?: boolean }) {
   const [config, setConfig]     = useState<BitrixConfig | null>(null);
   const [url, setUrl]           = useState('');
   const [saving, setSaving]     = useState(false);
@@ -52,11 +52,10 @@ export function BitrixSettings({ onClose }: { onClose: () => void }) {
     } finally { setSyncing(false); }
   }
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
-      <div className="bg-white rounded-3xl shadow-2xl p-6 w-96 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-
+  const content = (
+    <>
         {/* Header */}
+        {!embedded && (
         <div className="flex items-center justify-between mb-5">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
@@ -72,6 +71,7 @@ export function BitrixSettings({ onClose }: { onClose: () => void }) {
             </svg>
           </button>
         </div>
+        )}
 
         {/* Status badge */}
         <div className={`flex items-center gap-2 px-3 py-2 rounded-xl mb-5 text-xs font-medium ${config?.configured ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
@@ -187,6 +187,21 @@ export function BitrixSettings({ onClose }: { onClose: () => void }) {
             </p>
           )}
         </div>
+    </>
+  );
+
+  if (embedded) {
+    return (
+      <div className="bg-white rounded-3xl shadow-sm border border-gray-100 p-6 w-full max-w-md">
+        {content}
+      </div>
+    );
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-white rounded-3xl shadow-2xl p-6 w-96 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        {content}
       </div>
     </div>
   );

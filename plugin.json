@@ -7,6 +7,8 @@
   "route": "/dashboard/office",
   "icon": "office",
   "adminOnly": false,
+  "accessPermissions": ["office.view", "office.checkin", "office.manage"],
+  "requires": ["bitrix"],
   "permissions": [
     "read:users",
     "read:presence",

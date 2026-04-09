@@ -4,9 +4,34 @@ import { LayoutService } from './services/layout.service';
 import { SnapshotService } from './services/snapshot.service';
 import { BitrixService } from './services/bitrix.service';
 
+const PERMS = {
+  VIEW:     'office.view',
+  CHECKIN:  'office.checkin',
+  MANAGE:   'office.manage',
+} as const;
+
 const plugin: PluginDefinition = {
   async register(ctx) {
     ctx.logger.log('Office plugin iniciado');
+
+    // ── Register plugin capabilities ──────────────────────────────────────────
+    ctx.hooks.registerFilter('core.permissions.register', (map: any) => ({
+      ...map,
+      [PERMS.VIEW]:    { label: 'Ver oficina virtual',      group: 'Oficina Virtual', plugin: ctx.plugin.name },
+      [PERMS.CHECKIN]: { label: 'Hacer check-in/check-out', group: 'Oficina Virtual', plugin: ctx.plugin.name },
+      [PERMS.MANAGE]:  { label: 'Administrar layouts',      group: 'Oficina Virtual', plugin: ctx.plugin.name },
+    }));
+
+    ctx.hooks.registerFilter('core.roles.preset', (roles: any[]) => [
+      ...roles,
+      {
+        name: 'Colaborador',
+        description: 'Acceso básico a la oficina virtual con check-in',
+        permissions: [PERMS.VIEW, PERMS.CHECKIN],
+        color: '#10b981',
+        plugin: ctx.plugin.name,
+      },
+    ]);
 
     const presence = new PresenceService(ctx);
     const layout   = new LayoutService(ctx);
@@ -25,7 +50,7 @@ const plugin: PluginDefinition = {
     }, 5000);
 
     // ── Real-time SSE ──────────────────────────────────────────────────────────
-    ctx.router.get('/events', ctx.requireAuth(), (req, res) => {
+    ctx.router.get('/events', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), (req, res) => {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
@@ -37,21 +62,21 @@ const plugin: PluginDefinition = {
 
     // ── Presencia ──────────────────────────────────────────────────────────────
 
-    ctx.router.get('/presence', ctx.requireAuth(), async (_req, res) => {
+    ctx.router.get('/presence', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (_req, res) => {
       res.json(await presence.getAll());
     });
 
-    ctx.router.get('/presence/all', ctx.requireAuth(), async (_req, res) => {
+    ctx.router.get('/presence/all', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (_req, res) => {
       res.json(await presence.getAllIncludingOffline());
     });
 
-    ctx.router.get('/presence/:userId', ctx.requireAuth(), async (req, res) => {
+    ctx.router.get('/presence/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
       const record = await presence.getOne(req.params.userId);
       if (!record) return res.status(404).json({ message: 'Usuario no encontrado' });
       res.json(record);
     });
 
-    ctx.router.patch('/presence/status', ctx.requireAuth(), async (req, res) => {
+    ctx.router.patch('/presence/status', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
       const { status, statusMessage } = req.body as { status: string; statusMessage?: string };
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
@@ -60,27 +85,40 @@ const plugin: PluginDefinition = {
 
     // ── Check-in / Check-out manual ────────────────────────────────────────────
 
-    ctx.router.post('/checkin', ctx.requireAuth(), async (req, res) => {
+    ctx.router.post('/checkin', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-      res.json(await presence.checkIn(userId, 'WEB'));
+      await presence.setManualOverride(userId);
+      const record = await presence.checkIn(userId, 'WEB');
+      // Sync with Bitrix timeman (fire-and-forget)
+      bitrix.getBitrixIdForVlaUser(userId).then(bid => {
+        if (bid) bitrix.timemanOpen(bid).then(ok =>
+          ctx.logger.log(`timeman.open bitrixId=${bid} → ${ok ? 'OK' : 'FAIL'}`));
+      }).catch(e => ctx.logger.warn(`timeman.open lookup error: ${e}`));
+      res.json(record);
     });
 
-    ctx.router.post('/checkout', ctx.requireAuth(), async (req, res) => {
+    ctx.router.post('/checkout', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      await presence.setManualOverride(userId);
       await presence.checkOut(userId, 'WEB');
+      // Sync with Bitrix timeman (fire-and-forget)
+      bitrix.getBitrixIdForVlaUser(userId).then(bid => {
+        if (bid) bitrix.timemanClose(bid).then(ok =>
+          ctx.logger.log(`timeman.close bitrixId=${bid} → ${ok ? 'OK' : 'FAIL'}`));
+      }).catch(e => ctx.logger.warn(`timeman.close lookup error: ${e}`));
       res.json({ ok: true });
     });
 
     // ── Snapshot (users + presence + avatars + bitrix photos) ─────────────────
 
-    ctx.router.get('/snapshot', ctx.requireAuth(), async (_req, res) => {
+    ctx.router.get('/snapshot', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (_req, res) => {
       res.json(await snapshot.getAll());
     });
 
     // ── Photo proxy (avoids browser CDN/CORS issues with Bitrix URLs) ──────────
-    ctx.router.get('/photo/:userId', ctx.requireAuth(), async (req, res) => {
+    ctx.router.get('/photo/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
       const rawUrl = await bitrix.getPhotoUrl(req.params.userId);
       if (!rawUrl) return res.status(404).end();
       try {
@@ -136,36 +174,7 @@ const plugin: PluginDefinition = {
       res.json({ ok: true });
     });
 
-    // Config: leer la configuración actual de Bitrix (admin)
-    ctx.router.get('/bitrix/config', ctx.requireAuth('ADMIN'), (_req, res) => {
-      const url = bitrix.getWebhookUrl();
-      res.json({
-        configured: bitrix.isConfigured(),
-        webhookUrl: url ? url.replace(/\/rest\/\d+\/[^/]+\//, '/rest/****/*****/') : null,
-      });
-    });
-
-    // Config: guardar webhook URL (admin)
-    ctx.router.patch('/bitrix/config', ctx.requireAuth('ADMIN'), async (req, res) => {
-      const { bitrixWebhookUrl } = req.body as { bitrixWebhookUrl: string };
-      if (!bitrixWebhookUrl?.startsWith('https://')) {
-        return res.status(400).json({ message: 'bitrixWebhookUrl debe ser una URL HTTPS válida' });
-      }
-      await ctx.prisma.plugin.update({
-        where: { name: ctx.plugin.name },
-        data: { config: { ...ctx.plugin.config, bitrixWebhookUrl } as any },
-      });
-      // Actualizar en memoria
-      (ctx.plugin.config as any).bitrixWebhookUrl = bitrixWebhookUrl;
-      res.json({ ok: true });
-    });
-
-    // Test de conexión con Bitrix (admin)
-    ctx.router.get('/bitrix/test', ctx.requireAuth('ADMIN'), async (_req, res) => {
-      res.json(await bitrix.testConnection());
-    });
-
-    // Debug: ver respuesta raw de timeman por usuario (admin)
+    // Debug: timeman status por usuario (admin)
     ctx.router.get('/bitrix/debug-timeman', ctx.requireAuth('ADMIN'), async (_req, res) => {
       res.json(await bitrix.debugTimeman());
     });
@@ -184,7 +193,7 @@ const plugin: PluginDefinition = {
 
     // ── Layout ────────────────────────────────────────────────────────────────
 
-    ctx.router.get('/layout', ctx.requireAuth(), async (_req, res) => {
+    ctx.router.get('/layout', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (_req, res) => {
       const active = await layout.getActive();
       const positions = await layout.getUserPositions();
       res.json({ layout: active, positions });
@@ -205,7 +214,7 @@ const plugin: PluginDefinition = {
       res.status(201).json(zone);
     });
 
-    ctx.router.patch('/layout/position', ctx.requireAuth(), async (req, res) => {
+    ctx.router.patch('/layout/position', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
       const { zoneId, x, y } = req.body as { zoneId: string; x: number; y: number };
@@ -223,20 +232,41 @@ const plugin: PluginDefinition = {
       });
     });
 
-    ctx.hooks.declareHook('office.user.checked_in');
-    ctx.hooks.declareHook('office.user.checked_out');
-    ctx.hooks.declareHook('office.user.status_changed');
-    ctx.hooks.declareHook('office.user.moved');
+    ctx.hooks.declareHook('office.user.checked_in', {
+      description: 'Un usuario entró a la oficina virtual',
+      payload: { userId: 'string', source: 'WEB | BITRIX | MOBILE' },
+    });
+    ctx.hooks.declareHook('office.user.checked_out', {
+      description: 'Un usuario salió de la oficina virtual',
+      payload: { userId: 'string' },
+    });
+    ctx.hooks.declareHook('office.user.status_changed', {
+      description: 'Un usuario cambió su estado (disponible, ocupado, etc.)',
+      payload: { userId: 'string', status: 'AVAILABLE | BUSY | IN_MEETING | FOCUS | LUNCH | BRB' },
+    });
+    ctx.hooks.declareHook('office.user.moved', {
+      description: 'Un usuario se movió a otra zona del layout',
+      payload: { userId: 'string', zoneId: 'string', x: 'number', y: 'number' },
+    });
 
     // ── Cron: auto-checkout por inactividad (>8h) ─────────────────────────────
+    // Cierra tanto en VLA como en Bitrix ANTES de que la jornada expire (~24h)
     ctx.cron('*/5 * * * *', async () => {
       const threshold = new Date(Date.now() - 8 * 60 * 60 * 1000);
       const stale = await ctx.prisma.presenceStatus.findMany({
         where: { isCheckedIn: true, lastActivityAt: { lt: threshold } },
       });
       for (const p of stale) {
-        await presence.checkOut((p as any).userId, 'WEB');
-        ctx.logger.warn(`Auto checkout por inactividad: ${(p as any).userId}`);
+        const userId = (p as any).userId;
+        await presence.checkOut(userId, 'WEB');
+        // Also close in Bitrix to prevent EXPIRED state
+        const bid = await bitrix.getBitrixIdForVlaUser(userId);
+        if (bid) {
+          const ok = await bitrix.timemanClose(bid);
+          ctx.logger.warn(`Auto checkout por inactividad: ${userId} (bitrix ${bid} close=${ok})`);
+        } else {
+          ctx.logger.warn(`Auto checkout por inactividad: ${userId} (sin mapping Bitrix)`);
+        }
       }
     });
 
@@ -246,12 +276,18 @@ const plugin: PluginDefinition = {
     });
 
     // ── Helper: sync timeman → presence ───────────────────────────────────────
-    async function runTimemanSync(): Promise<{ synced: number; errors: number }> {
+    async function runTimemanSync(): Promise<{ synced: number; errors: number; skipped: number }> {
       const statuses = await bitrix.syncTimemanStatuses();
       let synced = 0;
       let errors = 0;
+      let skipped = 0;
       for (const { userId, isOpen } of statuses) {
         try {
+          // Respect manual override — user manually checked in/out from the plugin
+          if (await presence.hasManualOverride(userId)) {
+            skipped++;
+            continue;
+          }
           const current = await ctx.prisma.presenceStatus.findFirst({ where: { userId } }) as any;
           if (isOpen && !current?.isCheckedIn) {
             await presence.checkIn(userId, 'BITRIX');
@@ -265,8 +301,8 @@ const plugin: PluginDefinition = {
           errors++;
         }
       }
-      if (synced > 0) ctx.logger.log(`Timeman sync: ${synced} usuarios actualizados`);
-      return { synced, errors };
+      if (synced > 0 || skipped > 0) ctx.logger.log(`Timeman sync: ${synced} actualizados, ${skipped} omitidos (manual override)`);
+      return { synced, errors, skipped };
     }
 
     // ── Cron: sincronizar timeman de Bitrix cada 2 minutos ────────────────────

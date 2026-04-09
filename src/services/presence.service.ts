@@ -20,6 +20,21 @@ export interface PresenceRecord {
 export class PresenceService {
   constructor(private readonly ctx: PluginContext) {}
 
+  private manualOverrideKey(userId: string) { return `manual-override:${userId}`; }
+
+  async setManualOverride(userId: string): Promise<void> {
+    await this.ctx.redis.set(this.manualOverrideKey(userId), '1', 600); // 10 min
+  }
+
+  async hasManualOverride(userId: string): Promise<boolean> {
+    const v = await this.ctx.redis.get(this.manualOverrideKey(userId));
+    return v === '1';
+  }
+
+  async clearManualOverride(userId: string): Promise<void> {
+    await this.ctx.redis.del(this.manualOverrideKey(userId));
+  }
+
   async checkIn(userId: string, source: CheckSource = 'WEB'): Promise<PresenceRecord> {
     const now = new Date();
 
