@@ -314,6 +314,7 @@ export default function App() {
               <div className="md:hidden flex-shrink-0 flex gap-1.5 px-4 py-2 bg-gray-50 border-b border-gray-100">
                 <button
                   onClick={() => setViewMode('list')}
+                  aria-label="Vista lista"
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                     viewMode === 'list' ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-500'
                   }`}
@@ -322,6 +323,7 @@ export default function App() {
                 </button>
                 <button
                   onClick={() => setViewMode('map')}
+                  aria-label="Vista mapa"
                   className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                     viewMode === 'map' ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-500'
                   }`}
