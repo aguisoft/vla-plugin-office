@@ -54,7 +54,13 @@ export function ZoneListView({ zones, zoneUsersMap, usePhotos }: {
                 return (
                   <div key={u.userId} className="flex flex-col items-center gap-0.5 flex-shrink-0" style={{ width: 44 }}>
                     <div className="relative flex-shrink-0" style={{ width: 36, height: 36 }}>
-                      {u.isCheckedIn && ringColor && (
+                      {u.isCheckedIn && u.status === 'AVAILABLE' && (
+                        <span
+                          className="absolute inset-0 rounded-full animate-ping pointer-events-none"
+                          style={{ backgroundColor: ringColor, opacity: 0.3 }}
+                        />
+                      )}
+                      {u.isCheckedIn && u.status !== 'AVAILABLE' && ringColor && (
                         <span
                           className="absolute inset-0 rounded-full pointer-events-none"
                           style={{ boxShadow: `0 0 0 2px ${ringColor}`, borderRadius: '50%' }}
@@ -73,7 +79,7 @@ export function ZoneListView({ zones, zoneUsersMap, usePhotos }: {
                           useInitials={usePhotos}
                           size={32}
                           status={u.status}
-                          isCheckedIn={u.isCheckedIn}
+                          isCheckedIn={true}
                           name={`${u.firstName} ${u.lastName}`}
                         />
                       </div>
