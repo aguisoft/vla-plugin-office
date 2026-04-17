@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import { STATUS_CFG, STATUSES } from '../App';
 
-export function StatusSelector({ current, onChange, disabled }: {
+export function StatusSelector({ current, onChange, disabled, dropUp }: {
   current: string;
   onChange: (s: string) => void;
   disabled: boolean;
+  dropUp?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const st = STATUS_CFG[current] ?? STATUS_CFG['OFFLINE'];
@@ -23,7 +24,7 @@ export function StatusSelector({ current, onChange, disabled }: {
         </svg>
       </button>
       {open && (
-        <div className="absolute top-full mt-1 right-0 w-44 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-40">
+        <div className={`absolute ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'} right-0 w-44 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-40`}>
           {STATUSES.map(s => {
             const sc = STATUS_CFG[s];
             return (
