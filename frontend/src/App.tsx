@@ -8,6 +8,8 @@ import { AvatarModal } from './components/AvatarModal';
 import { StatusSelector } from './components/StatusSelector';
 import { Sidebar } from './components/Sidebar';
 import { BitrixSettings } from './components/BitrixSettings';
+import { MobileBottomBar } from './components/MobileBottomBar';
+import { ZoneListView } from './components/ZoneListView';
 import type { UserSnapshot, LayoutData, AvatarCfg } from './types';
 
 const STATUSES = ['AVAILABLE', 'BUSY', 'IN_MEETING', 'FOCUS', 'LUNCH', 'BRB'] as const;
@@ -39,6 +41,8 @@ export default function App() {
   const [showBitrixSettings, setShowBitrixSettings] = useState(false);
   const [usePhotos, setUsePhotos] = useState(() => localStorage.getItem('vla-use-photos') !== 'false');
   const sseRef = useRef<EventSource | null>(null);
+  const [viewMode, setViewMode]         = useState<'list' | 'map'>('list');
+  const [isDrawerOpen, setIsDrawerOpen] = useState(false);
 
   // ── Bootstrap: get current user then load data ─────────────────────────────
 
@@ -197,7 +201,7 @@ export default function App() {
   const officeUser = { id: currentUser?.id ?? '', firstName: myUser?.firstName ?? '', lastName: myUser?.lastName ?? '', role: currentUser?.role ?? '', email: '', permissions: [] };
 
   const officeActions = (
-    <>
+    <div className="hidden md:flex items-center gap-2">
       <span className="flex items-center gap-1.5 text-[10px] text-gray-400">
         <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-green-400 animate-pulse' : 'bg-gray-300'}`} />
         {connected ? 'En vivo' : 'Reconectando...'}
@@ -241,7 +245,7 @@ export default function App() {
           : <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" /></svg>Entrar a la oficina</>
         }
       </button>
-    </>
+    </div>
   );
 
   return (
@@ -254,79 +258,130 @@ export default function App() {
       )}
 
       <PluginShell title="Oficina Virtual" subtitle={officeSubtitle} headerActions={officeActions} user={officeUser}>
-       <div className="flex-1 flex overflow-hidden">
-        {/* Grid */}
-        <div className="flex-1 flex flex-col overflow-hidden">
-          {/* Filter bar */}
-          <div className="flex-shrink-0 flex items-center gap-1.5 px-5 py-2 bg-white border-b border-gray-100 overflow-x-auto">
-            {([
-              { key: 'ALL',    label: 'Todos',         dot: 'bg-gray-300',   count: users.length },
-              { key: 'ONLINE', label: 'En oficina',    dot: 'bg-green-400',  count: users.filter(u => u.isCheckedIn).length },
-              ...STATUSES.map(s => ({
-                key: s,
-                label: STATUS_CFG[s].label,
-                dot: STATUS_CFG[s].dot,
-                count: users.filter(u => u.isCheckedIn && u.status === s).length,
-              })).filter(f => f.count > 0),
-            ] as { key: string; label: string; dot: string; count: number }[]).map(f => (
-              <button
-                key={f.key}
-                onClick={() => setStatusFilter(f.key)}
-                className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold whitespace-nowrap transition-all ${
-                  statusFilter === f.key
-                    ? 'bg-gray-800 text-white'
-                    : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
-                }`}
-              >
-                <span className={`w-1.5 h-1.5 rounded-full ${f.dot}`} />
-                {f.label}
-                <span className={`text-[9px] font-bold ${statusFilter === f.key ? 'text-gray-300' : 'text-gray-400'}`}>
-                  {f.count}
-                </span>
-              </button>
-            ))}
-
-            {/* Photo toggle */}
-            <button
-              onClick={() => {
-                const next = !usePhotos;
-                setUsePhotos(next);
-                localStorage.setItem('vla-use-photos', String(next));
-              }}
-              title={usePhotos ? 'Mostrando fotos — clic para usar avatares' : 'Mostrando avatares — clic para usar fotos'}
-              className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold whitespace-nowrap transition-all ${
-                usePhotos ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
-              }`}
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
-              </svg>
-              {usePhotos ? 'Fotos' : 'Avatares'}
-            </button>
-          </div>
-
-          <div className="flex-1 overflow-auto p-5">
-            {!layout ? (
-              <div className="flex items-center justify-center h-full text-sm text-gray-400">
-                No hay un layout de oficina configurado.
-              </div>
-            ) : (
-              <div className="relative mx-auto" style={{ width: gridW * TILE, height: gridH * TILE, minWidth: gridW * TILE }}>
-                {zones.map(zone => (
-                  <ZoneTile key={zone.id} zone={zone} users={zoneUsersMap.get(zone.id) ?? []} usePhotos={usePhotos} />
+        <div className="h-full flex flex-col">
+          <div className="flex-1 flex overflow-hidden">
+            {/* Grid */}
+            <div className="flex-1 flex flex-col overflow-hidden">
+              {/* Filter bar */}
+              <div className="flex-shrink-0 flex items-center gap-1.5 px-5 py-2 bg-white border-b border-gray-100 overflow-x-auto">
+                {([
+                  { key: 'ALL',    label: 'Todos',         dot: 'bg-gray-300',   count: users.length },
+                  { key: 'ONLINE', label: 'En oficina',    dot: 'bg-green-400',  count: users.filter(u => u.isCheckedIn).length },
+                  ...STATUSES.map(s => ({
+                    key: s,
+                    label: STATUS_CFG[s].label,
+                    dot: STATUS_CFG[s].dot,
+                    count: users.filter(u => u.isCheckedIn && u.status === s).length,
+                  })).filter(f => f.count > 0),
+                ] as { key: string; label: string; dot: string; count: number }[]).map(f => (
+                  <button
+                    key={f.key}
+                    onClick={() => setStatusFilter(f.key)}
+                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold whitespace-nowrap transition-all ${
+                      statusFilter === f.key
+                        ? 'bg-gray-800 text-white'
+                        : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+                    }`}
+                  >
+                    <span className={`w-1.5 h-1.5 rounded-full ${f.dot}`} />
+                    {f.label}
+                    <span className={`text-[9px] font-bold ${statusFilter === f.key ? 'text-gray-300' : 'text-gray-400'}`}>
+                      {f.count}
+                    </span>
+                  </button>
                 ))}
-              </div>
-            )}
-          </div>
-        </div>
 
-        {/* Sidebar */}
-        <Sidebar
-          users={users}
-          myUserId={currentUser?.id}
-          onAvatarClick={() => setShowAvatarModal(true)}
-        />
-       </div>
+                {/* Photo toggle */}
+                <button
+                  onClick={() => {
+                    const next = !usePhotos;
+                    setUsePhotos(next);
+                    localStorage.setItem('vla-use-photos', String(next));
+                  }}
+                  title={usePhotos ? 'Mostrando fotos — clic para usar avatares' : 'Mostrando avatares — clic para usar fotos'}
+                  className={`ml-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] font-semibold whitespace-nowrap transition-all ${
+                    usePhotos ? 'bg-indigo-100 text-indigo-600' : 'bg-gray-100 text-gray-400 hover:bg-gray-200'
+                  }`}
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                  {usePhotos ? 'Fotos' : 'Avatares'}
+                </button>
+              </div>
+
+              {/* Toggle lista/mapa — solo móvil */}
+              <div className="md:hidden flex-shrink-0 flex gap-1.5 px-4 py-2 bg-gray-50 border-b border-gray-100">
+                <button
+                  onClick={() => setViewMode('list')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    viewMode === 'list' ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-500'
+                  }`}
+                >
+                  ≡ Lista
+                </button>
+                <button
+                  onClick={() => setViewMode('map')}
+                  className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
+                    viewMode === 'map' ? 'bg-gray-800 text-white' : 'bg-gray-200 text-gray-500'
+                  }`}
+                >
+                  ⊞ Mapa
+                </button>
+              </div>
+
+              <div className="flex-1 overflow-auto">
+                {/* Vista lista — solo móvil, solo cuando viewMode === 'list' */}
+                <div className={`md:hidden ${viewMode === 'map' ? 'hidden' : ''}`}>
+                  {!layout ? (
+                    <div className="flex items-center justify-center h-32 text-sm text-gray-400">
+                      No hay un layout de oficina configurado.
+                    </div>
+                  ) : (
+                    <ZoneListView zones={zones} zoneUsersMap={zoneUsersMap} usePhotos={usePhotos} />
+                  )}
+                </div>
+
+                {/* Vista mapa — siempre en desktop, condicional en móvil */}
+                <div className={`${viewMode === 'list' ? 'hidden md:block' : ''} p-5 h-full`}>
+                  {!layout ? (
+                    <div className="flex items-center justify-center h-full text-sm text-gray-400">
+                      No hay un layout de oficina configurado.
+                    </div>
+                  ) : (
+                    <div className="relative mx-auto" style={{ width: gridW * TILE, height: gridH * TILE, minWidth: gridW * TILE }}>
+                      {zones.map(zone => (
+                        <ZoneTile key={zone.id} zone={zone} users={zoneUsersMap.get(zone.id) ?? []} usePhotos={usePhotos} />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Sidebar */}
+            <Sidebar
+              users={users}
+              myUserId={currentUser?.id}
+              onAvatarClick={() => setShowAvatarModal(true)}
+              isOpen={isDrawerOpen}
+              onClose={() => setIsDrawerOpen(false)}
+            />
+          </div>
+
+          {/* Barra inferior móvil */}
+          <MobileBottomBar
+            isCheckedIn={isCheckedIn}
+            myStatus={myStatus}
+            myUser={myUser}
+            actionLoading={actionLoading}
+            onCheckIn={handleCheckIn}
+            onCheckOut={handleCheckOut}
+            onStatusChange={handleStatusChange}
+            onOpenDrawer={() => setIsDrawerOpen(true)}
+            onOpenAvatar={() => setShowAvatarModal(true)}
+          />
+        </div>
       </PluginShell>
     </>
   );
