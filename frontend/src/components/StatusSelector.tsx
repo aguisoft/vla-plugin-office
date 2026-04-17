@@ -19,7 +19,7 @@ export function StatusSelector({ current, onChange, disabled, dropUp }: {
       >
         <span className={`w-2 h-2 rounded-full ${st.dot}`} />
         <span className={`text-xs font-medium ${st.color}`}>{st.label}</span>
-        <svg className="w-3 h-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className={`w-3 h-3 text-gray-400 transition-transform ${dropUp ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>
       </button>
