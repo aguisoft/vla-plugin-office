@@ -2,10 +2,12 @@ import { AvatarSVG } from './AvatarSVG';
 import { STATUS_CFG } from '../App';
 import type { UserSnapshot } from '../types';
 
-export function Sidebar({ users, myUserId, onAvatarClick }: {
+export function Sidebar({ users, myUserId, onAvatarClick, isOpen, onClose }: {
   users: UserSnapshot[];
   myUserId?: string;
   onAvatarClick: () => void;
+  isOpen: boolean;
+  onClose: () => void;
 }) {
   const online  = users.filter(u => u.isCheckedIn);
   const offline = users.filter(u => !u.isCheckedIn);
@@ -42,28 +44,57 @@ export function Sidebar({ users, myUserId, onAvatarClick }: {
     );
   }
 
-  return (
-    <div className="w-56 flex-shrink-0 flex flex-col border-l border-gray-100 bg-white overflow-hidden">
-      <div className="px-4 py-3 border-b border-gray-100">
-        <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
-          Oficina · <span className="text-green-500">{online.length} en línea</span>
-        </p>
-      </div>
-
-      <div className="flex-1 overflow-y-auto py-1">
-        {online.length > 0 && (
-          <>
-            <p className="px-4 pt-2 pb-1 text-[9px] font-bold text-gray-400 uppercase tracking-widest">Presentes</p>
-            {online.map(u => <UserCard key={u.userId} u={u} />)}
-          </>
-        )}
-        {offline.length > 0 && (
-          <>
-            <p className="px-4 pt-3 pb-1 text-[9px] font-bold text-gray-400 uppercase tracking-widest">Fuera de oficina</p>
-            {offline.map(u => <UserCard key={u.userId} u={u} />)}
-          </>
-        )}
-      </div>
+  const listContent = (
+    <div className="flex-1 overflow-y-auto py-1">
+      {online.length > 0 && (
+        <>
+          <p className="px-4 pt-2 pb-1 text-[9px] font-bold text-gray-400 uppercase tracking-widest">Presentes</p>
+          {online.map(u => <UserCard key={u.userId} u={u} />)}
+        </>
+      )}
+      {offline.length > 0 && (
+        <>
+          <p className="px-4 pt-3 pb-1 text-[9px] font-bold text-gray-400 uppercase tracking-widest">Fuera de oficina</p>
+          {offline.map(u => <UserCard key={u.userId} u={u} />)}
+        </>
+      )}
     </div>
+  );
+
+  return (
+    <>
+      {/* Móvil: drawer overlay */}
+      {isOpen && (
+        <div className="md:hidden fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/40" onClick={onClose} />
+          <div className="relative w-72 max-w-full bg-white flex flex-col shadow-xl">
+            <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
+              <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+                Oficina · <span className="text-green-500">{online.length} en línea</span>
+              </p>
+              <button
+                onClick={onClose}
+                className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+              >
+                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            {listContent}
+          </div>
+        </div>
+      )}
+
+      {/* Desktop: sidebar fijo */}
+      <div className="hidden md:flex w-56 flex-shrink-0 flex-col border-l border-gray-100 bg-white overflow-hidden">
+        <div className="px-4 py-3 border-b border-gray-100 flex-shrink-0">
+          <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
+            Oficina · <span className="text-green-500">{online.length} en línea</span>
+          </p>
+        </div>
+        {listContent}
+      </div>
+    </>
   );
 }
