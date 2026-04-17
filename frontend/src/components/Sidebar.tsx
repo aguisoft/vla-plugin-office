@@ -2,6 +2,42 @@ import { AvatarSVG } from './AvatarSVG';
 import { STATUS_CFG } from '../App';
 import type { UserSnapshot } from '../types';
 
+function UserCard({ u, myUserId, onAvatarClick }: {
+  u: UserSnapshot;
+  myUserId?: string;
+  onAvatarClick: () => void;
+}) {
+  const st = STATUS_CFG[u.status] ?? STATUS_CFG['OFFLINE'];
+  const isMe = u.userId === myUserId;
+  return (
+    <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl transition-colors ${isMe ? 'bg-green-50' : 'hover:bg-gray-50'}`}>
+      <div
+        className="relative flex-shrink-0"
+        onClick={isMe ? onAvatarClick : undefined}
+        style={{ cursor: isMe ? 'pointer' : 'default' }}
+      >
+        <AvatarSVG cfg={u.avatar} photoUrl={u.photoUrl} useInitials size={34} status={u.status} isCheckedIn={u.isCheckedIn} name={`${u.firstName} ${u.lastName}`} />
+        {isMe && (
+          <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-white rounded-full flex items-center justify-center border border-gray-200">
+            <svg className="w-2.5 h-2.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+            </svg>
+          </span>
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="text-[11px] font-semibold text-gray-700 truncate leading-tight">
+          {u.firstName} {u.lastName}
+          {isMe && <span className="text-green-500 ml-1 text-[9px]">tú</span>}
+        </p>
+        <p className={`text-[10px] ${st.color} truncate`}>
+          {st.label}{u.statusMessage ? ` · ${u.statusMessage}` : ''}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 export function Sidebar({ users, myUserId, onAvatarClick, isOpen, onClose }: {
   users: UserSnapshot[];
   myUserId?: string;
@@ -12,50 +48,18 @@ export function Sidebar({ users, myUserId, onAvatarClick, isOpen, onClose }: {
   const online  = users.filter(u => u.isCheckedIn);
   const offline = users.filter(u => !u.isCheckedIn);
 
-  function UserCard({ u }: { u: UserSnapshot }) {
-    const st = STATUS_CFG[u.status] ?? STATUS_CFG['OFFLINE'];
-    const isMe = u.userId === myUserId;
-    return (
-      <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl transition-colors ${isMe ? 'bg-green-50' : 'hover:bg-gray-50'}`}>
-        <div
-          className="relative flex-shrink-0"
-          onClick={isMe ? onAvatarClick : undefined}
-          style={{ cursor: isMe ? 'pointer' : 'default' }}
-        >
-          <AvatarSVG cfg={u.avatar} photoUrl={u.photoUrl} useInitials size={34} status={u.status} isCheckedIn={u.isCheckedIn} name={`${u.firstName} ${u.lastName}`} />
-          {isMe && (
-            <span className="absolute -bottom-0.5 -right-0.5 w-4 h-4 bg-white rounded-full flex items-center justify-center border border-gray-200">
-              <svg className="w-2.5 h-2.5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-              </svg>
-            </span>
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <p className="text-[11px] font-semibold text-gray-700 truncate leading-tight">
-            {u.firstName} {u.lastName}
-            {isMe && <span className="text-green-500 ml-1 text-[9px]">tú</span>}
-          </p>
-          <p className={`text-[10px] ${st.color} truncate`}>
-            {st.label}{u.statusMessage ? ` · ${u.statusMessage}` : ''}
-          </p>
-        </div>
-      </div>
-    );
-  }
-
   const listContent = (
     <div className="flex-1 overflow-y-auto py-1">
       {online.length > 0 && (
         <>
           <p className="px-4 pt-2 pb-1 text-[9px] font-bold text-gray-400 uppercase tracking-widest">Presentes</p>
-          {online.map(u => <UserCard key={u.userId} u={u} />)}
+          {online.map(u => <UserCard key={u.userId} u={u} myUserId={myUserId} onAvatarClick={onAvatarClick} />)}
         </>
       )}
       {offline.length > 0 && (
         <>
           <p className="px-4 pt-3 pb-1 text-[9px] font-bold text-gray-400 uppercase tracking-widest">Fuera de oficina</p>
-          {offline.map(u => <UserCard key={u.userId} u={u} />)}
+          {offline.map(u => <UserCard key={u.userId} u={u} myUserId={myUserId} onAvatarClick={onAvatarClick} />)}
         </>
       )}
     </div>
@@ -67,13 +71,14 @@ export function Sidebar({ users, myUserId, onAvatarClick, isOpen, onClose }: {
       {isOpen && (
         <div className="md:hidden fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-          <div className="relative w-72 max-w-full bg-white flex flex-col shadow-xl">
+          <div className="relative w-72 max-w-full bg-white flex flex-col shadow-xl transition-transform duration-200">
             <div className="px-4 py-3 border-b border-gray-100 flex items-center justify-between flex-shrink-0">
               <p className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">
                 Oficina · <span className="text-green-500">{online.length} en línea</span>
               </p>
               <button
                 onClick={onClose}
+                aria-label="Cerrar"
                 className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors"
               >
                 <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
