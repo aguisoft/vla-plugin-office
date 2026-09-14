@@ -1,6 +1,15 @@
 import type { ReactNode } from 'react';
 
 /**
+ * Label del botón de confirmar mientras falta texto de justificación.
+ * Compartido por los tres modales que muestran este contador, para que
+ * no se repita (y no se desalinee) la concordancia de número.
+ */
+export function missingLabel(missing: number): string {
+  return missing === 1 ? 'Falta 1 carácter' : `Faltan ${missing} caracteres`;
+}
+
+/**
  * Envoltorio compartido de los modales de payload: overlay + panel + título.
  * `dot` es el punto de color del estado que se está fijando — opcional porque
  * no todos los modales representan un único estado puntual (p. ej. la alerta

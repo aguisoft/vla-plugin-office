@@ -19,15 +19,11 @@ import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
 import type { ResolvedStatus, PayloadKind } from './statusConfig';
 import { setStatus, createAbsence, ApiError } from './api';
 import type { StatusPayload, StatusError } from './api';
+import { fmtDate, fmtTime } from './format';
 
 export const TILE = 20;
 
 type PendingPick = { status: ResolvedStatus; kind: PayloadKind } | null;
-
-/** Fecha corta en español, para las confirmaciones de ausencias agendadas. */
-function fmtDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' });
-}
 
 export default function App() {
   const configMode = new URLSearchParams(window.location.search).get('config') === 'true';
@@ -166,12 +162,20 @@ export default function App() {
       await loadData();
       // El selector hace dos cosas: los estados del día se aplican ya, las
       // ausencias se agendan. Si empieza después de hoy el avatar no cambia
-      // todavía, así que hay que decirlo o la persona se queda esperando.
+      // todavía, así que hay que decirlo o la persona se queda esperando. Un
+      // permiso puede agendarse para más tarde el mismo día -- ahí fmtDate
+      // solo muestra la misma fecha dos veces y no dice desde cuándo aplica,
+      // así que ese caso además necesita la hora.
+      const label = cfgOf(body.type).label;
+      const isPermiso = body.type === 'PERMISO';
       const starts = new Date(body.startAt);
       const startsLater = starts > new Date();
+      const schedule = isPermiso
+        ? `el ${fmtDate(body.startAt)} de ${fmtTime(body.startAt)} a ${fmtTime(body.endAt)}`
+        : `del ${fmtDate(body.startAt)} al ${fmtDate(body.endAt)}`;
       setNotice(startsLater
-        ? `${cfgOf(body.type).label} registrada del ${fmtDate(body.startAt)} al ${fmtDate(body.endAt)}`
-        : `${cfgOf(body.type).label} aplicada`);
+        ? `${label} ${isPermiso ? 'registrado' : 'registrada'} ${schedule}`
+        : `${label} ${isPermiso ? 'aplicado' : 'aplicada'}`);
     } catch (e) {
       const detail = e instanceof ApiError ? (e.detail as StatusError | undefined) : undefined;
       setError(detail?.errors?.[0]?.message ?? detail?.message ?? 'No se pudo registrar la ausencia');

@@ -1,6 +1,7 @@
 import { createPortal } from 'react-dom';
 import { AvatarSVG } from './AvatarSVG';
 import { cfgOf } from '../statusConfig';
+import { fmtTime } from '../format';
 import type { UserSnapshot } from '../types';
 
 function timeAgo(iso: string): string {
@@ -11,10 +12,6 @@ function timeAgo(iso: string): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `hace ${h}h ${m % 60}m`;
   return `hace ${Math.floor(h / 24)}d`;
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
 }
 
 function duration(iso: string): string {
@@ -134,7 +131,7 @@ export function HoverCard({ user, zoneName, anchorRect }: HoverCardProps) {
                     icon={<EnterIcon />}
                     label="Entró a las"
                     value={
-                      <>{formatTime(user.checkedInAt)} <span className="text-gray-400 font-normal">({duration(user.checkedInAt)})</span></>
+                      <>{fmtTime(user.checkedInAt)} <span className="text-gray-400 font-normal">({duration(user.checkedInAt)})</span></>
                     }
                   />
                 )}

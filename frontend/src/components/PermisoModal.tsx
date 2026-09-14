@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { MIN_JUSTIFICATION } from '../statusConfig';
-import { Shell, DateField, TimeField, Actions } from './modalParts';
+import { Shell, DateField, TimeField, Actions, missingLabel } from './modalParts';
 
 /**
  * Permiso es una ausencia corta dentro de un mismo día: fecha + rango de
@@ -45,7 +45,7 @@ export function PermisoModal({ onClose, onConfirm }: {
       <Actions
         onClose={onClose}
         disabled={invalid}
-        confirmLabel={missing > 0 ? `Faltan ${missing} caracteres` : 'Confirmar'}
+        confirmLabel={missing > 0 ? missingLabel(missing) : 'Confirmar'}
         onConfirm={() => onConfirm(toIso(from), toIso(to), text.trim())}
       />
     </Shell>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { MIN_JUSTIFICATION, cfgOf } from '../statusConfig';
-import { Shell, Actions } from './modalParts';
+import { Shell, Actions, missingLabel } from './modalParts';
 
 /** Usado por FOCUS, IN_MEETING_EXTERNAL y BRB: un solo textarea de respaldo. */
 export function JustificationModal({ status, onClose, onConfirm }: {
@@ -28,7 +28,7 @@ export function JustificationModal({ status, onClose, onConfirm }: {
       <Actions
         onClose={onClose}
         disabled={missing > 0}
-        confirmLabel={missing > 0 ? `Faltan ${missing} caracteres` : 'Confirmar'}
+        confirmLabel={missing > 0 ? missingLabel(missing) : 'Confirmar'}
         onConfirm={() => onConfirm(text.trim())}
       />
     </Shell>

@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { MIN_JUSTIFICATION, cfgOf } from '../statusConfig';
-import { Shell, DateField, Actions } from './modalParts';
+import { Shell, DateField, Actions, missingLabel } from './modalParts';
 
 /**
  * Vacaciones e incapacidad comparten forma: rango de fechas completo.
@@ -50,7 +50,7 @@ export function DateRangeModal({ status, onClose, onConfirm }: {
       <Actions
         onClose={onClose}
         disabled={invalid}
-        confirmLabel={missing > 0 ? `Faltan ${missing} caracteres` : 'Confirmar'}
+        confirmLabel={missing > 0 ? missingLabel(missing) : 'Confirmar'}
         onConfirm={() => onConfirm(startIso(from), endIso(to), needsJustification ? text.trim() : undefined)}
       />
     </Shell>
