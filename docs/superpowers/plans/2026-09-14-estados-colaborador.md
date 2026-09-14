@@ -3041,7 +3041,7 @@ dejó limitado a las ausencias propias. Reemplazar ese handler por:
 
       const from = req.query.from ? new Date(req.query.from as string) : undefined;
       const to = req.query.to ? new Date(req.query.to as string) : undefined;
-      const rows = await absences.listForUser(targetUserId, from, to);
+      const rows = await absences.listForUserDetailed(targetUserId, from, to);
 
       // La justificación de PERMISO e INCAPACIDAD se OMITE si no hay permiso:
       // no se manda vacía, el texto no viaja al cliente.
