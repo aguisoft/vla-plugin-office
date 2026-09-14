@@ -2593,11 +2593,22 @@ export class HolidayService {
   }
 
   async setOverride(
-    userId: string, holidayId: string, newDate: Date, justification: string, tz: string,
+    userId: string, holidayId: string, newDate: Date, justification: string,
+    country: string, tz: string,
   ): Promise<{ ok: true } | { ok: false; errors: ValidationError[] }> {
     const holiday = await this.ctx.prisma.holiday.findUnique({ where: { id: holidayId } });
     if (!holiday) {
       return { ok: false, errors: [{ field: 'holidayId', message: 'Feriado no encontrado' }] };
+    }
+
+    // Defensa en la ESCRITURA: nadie mueve el feriado de otro pais. El resolver
+    // vuelve a filtrar por pais al LEER, porque el pais de un colaborador puede
+    // cambiar despues de creado el override y dejarlo apuntando al pais viejo.
+    if ((holiday as any).country !== country) {
+      return {
+        ok: false,
+        errors: [{ field: 'holidayId', message: 'El feriado no corresponde a tu pais' }],
+      };
     }
 
     const errors = validateOverrideInput((holiday as any).date, newDate, justification, tz);
