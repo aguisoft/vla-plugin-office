@@ -2258,14 +2258,21 @@ cd vla-system && docker compose up -d && npm run dev -w @vla/api
 cd vla-plugin-office && npm run dev
 ```
 
-El token de las pruebas sale del login del seed:
+**La autenticación es por cookie HttpOnly, no por bearer token.** El login
+responde solo `{"user":{...}}` y manda la sesión en `Set-Cookie: vla_token=...`.
+No existe ningún `accessToken` en el cuerpo, así que `-H "Authorization: Bearer"`
+no autentica nada. Se usa un frasco de cookies:
 
 ```bash
-TOKEN=$(curl -s -X POST localhost:3001/api/v1/auth/login \
+J=/tmp/vla-cookies.txt
+curl -s -c $J -X POST localhost:3001/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"josue@vla.com","password":"admin123"}' | jq -r .accessToken)
-echo "${TOKEN:0:20}..."
+  -d '{"email":"josue@vla.com","password":"admin123"}' -o /dev/null
+curl -s -b $J -o /dev/null -w 'login ok: %{http_code}\n' localhost:3001/api/v1/auth/me
 ```
+
+De ahí en adelante, **toda** llamada autenticada lleva `-b $J`. Para probar con
+otro usuario, otro frasco: `-c /tmp/vla-cookies-otro.txt`.
 
 ### Task 12: Servicio y endpoints de ausencias
 
@@ -2466,24 +2473,24 @@ Expected: PASS.
 ```bash
 # Crear vacaciones
 curl -s -X POST localhost:3001/api/v1/p/office/absences \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -b $J -H 'Content-Type: application/json' \
   -d '{"type":"VACACIONES","startAt":"2026-11-03T06:00:00Z","endAt":"2026-11-15T05:59:59.999Z"}'
 # Expected: 201 con {"id":"..."}
 
 # Solape: la misma ventana otra vez
 curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:3001/api/v1/p/office/absences \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -b $J -H 'Content-Type: application/json' \
   -d '{"type":"VACACIONES","startAt":"2026-11-10T06:00:00Z","endAt":"2026-11-20T05:59:59.999Z"}'
 # Expected: 409
 
 # Incapacidad sin justificación
 curl -s -X POST localhost:3001/api/v1/p/office/absences \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -b $J -H 'Content-Type: application/json' \
   -d '{"type":"INCAPACIDAD","startAt":"2026-12-01T06:00:00Z","endAt":"2026-12-05T05:59:59Z"}'
 # Expected: 400, errors[].field == "justification"
 
 # Listar
-curl -s localhost:3001/api/v1/p/office/absences -H "Authorization: Bearer $TOKEN" | jq
+curl -s localhost:3001/api/v1/p/office/absences -b $J | jq
 ```
 
 - [ ] **Step 6: Commit**
@@ -2713,24 +2720,24 @@ Expected: PASS.
 ```bash
 # Cargar el 15 de septiembre de Costa Rica
 HID=$(curl -s -X POST localhost:3001/api/v1/p/office/holidays \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -b $J -H 'Content-Type: application/json' \
   -d '{"date":"2026-09-15","name":"Independencia","country":"CR"}' | jq -r .id)
 
 # Duplicado
 curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:3001/api/v1/p/office/holidays \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -b $J -H 'Content-Type: application/json' \
   -d '{"date":"2026-09-15","name":"Independencia","country":"CR"}'
 # Expected: 409
 
 # Override a otro mes: rechazado
 curl -s -X POST localhost:3001/api/v1/p/office/holidays/$HID/override \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -b $J -H 'Content-Type: application/json' \
   -d '{"newDate":"2026-10-02","justification":"lo tomo en octubre por carga de trabajo"}'
 # Expected: 400, errors[].field == "newDate"
 
 # Override dentro del mes: aceptado
 curl -s -o /dev/null -w '%{http_code}\n' -X POST localhost:3001/api/v1/p/office/holidays/$HID/override \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -b $J -H 'Content-Type: application/json' \
   -d '{"newDate":"2026-09-25","justification":"lo tomo el viernes 25 por cierre de mes"}'
 # Expected: 201
 ```
@@ -3049,7 +3056,7 @@ El riesgo del diseño: si `PERSONAL_COUNTRY` viene vacío, esa gente no recibe n
 
 ```bash
 curl -s -X POST localhost:3001/api/v1/p/office/org/sync \
-  -H "Authorization: Bearer $TOKEN" | jq
+  -b $J | jq
 ```
 
 Expected: `{ "synced": N, "heads": M, "withCountry": K }`
@@ -3059,14 +3066,14 @@ Anotar los tres números. Si `withCountry` es mucho menor que `synced`, hay que 
 - [ ] **Step 6: Probar la resolución**
 
 ```bash
-UID=$(curl -s localhost:3001/api/v1/p/office/snapshot -H "Authorization: Bearer $TOKEN" | jq -r '.[0].userId')
-curl -s localhost:3001/api/v1/p/office/org/$UID -H "Authorization: Bearer $TOKEN" | jq
+UID=$(curl -s localhost:3001/api/v1/p/office/snapshot -b $J | jq -r '.[0].userId')
+curl -s localhost:3001/api/v1/p/office/org/$UID -b $J | jq
 
 # Override manual de jefe y país
 curl -s -X PUT localhost:3001/api/v1/p/office/org/$UID \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -b $J -H 'Content-Type: application/json' \
   -d '{"country":"NI"}' | jq
-curl -s localhost:3001/api/v1/p/office/org/$UID -H "Authorization: Bearer $TOKEN" | jq .country
+curl -s localhost:3001/api/v1/p/office/org/$UID -b $J | jq .country
 # Expected: "NI"
 ```
 
@@ -3555,7 +3562,7 @@ Expected: PASS.
 
 ```bash
 P=localhost:3001/api/v1/p/office/presence/status
-H=(-H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json')
+H=(-b $J -H 'Content-Type: application/json')
 
 # Estado inexistente — el bug que había hoy
 curl -s -X PATCH $P "${H[@]}" -d '{"status":"PARRANDA"}' | jq
@@ -3600,7 +3607,7 @@ El endpoint pasó de `office.view` a `office.checkin`. Hay que confirmar que un 
 ```bash
 # Con un token de un usuario que solo tenga office.view
 curl -s -o /dev/null -w '%{http_code}\n' -X PATCH $P \
-  -H "Authorization: Bearer $VIEW_ONLY_TOKEN" -H 'Content-Type: application/json' \
+  -b /tmp/vla-cookies-viewonly.txt -H 'Content-Type: application/json' \
   -d '{"status":"AVAILABLE"}'
 # Expected: 403
 ```
@@ -3843,19 +3850,19 @@ Este es el paso que más importa de la tarea. Con el usuario de la Task 12, que 
 ```bash
 # Registrar una incapacidad para hoy con justificación
 curl -s -X POST localhost:3001/api/v1/p/office/absences \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -b $J -H 'Content-Type: application/json' \
   -d "{\"userId\":\"$UID\",\"type\":\"INCAPACIDAD\",
        \"startAt\":\"$(date -u -d 'today 06:00' +%Y-%m-%dT%H:%M:%SZ)\",
        \"endAt\":\"$(date -u -d 'tomorrow 05:59' +%Y-%m-%dT%H:%M:%SZ)\",
        \"justification\":\"Boleta CCSS 4477-2026\"}"
 
 # Como admin (tiene office.manage): la ve
-curl -s localhost:3001/api/v1/p/office/snapshot -H "Authorization: Bearer $TOKEN" \
+curl -s localhost:3001/api/v1/p/office/snapshot -b $J \
   | jq --arg u "$UID" '.[] | select(.userId==$u) | {status, isAbsent, justification}'
 # Expected: status "INCAPACIDAD", isAbsent true, justification presente
 
 # Como un tercero sin office.manage y que no es su jefe
-curl -s localhost:3001/api/v1/p/office/snapshot -H "Authorization: Bearer $OTHER_TOKEN" \
+curl -s localhost:3001/api/v1/p/office/snapshot -b /tmp/vla-cookies-otro.txt \
   | jq --arg u "$UID" '.[] | select(.userId==$u) | has("justification")'
 # Expected: false — la clave NO existe, no viene vacía
 ```
@@ -3985,22 +3992,22 @@ Esta es la prueba que valida toda la fase: un usuario con vacaciones activas y t
 ```bash
 # 1. Registrar vacaciones que cubran hoy para $UID
 curl -s -X POST localhost:3001/api/v1/p/office/absences \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -b $J -H 'Content-Type: application/json' \
   -d "{\"userId\":\"$UID\",\"type\":\"VACACIONES\",
        \"startAt\":\"$(date -u -d 'yesterday 06:00' +%Y-%m-%dT%H:%M:%SZ)\",
        \"endAt\":\"$(date -u -d '+7 days' +%Y-%m-%dT%H:%M:%SZ)\"}"
 
 # 2. Estado antes
-curl -s localhost:3001/api/v1/p/office/snapshot -H "Authorization: Bearer $TOKEN" \
+curl -s localhost:3001/api/v1/p/office/snapshot -b $J \
   | jq --arg u "$UID" '.[] | select(.userId==$u) | {status, rawStatus, isAbsent}'
 # Expected: status "VACACIONES", isAbsent true
 
 # 3. Forzar el sync
-curl -s -X POST localhost:3001/api/v1/p/office/timeman/sync -H "Authorization: Bearer $TOKEN" | jq
+curl -s -X POST localhost:3001/api/v1/p/office/timeman/sync -b $J | jq
 # Expected: skippedByAbsence >= 1
 
 # 4. Estado después: idéntico
-curl -s localhost:3001/api/v1/p/office/snapshot -H "Authorization: Bearer $TOKEN" \
+curl -s localhost:3001/api/v1/p/office/snapshot -b $J \
   | jq --arg u "$UID" '.[] | select(.userId==$u) | {status, rawStatus, isAbsent}'
 # Expected: status sigue en "VACACIONES"
 ```
@@ -4012,7 +4019,7 @@ Si no existe el endpoint `POST /timeman/sync`, agregarlo con `PERMS.MANAGE` llam
 Un usuario **sin** ausencia tiene que seguir sincronizando igual que antes.
 
 ```bash
-curl -s -X POST localhost:3001/api/v1/p/office/timeman/sync -H "Authorization: Bearer $TOKEN" | jq
+curl -s -X POST localhost:3001/api/v1/p/office/timeman/sync -b $J | jq
 ```
 
 Expected: `synced` y `skipped` con valores parecidos a los de antes del cambio; `errors` en 0.
