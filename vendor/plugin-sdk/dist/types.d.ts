@@ -1,6 +1,6 @@
 import type { Router } from 'express';
 /** Integraciones del core que un plugin puede declarar como requisito */
-export type CoreIntegration = 'bitrix';
+export type CoreIntegration = 'bitrix' | 'ai';
 /**
  * Contenido del archivo plugin.json que debe incluir todo plugin.
  * Este archivo es la "identidad" del plugin y lo que el sistema valida
@@ -190,6 +190,12 @@ export interface PluginContext {
      */
     bitrix?: PluginBitrixClient;
     /**
+     * Cliente AI unificado del core. Soporta Claude, OpenAI, Groq y Gemini.
+     * Solo disponible si al menos un provider está configurado.
+     * Plugins que declaren `"requires": ["ai"]` pueden usar `ctx.ai!` con seguridad.
+     */
+    ai?: PluginAiClient;
+    /**
      * Execute a raw SQL query against the plugin's isolated schema (plugin_<name>).
      * Only available if the plugin has migrations/ directory.
      * The search_path is automatically set to the plugin's schema.
@@ -240,6 +246,49 @@ export interface PluginBitrixClient {
     }>;
     /** Auto-paginating call that follows the `next` cursor and returns all results */
     callAll<T = any>(method: string, params?: Record<string, unknown>): Promise<T[]>;
+}
+export interface PluginAiClient {
+    /** Returns true if at least one AI provider is configured */
+    isConfigured(): boolean;
+    /** Get the default provider name */
+    getDefaultProvider(): string;
+    /** Get status of all providers */
+    getStatus(): Record<string, {
+        configured: boolean;
+        model?: string;
+    }>;
+    /** Full chat with system + messages */
+    chat(opts: {
+        system?: string;
+        messages: Array<{
+            role: string;
+            content: string;
+        }>;
+        temperature?: number;
+        maxTokens?: number;
+        modelOverride?: string;
+        jsonSchema?: Record<string, unknown>;
+    }): Promise<{
+        content: string;
+        provider: string;
+        model: string;
+        usage?: {
+            inputTokens: number;
+            outputTokens: number;
+        };
+        truncated?: boolean;
+    }>;
+    /** Simple completion from a single prompt */
+    complete(prompt: string, opts?: {
+        temperature?: number;
+        maxTokens?: number;
+        modelOverride?: string;
+    }): Promise<string>;
+    /** Extract structured JSON from AI response */
+    extractJson<T = Record<string, unknown>>(prompt: string, schema: Record<string, unknown>, opts?: {
+        temperature?: number;
+        maxTokens?: number;
+    }): Promise<T>;
 }
 export interface PluginRedisClient {
     get(key: string): Promise<string | null>;
