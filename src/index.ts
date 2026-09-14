@@ -6,6 +6,7 @@ import { BitrixService } from './services/bitrix.service';
 import { AbsenceService } from './services/absence.service';
 import { OrgService } from './services/org.service';
 import { HolidayService } from './services/holiday.service';
+import { MeetingService } from './services/meeting.service';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { DEFAULT_TZ } from './lib/local-date';
 
@@ -56,6 +57,8 @@ const plugin: PluginDefinition = {
     const tz = () => (ctx.plugin.config.TIMEZONE as string) || DEFAULT_TZ;
     const org = new OrgService(ctx, () => (ctx.plugin.config.DEFAULT_COUNTRY as string) || 'CR');
     const holidays = new HolidayService(ctx);
+    const meetings = new MeetingService(ctx, (userId, payload) =>
+      presence.broadcastToUser(userId, payload));
 
     // Sync Bitrix photos + timeman on startup — delayed 5s to let hydrateConfig complete first
     setTimeout(async () => {
@@ -75,7 +78,7 @@ const plugin: PluginDefinition = {
       res.setHeader('Connection', 'keep-alive');
       res.flushHeaders();
 
-      const unsubscribe = presence.subscribe((data) => res.write(data));
+      const unsubscribe = presence.subscribe((data) => res.write(data), (req as any).user?.sub ?? null);
       req.on('close', unsubscribe);
     });
 
@@ -95,11 +98,15 @@ const plugin: PluginDefinition = {
       res.json(record);
     });
 
+    // NOTA: este endpoint sin validación lo reemplaza la Task 16 (payload
+    // completo, permiso office.checkin, invitaciones a reunión). Se deja acá
+    // solo lo mínimo para que compile con la nueva firma de updateStatus:
+    // statusMessage pasa a justification, que es lo que la reemplaza.
     ctx.router.patch('/presence/status', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
       const { status, statusMessage } = req.body as { status: string; statusMessage?: string };
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-      res.json(await presence.updateStatus(userId as any, status as any, statusMessage));
+      res.json(await presence.updateStatus(userId as any, status as any, { justification: statusMessage ?? null }));
     });
 
     // ── Check-in / Check-out manual ────────────────────────────────────────────
@@ -248,6 +255,49 @@ const plugin: PluginDefinition = {
       if (!done) return res.status(404).json({ message: 'No hay override para ese feriado' });
       res.status(204).end();
     });
+
+    // ── Invitaciones a reunión ──────────────────────────────────────────────
+    // El anfitrión entra a la reunión de inmediato desde PATCH /presence/status
+    // (Task 16, que llama meetings.invite); acá solo vive el lado del invitado:
+    // ver sus invitaciones pendientes y responder. cancel es del anfitrión, no
+    // se expone como endpoint del invitado — ver meeting-invites.ts.
+
+    ctx.router.get('/meetings/invites', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+      const userId = (req as any).user?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      res.json(await meetings.pendingFor(userId));
+    });
+
+    for (const action of ['accept', 'decline'] as const) {
+      ctx.router.post(`/meetings/invites/:id/${action}`, ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
+        const userId = (req as any).user?.sub;
+        if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+
+        const result = await meetings.respond(req.params.id, userId, action);
+        if (!result.ok) {
+          const code = result.reason === 'not_found' ? 404
+                     : result.reason === 'not_yours' ? 403 : 409;
+          return res.status(code).json({ message: reasonMessage(result.reason) });
+        }
+
+        if (action === 'accept') {
+          // Hereda la justificación y el meetingId del host.
+          const hostPresence = await ctx.prisma.presenceStatus.findUnique({
+            where: { userId: result.hostId },
+          });
+          await presence.updateStatus(userId, 'IN_MEETING_INTERNAL', {
+            justification: (hostPresence as any)?.justification ?? null,
+            meetingId: result.meetingId,
+          });
+        }
+        res.json({ ok: true });
+      });
+    }
+
+    // NO hay endpoint /leave. La salida voluntaria del invitado es simplemente
+    // cambiar de estado con el selector, y el PATCH /presence/status de la
+    // Task 16 se encarga de cerrar su fila de MeetingInvite. Un endpoint aparte
+    // sería salteable y exigiría una UI que el spec no pide.
 
     // ── Snapshot (users + presence + avatars + bitrix photos) ─────────────────
 
@@ -447,6 +497,17 @@ const plugin: PluginDefinition = {
       try { await bitrix.syncPhotos(); } catch (e) { ctx.logger.warn(`Cron syncPhotos: ${e}`); }
       try { await bitrix.syncOrgStructure(); } catch (e) { ctx.logger.warn(`Cron syncOrgStructure: ${e}`); }
     });
+
+    // ── Helper: mensajes de error de invitaciones ─────────────────────────────
+    function reasonMessage(reason: string): string {
+      switch (reason) {
+        case 'not_found':   return 'Invitación no encontrada';
+        case 'not_yours':   return 'Esa invitación no es tuya';
+        case 'expired':     return 'La invitación venció';
+        case 'not_pending': return 'Esa invitación ya fue respondida';
+        default:            return 'No se pudo procesar la invitación';
+      }
+    }
 
     // ── Helper: sync timeman → presence ───────────────────────────────────────
     async function runTimemanSync(): Promise<{ synced: number; errors: number; skipped: number }> {

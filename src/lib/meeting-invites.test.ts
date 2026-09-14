@@ -60,4 +60,20 @@ describe('nextInviteState', () => {
   it('no se puede cancelar una ya cancelada', () => {
     expect(nextInviteState('CANCELLED', 'cancel', created, soon)).toEqual({ error: 'not_pending' });
   });
+
+  // El barrido de MeetingService.pendingFor() marca EXPIRED las filas PENDING
+  // vencidas, y ese mismo estado se realimenta a esta función si alguien
+  // responde después (accept/decline) o si el host cancela después del
+  // barrido. Ninguno de los tres pares estaba cubierto.
+  it('aceptar una fila ya marcada EXPIRED por el barrido no revive la invitación', () => {
+    expect(nextInviteState('EXPIRED', 'accept', created, soon)).toEqual({ error: 'not_pending' });
+  });
+
+  it('rechazar una fila ya marcada EXPIRED por el barrido tampoco', () => {
+    expect(nextInviteState('EXPIRED', 'decline', created, soon)).toEqual({ error: 'not_pending' });
+  });
+
+  it('cancelar una fila ya EXPIRED es no-op para el host: no hay nada que terminar', () => {
+    expect(nextInviteState('EXPIRED', 'cancel', created, soon)).toEqual({ error: 'not_pending' });
+  });
 });
