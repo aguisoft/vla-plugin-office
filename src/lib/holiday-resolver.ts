@@ -25,11 +25,11 @@ export interface HolidayEffectiveArgs {
  * ¿Hoy es feriado para este colaborador?
  *
  * Dos caminos dan true:
- *  a. movió un feriado y hoy es la fecha nueva
+ *  a. movió un feriado de su país y hoy es la fecha nueva
  *  b. hoy hay un feriado de su país que NO movió
  *
- * El punto (b) es lo que hace funcionar el override: si lo movió, la fecha
- * original vuelve a ser día de trabajo.
+ * El filtro de país va en ambas ramas: si RRHH corrige el país de un colaborador,
+ * le quedan overrides viejos apuntando a feriados del país anterior.
  *
  * Las fechas de Holiday y HolidayOverride son columnas DATE sin hora ni zona,
  * así que se comparan como texto en UTC. "Hoy", en cambio, se calcula en la
@@ -39,10 +39,14 @@ export function isHolidayEffective(args: HolidayEffectiveArgs): boolean {
   const { now, country, holidays, overrides, tz } = args;
   const today = localDateString(now, tz);
 
+  const byId = new Map(holidays.map(h => [h.id, h]));
   const movedIds = new Set(overrides.map(o => o.holidayId));
 
   for (const o of overrides) {
-    if (dateOnly(o.newDate) === today) return true;
+    if (dateOnly(o.newDate) !== today) continue;
+    // Un override huérfano (feriado borrado) no concede nada.
+    const h = byId.get(o.holidayId);
+    if (h && h.country === country) return true;
   }
 
   for (const h of holidays) {

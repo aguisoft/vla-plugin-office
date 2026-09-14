@@ -88,6 +88,27 @@ describe('isHolidayEffective', () => {
       tz: TZ,
     })).toBe(true);
   });
+
+  it('un override sobre el feriado de OTRO país no concede nada', () => {
+    // Pasa si RRHH corrige el país de alguien y le quedan overrides viejos.
+    expect(isHolidayEffective({
+      now: noon('2026-09-20T18:00:00Z'),
+      country: 'CR',
+      holidays: [niBattle],
+      overrides: [{ holidayId: 'h3', newDate: new Date('2026-09-20T00:00:00Z') }],
+      tz: TZ,
+    })).toBe(false);
+  });
+
+  it('un override huérfano, sin su feriado en la lista, no concede nada', () => {
+    expect(isHolidayEffective({
+      now: noon('2026-09-20T18:00:00Z'),
+      country: 'CR',
+      holidays: [],
+      overrides: [{ holidayId: 'borrado', newDate: new Date('2026-09-20T00:00:00Z') }],
+      tz: TZ,
+    })).toBe(false);
+  });
 });
 
 describe('movableHolidays', () => {
