@@ -4,6 +4,8 @@ import { LayoutService } from './services/layout.service';
 import { SnapshotService } from './services/snapshot.service';
 import { BitrixService } from './services/bitrix.service';
 import { AbsenceService } from './services/absence.service';
+import { OrgService } from './services/org.service';
+import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { DEFAULT_TZ } from './lib/local-date';
 
 const PERMS = {
@@ -51,6 +53,7 @@ const plugin: PluginDefinition = {
     const snapshot = new SnapshotService(ctx, bitrix);
     const absences = new AbsenceService(ctx);
     const tz = () => (ctx.plugin.config.TIMEZONE as string) || DEFAULT_TZ;
+    const org = new OrgService(ctx, () => (ctx.plugin.config.DEFAULT_COUNTRY as string) || 'CR');
 
     // Sync Bitrix photos + timeman on startup — delayed 5s to let hydrateConfig complete first
     setTimeout(async () => {
@@ -148,17 +151,31 @@ const plugin: PluginDefinition = {
       res.status(201).json({ id: result.id });
     });
 
-    // Solo las ausencias propias. La rama ?userId= con filtro de visibilidad
-    // llega en la Task 14, que es donde existe OrgService para resolver el jefe
-    // directo. Acá no hace falta filtrar: cada uno ve sus propias
-    // justificaciones siempre.
+    // Ausencias de uno mismo (por defecto) o de ?userId= si quien pregunta es
+    // su jefe directo o tiene office.manage. La justificación de PERMISO e
+    // INCAPACIDAD (datos médicos/personales) se omite del payload si no
+    // corresponde verla — nunca viaja vacía, el campo directamente no está.
     ctx.router.get('/absences', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
       const requesterId = (req as any).user?.sub;
       if (!requesterId) return res.status(401).json({ message: 'Unauthorized' });
 
+      const targetUserId = (req.query.userId as string) || requesterId;
+      const canSeeRestricted =
+        targetUserId === requesterId ||
+        can(req, PERMS.MANAGE) ||
+        await org.isManagerOf(requesterId, targetUserId);
+
       const from = req.query.from ? new Date(req.query.from as string) : undefined;
       const to = req.query.to ? new Date(req.query.to as string) : undefined;
-      res.json(await absences.listForUserDetailed(requesterId, from, to));
+      const rows = await absences.listForUserDetailed(targetUserId, from, to);
+
+      res.json(rows.map(a => {
+        if (RESTRICTED_ABSENCES.has(a.type) && !canSeeRestricted) {
+          const { justification, ...rest } = a;
+          return rest;
+        }
+        return a;
+      }));
     });
 
     ctx.router.delete('/absences/:id', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
@@ -250,6 +267,33 @@ const plugin: PluginDefinition = {
       res.json({ ok: true, ...result });
     });
 
+    // ── Organigrama (jefe directo, país) ───────────────────────────────────────
+
+    ctx.router.get('/org/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+      const { userId } = req.params;
+      res.json({
+        userId,
+        managerUserId: await org.managerOf(userId),
+        country: await org.countryOf(userId),
+      });
+    });
+
+    ctx.router.put('/org/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (req, res) => {
+      const { managerUserId, country } = req.body as { managerUserId?: string | null; country?: string | null };
+      if (managerUserId === req.params.userId) {
+        return res.status(400).json({ message: 'Nadie puede ser su propio jefe' });
+      }
+      await org.setOverride(req.params.userId, { managerUserId, country });
+      res.json({ ok: true });
+    });
+
+    // Diagnóstico: cuántos usuarios traen país/jefe de Bitrix (admin funcional).
+    // syncOrgStructure() nunca lanza — si Bitrix está inalcanzable devuelve
+    // { synced: 0, heads: 0, withCountry: 0 } y queda logueado como warning.
+    ctx.router.post('/org/sync', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (_req, res) => {
+      res.json(await bitrix.syncOrgStructure());
+    });
+
     // ── Layout ────────────────────────────────────────────────────────────────
 
     ctx.router.get('/layout', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (_req, res) => {
@@ -333,9 +377,13 @@ const plugin: PluginDefinition = {
       }
     });
 
-    // ── Cron: sincronizar fotos de Bitrix cada 6 horas ────────────────────────
+    // ── Cron: sincronizar fotos + organigrama de Bitrix cada 6 horas ──────────
+    // Cada sync va en su propio try/catch: syncOrgStructure() ya no lanza en
+    // ningún caso, pero syncPhotos() sí puede (mismo problema de red) — que
+    // falle una no debe impedir que corra la otra en el mismo tick.
     ctx.cron('0 */6 * * *', async () => {
-      await bitrix.syncPhotos();
+      try { await bitrix.syncPhotos(); } catch (e) { ctx.logger.warn(`Cron syncPhotos: ${e}`); }
+      try { await bitrix.syncOrgStructure(); } catch (e) { ctx.logger.warn(`Cron syncOrgStructure: ${e}`); }
     });
 
     // ── Helper: sync timeman → presence ───────────────────────────────────────
