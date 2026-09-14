@@ -14,10 +14,13 @@ import { JustificationModal } from './components/JustificationModal';
 import { TimeRangeModal } from './components/TimeRangeModal';
 import { DateRangeModal } from './components/DateRangeModal';
 import { PermisoModal } from './components/PermisoModal';
-import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant } from './types';
+import { ParticipantPicker } from './components/ParticipantPicker';
+import { MeetingInviteModal } from './components/MeetingInviteModal';
+import { Shell } from './components/modalParts';
+import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant, PendingInvite } from './types';
 import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
 import type { ResolvedStatus, PayloadKind } from './statusConfig';
-import { setStatus, createAbsence, ApiError } from './api';
+import { setStatus, createAbsence, listInvites, respondInvite, ApiError } from './api';
 import type { StatusPayload, StatusError } from './api';
 import { fmtDate, fmtTime } from './format';
 
@@ -44,9 +47,8 @@ export default function App() {
   const [pending, setPending]           = useState<PendingPick>(null);
   const [notice, setNotice]             = useState<string | null>(null);
   const [error, setError]               = useState<string | null>(null);
-  // Solo el setter: el Shell que lee esta lista lo agrega la Task 22 junto
-  // con el ParticipantPicker que la produce.
-  const [, setBlockedParticipants] = useState<UnavailableParticipant[] | null>(null);
+  const [blockedParticipants, setBlockedParticipants] = useState<UnavailableParticipant[] | null>(null);
+  const [invites, setInvites]           = useState<PendingInvite[]>([]);
 
   // ── Bootstrap: get current user then load data ─────────────────────────────
 
@@ -90,13 +92,47 @@ export default function App() {
     sseRef.current = es;
     es.onopen  = () => { setConnected(true); loadData(); };
     es.onerror = () => setConnected(false);
-    es.onmessage = () => {
+    es.onmessage = (event) => {
       api.get<UserSnapshot[]>('/p/office/snapshot')
         .then(data => setUsers(data))
         .catch(() => {});
+
+      // Eventos dirigidos de reunión. El refresh de arriba ya corrió para
+      // cualquier mensaje, así que un `msg.type` no reconocido (o el mensaje
+      // no siendo JSON parseable) no pierde nada más que estas dos ramas.
+      try {
+        const msg = JSON.parse(event.data) as { type?: string; meetingId?: string };
+        if (msg.type === 'meeting:invite') {
+          void listInvites().then(setInvites).catch(() => {});
+        }
+        if (msg.type === 'meeting:cancelled') {
+          setInvites(prev => prev.filter(i => i.meetingId !== msg.meetingId));
+          void loadData();
+        }
+      } catch { /* mensaje no parseable: nada más que hacer */ }
     };
     return () => { es.close(); setConnected(false); };
   }, [loadData]);
+
+  // ── Invitaciones a reunión ───────────────────────────────────────────────
+
+  // Se cargan también al montar, por si el usuario recargó la página con una
+  // invitación viva: el SSE de arriba solo entrega eventos nuevos.
+  useEffect(() => { void listInvites().then(setInvites).catch(() => {}); }, []);
+
+  async function handleRespond(id: string, action: 'accept' | 'decline') {
+    try {
+      await respondInvite(id, action);
+      // Si acepté, mi propio estado pasa a IN_MEETING_INTERNAL en el backend;
+      // recargar es lo que refleja eso en `myStatus` para esta sesión.
+      await loadData();
+    } catch (e) {
+      const detail = e instanceof ApiError ? (e.detail as { message?: string } | undefined) : undefined;
+      setError(detail?.message ?? 'No se pudo responder la invitación');
+    } finally {
+      setInvites(prev => prev.filter(i => i.id !== id));
+    }
+  }
 
   // ── Visibility: re-sync when user returns to tab ─────────────────────────
 
@@ -221,8 +257,15 @@ export default function App() {
           />
         );
       case 'participants':
-        // En reunión interna: la Task 22 agrega ParticipantPicker acá.
-        return null;
+        return (
+          <ParticipantPicker
+            users={users}
+            currentUserId={currentUser?.id ?? ''}
+            onClose={() => setPending(null)}
+            onConfirm={(ids, justification) =>
+              applyStatus({ status: pending.status, justification, participantIds: ids })}
+          />
+        );
       case 'holidayOverride':
         // Feriado: la Task 23 agrega HolidayOverrideModal acá.
         return null;
@@ -354,6 +397,26 @@ export default function App() {
         <BitrixSettings onClose={() => setShowBitrixSettings(false)} />
       )}
       {renderPendingModal()}
+
+      {invites[0] && (
+        <MeetingInviteModal invite={invites[0]} onRespond={handleRespond} />
+      )}
+
+      {blockedParticipants && (
+        <Shell title="No se puede invitar a esas personas" onClose={() => setBlockedParticipants(null)}>
+          <ul className="space-y-1.5 text-xs text-gray-700">
+            {blockedParticipants.map(p => (
+              <li key={p.userId} className="flex items-center gap-2">
+                <span>{cfgOf(p.reason).icon}</span>
+                <span className="font-medium">{p.name}</span>
+                <span className={cfgOf(p.reason).text}>
+                  {cfgOf(p.reason).label}{p.until && ` hasta ${fmtDate(p.until)}`}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Shell>
+      )}
 
       {notice && (
         <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-gray-800 px-4 py-2 text-xs font-medium text-white shadow-lg">
