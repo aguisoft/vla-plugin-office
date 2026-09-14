@@ -2258,6 +2258,25 @@ cd vla-system && docker compose up -d && npm run dev -w @vla/api
 cd vla-plugin-office && npm run dev
 ```
 
+**El plugin NO tiene recarga en caliente.** El core monta los plugins una sola vez
+en `onModuleInit()`: no hay watcher que recargue `dist/index.js`. O sea que
+`npm run dev` en el plugin compila e instala en
+`apps/api/storage/plugins/office/`, pero el proceso del API sigue ejecutando el
+código viejo en memoria.
+
+Así que el ciclo de cada tarea de esta fase es:
+
+```bash
+cd vla-plugin-office && npm run dev     # compila e instala
+# reiniciar el API para que cargue el dist nuevo:
+pkill -9 -f "nest start"
+cd vla-system && nohup npm run dev -w @vla/api > /tmp/api.log 2>&1 &
+# esperar a que levante (tarda varios minutos la primera compilacion):
+until curl -s -o /dev/null -m 3 localhost:3001/api/v1/auth/me; do sleep 8; done
+```
+
+**Si tus endpoints nuevos dan 404, es casi siempre esto y no un error del código.**
+
 **La autenticación es por cookie HttpOnly, no por bearer token.** El login
 responde solo `{"user":{...}}` y manda la sesión en `Set-Cookie: vla_token=...`.
 No existe ningún `accessToken` en el cuerpo, así que `-H "Authorization: Bearer"`
