@@ -1,14 +1,20 @@
 import { useState } from 'react';
-import { cfgOf, SELECTABLE, STATUS_CFG } from '../statusConfig';
+import { ABSENCE_GROUP, DAY_GROUP, STATUS_CFG, cfgOf } from '../statusConfig';
+import type { ResolvedStatus } from '../statusConfig';
 
-export function StatusSelector({ current, onChange, disabled, dropUp }: {
+export function StatusSelector({ current, onPick, disabled, dropUp }: {
   current: string;
-  onChange: (s: string) => void;
+  onPick: (s: ResolvedStatus) => void;
   disabled: boolean;
   dropUp?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const st = cfgOf(current);
+
+  const pick = (s: ResolvedStatus) => {
+    onPick(s);
+    setOpen(false);
+  };
 
   return (
     <div className="relative">
@@ -24,22 +30,41 @@ export function StatusSelector({ current, onChange, disabled, dropUp }: {
         </svg>
       </button>
       {open && (
-        <div className={`absolute ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'} right-0 w-44 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-40`}>
-          {SELECTABLE.map(s => {
-            const sc = STATUS_CFG[s];
-            return (
-              <button
-                key={s}
-                onClick={() => { onChange(s); setOpen(false); }}
-                className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-gray-50 transition-colors ${current === s ? 'bg-gray-50 font-semibold' : ''}`}
-              >
-                <span className={`w-2 h-2 rounded-full flex-shrink-0 ${sc.dot}`} />
-                <span className={sc.text}>{sc.label}</span>
-              </button>
-            );
-          })}
+        <div className={`absolute ${dropUp ? 'bottom-full mb-1' : 'top-full mt-1'} right-0 w-52 bg-white rounded-xl shadow-lg border border-gray-100 overflow-hidden z-40`}>
+          <Group title="Estado del día" items={DAY_GROUP} current={current} onPick={pick} />
+          <div className="border-t border-gray-100" />
+          <Group title="Ausencia" items={ABSENCE_GROUP} current={current} onPick={pick} />
         </div>
       )}
+    </div>
+  );
+}
+
+function Group({ title, items, current, onPick }: {
+  title: string;
+  items: ResolvedStatus[];
+  current: string;
+  onPick: (s: ResolvedStatus) => void;
+}) {
+  return (
+    <div>
+      <div className="px-3 pt-2 pb-1 text-[10px] font-semibold uppercase tracking-wide text-gray-400">
+        {title}
+      </div>
+      {items.map(s => {
+        const cfg = STATUS_CFG[s];
+        return (
+          <button
+            key={s}
+            onClick={() => onPick(s)}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 text-xs hover:bg-gray-50 transition-colors ${current === s ? 'bg-gray-50 font-semibold' : ''}`}
+          >
+            <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cfg.dot}`} />
+            <span className={cfg.text}>{cfg.label}</span>
+            {cfg.icon && <span className="ml-auto text-xs">{cfg.icon}</span>}
+          </button>
+        );
+      })}
     </div>
   );
 }

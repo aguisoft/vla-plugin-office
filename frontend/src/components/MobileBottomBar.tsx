@@ -1,6 +1,7 @@
 import { AvatarSVG } from './AvatarSVG';
 import { StatusSelector } from './StatusSelector';
 import type { UserSnapshot } from '../types';
+import type { ResolvedStatus } from '../statusConfig';
 
 interface MobileBottomBarProps {
   isCheckedIn: boolean;
@@ -9,14 +10,14 @@ interface MobileBottomBarProps {
   actionLoading: boolean;
   onCheckIn: () => void;
   onCheckOut: () => void;
-  onStatusChange: (status: string) => void;
+  onPick: (status: ResolvedStatus) => void;
   onOpenDrawer: () => void;
   onOpenAvatar: () => void;
 }
 
 export function MobileBottomBar({
   isCheckedIn, myStatus, myUser, actionLoading,
-  onCheckIn, onCheckOut, onStatusChange, onOpenDrawer, onOpenAvatar,
+  onCheckIn, onCheckOut, onPick, onOpenDrawer, onOpenAvatar,
 }: MobileBottomBarProps) {
   return (
     <div
@@ -28,7 +29,7 @@ export function MobileBottomBar({
         <div className={isCheckedIn ? '' : 'invisible pointer-events-none'}>
           <StatusSelector
             current={myStatus}
-            onChange={onStatusChange}
+            onPick={onPick}
             disabled={actionLoading}
             dropUp
           />

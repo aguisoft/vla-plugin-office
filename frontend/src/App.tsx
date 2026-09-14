@@ -10,10 +10,24 @@ import { Sidebar } from './components/Sidebar';
 import { BitrixSettings } from './components/BitrixSettings';
 import { MobileBottomBar } from './components/MobileBottomBar';
 import { ZoneListView } from './components/ZoneListView';
-import type { UserSnapshot, LayoutData, AvatarCfg } from './types';
-import { SELECTABLE, cfgOf } from './statusConfig';
+import { JustificationModal } from './components/JustificationModal';
+import { TimeRangeModal } from './components/TimeRangeModal';
+import { DateRangeModal } from './components/DateRangeModal';
+import { PermisoModal } from './components/PermisoModal';
+import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant } from './types';
+import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
+import type { ResolvedStatus, PayloadKind } from './statusConfig';
+import { setStatus, createAbsence, ApiError } from './api';
+import type { StatusPayload, StatusError } from './api';
 
 export const TILE = 20;
+
+type PendingPick = { status: ResolvedStatus; kind: PayloadKind } | null;
+
+/** Fecha corta en español, para las confirmaciones de ausencias agendadas. */
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('es', { day: 'numeric', month: 'short', year: 'numeric' });
+}
 
 export default function App() {
   const configMode = new URLSearchParams(window.location.search).get('config') === 'true';
@@ -31,6 +45,12 @@ export default function App() {
   const sseRef = useRef<EventSource | null>(null);
   const [viewMode, setViewMode]         = useState<'list' | 'map'>('list');
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
+  const [pending, setPending]           = useState<PendingPick>(null);
+  const [notice, setNotice]             = useState<string | null>(null);
+  const [error, setError]               = useState<string | null>(null);
+  // Solo el setter: el Shell que lee esta lista lo agrega la Task 22 junto
+  // con el ParticipantPicker que la produce.
+  const [, setBlockedParticipants] = useState<UnavailableParticipant[] | null>(null);
 
   // ── Bootstrap: get current user then load data ─────────────────────────────
 
@@ -114,13 +134,98 @@ export default function App() {
     } finally { setActionLoading(false); }
   }
 
-  async function handleStatusChange(status: string) {
-    await api.patch('/p/office/presence/status', { status });
-    setMyStatus(status);
-    setUsers(prev => prev.map(u =>
-      u.userId === currentUser?.id ? { ...u, status } : u
-    ));
-  }
+  const applyStatus = async (payload: StatusPayload) => {
+    setActionLoading(true);
+    try {
+      await setStatus(payload);
+      await loadData();
+    } catch (e) {
+      // La lista de ausentes se muestra como alerta clara, no como error genérico.
+      const detail = e instanceof ApiError ? (e.detail as StatusError | undefined) : undefined;
+      if (detail?.unavailable?.length) {
+        setBlockedParticipants(detail.unavailable);
+      } else {
+        setError(detail?.errors?.[0]?.message ?? detail?.message ?? 'No se pudo cambiar el estado');
+      }
+    } finally {
+      setActionLoading(false);
+      setPending(null);
+    }
+  };
+
+  const handlePick = (status: ResolvedStatus) => {
+    const kind = STATUS_CFG[status].payload;
+    if (kind === 'none') { void applyStatus({ status }); return; }
+    setPending({ status, kind });
+  };
+
+  const applyAbsence = async (body: { type: string; startAt: string; endAt: string; justification?: string }) => {
+    setActionLoading(true);
+    try {
+      await createAbsence(body);
+      await loadData();
+      // El selector hace dos cosas: los estados del día se aplican ya, las
+      // ausencias se agendan. Si empieza después de hoy el avatar no cambia
+      // todavía, así que hay que decirlo o la persona se queda esperando.
+      const starts = new Date(body.startAt);
+      const startsLater = starts > new Date();
+      setNotice(startsLater
+        ? `${cfgOf(body.type).label} registrada del ${fmtDate(body.startAt)} al ${fmtDate(body.endAt)}`
+        : `${cfgOf(body.type).label} aplicada`);
+    } catch (e) {
+      const detail = e instanceof ApiError ? (e.detail as StatusError | undefined) : undefined;
+      setError(detail?.errors?.[0]?.message ?? detail?.message ?? 'No se pudo registrar la ausencia');
+    } finally {
+      setActionLoading(false);
+      setPending(null);
+    }
+  };
+
+  const renderPendingModal = () => {
+    if (!pending) return null;
+    switch (pending.kind) {
+      case 'justification':
+        return (
+          <JustificationModal
+            status={pending.status}
+            onClose={() => setPending(null)}
+            onConfirm={justification => applyStatus({ status: pending.status, justification })}
+          />
+        );
+      case 'timeRange':
+        return (
+          <TimeRangeModal
+            onClose={() => setPending(null)}
+            onConfirm={(startsAt, endsAt) => applyStatus({ status: pending.status, startsAt, endsAt })}
+          />
+        );
+      case 'dateRange':
+        return (
+          <DateRangeModal
+            status={pending.status}
+            onClose={() => setPending(null)}
+            onConfirm={(startAt, endAt, justification) =>
+              applyAbsence({ type: pending.status, startAt, endAt, justification })}
+          />
+        );
+      case 'permiso':
+        return (
+          <PermisoModal
+            onClose={() => setPending(null)}
+            onConfirm={(startAt, endAt, justification) =>
+              applyAbsence({ type: pending.status, startAt, endAt, justification })}
+          />
+        );
+      case 'participants':
+        // En reunión interna: la Task 22 agrega ParticipantPicker acá.
+        return null;
+      case 'holidayOverride':
+        // Feriado: la Task 23 agrega HolidayOverrideModal acá.
+        return null;
+      default:
+        return null;
+    }
+  };
 
   async function handleSaveAvatar(cfg: Partial<AvatarCfg>) {
     await api.patch('/p/office/me/avatar', cfg);
@@ -219,7 +324,7 @@ export default function App() {
       )}
 
       {isCheckedIn && (
-        <StatusSelector current={myStatus} onChange={handleStatusChange} disabled={actionLoading} />
+        <StatusSelector current={myStatus} onPick={handlePick} disabled={actionLoading} />
       )}
 
       <button onClick={isCheckedIn ? handleCheckOut : handleCheckIn} disabled={actionLoading}
@@ -243,6 +348,20 @@ export default function App() {
       )}
       {showBitrixSettings && (
         <BitrixSettings onClose={() => setShowBitrixSettings(false)} />
+      )}
+      {renderPendingModal()}
+
+      {notice && (
+        <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-gray-800 px-4 py-2 text-xs font-medium text-white shadow-lg">
+          {notice}
+          <button onClick={() => setNotice(null)} className="text-gray-400 hover:text-white">✕</button>
+        </div>
+      )}
+      {error && (
+        <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-red-500 px-4 py-2 text-xs font-medium text-white shadow-lg">
+          {error}
+          <button onClick={() => setError(null)} className="text-red-100 hover:text-white">✕</button>
+        </div>
       )}
 
       <PluginShell title="Oficina Virtual" subtitle={officeSubtitle} headerActions={officeActions} user={officeUser}>
@@ -367,7 +486,7 @@ export default function App() {
             actionLoading={actionLoading}
             onCheckIn={handleCheckIn}
             onCheckOut={handleCheckOut}
-            onStatusChange={handleStatusChange}
+            onPick={handlePick}
             onOpenDrawer={() => setIsDrawerOpen(true)}
             onOpenAvatar={() => setShowAvatarModal(true)}
           />
