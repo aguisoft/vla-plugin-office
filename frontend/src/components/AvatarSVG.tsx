@@ -19,19 +19,9 @@ export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true
 
   // Reset failure state whenever photoUrl changes (e.g. toggle photo/avatar)
   useEffect(() => { setPhotoFailed(false); }, [photoUrl]);
-  const dot   = cfgOf(status).dot;
   const s     = size;
 
-  const dotColors: Record<string, string> = {
-    'bg-green-400':  '#4ade80',
-    'bg-red-400':    '#f87171',
-    'bg-purple-400': '#c084fc',
-    'bg-blue-400':   '#60a5fa',
-    'bg-orange-400': '#fb923c',
-    'bg-yellow-400': '#facc15',
-    'bg-gray-300':   '#d1d5db',
-  };
-  const dotColor = dotColors[dot] ?? '#d1d5db';
+  const dotColor = cfgOf(status).color;
   const dotR = s * 0.11;
   const dotCx = s - dotR - 1;
   const dotCy = s - dotR - 1;
