@@ -16,11 +16,13 @@ import { DateRangeModal } from './components/DateRangeModal';
 import { PermisoModal } from './components/PermisoModal';
 import { ParticipantPicker } from './components/ParticipantPicker';
 import { MeetingInviteModal } from './components/MeetingInviteModal';
+import { HolidayOverrideModal } from './components/HolidayOverrideModal';
+import { HolidayAdminPanel } from './components/HolidayAdminPanel';
 import { Shell } from './components/modalParts';
 import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant, PendingInvite } from './types';
 import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
 import type { ResolvedStatus, PayloadKind } from './statusConfig';
-import { setStatus, createAbsence, listInvites, respondInvite, ApiError } from './api';
+import { setStatus, createAbsence, listInvites, respondInvite, setHolidayOverride, ApiError } from './api';
 import type { StatusPayload, StatusError } from './api';
 import { fmtDate, fmtTime } from './format';
 
@@ -30,7 +32,7 @@ type PendingPick = { status: ResolvedStatus; kind: PayloadKind } | null;
 
 export default function App() {
   const configMode = new URLSearchParams(window.location.search).get('config') === 'true';
-  const [currentUser, setCurrentUser]     = useState<{ id: string; role: string } | null>(null);
+  const [currentUser, setCurrentUser]     = useState<{ id: string; role: string; permissions: string[] } | null>(null);
   const [layout, setLayout]               = useState<LayoutData | null>(null);
   const [users, setUsers]                 = useState<UserSnapshot[]>([]);
   const [loading, setLoading]             = useState(true);
@@ -40,6 +42,7 @@ export default function App() {
   const [myStatus, setMyStatus]           = useState('OFFLINE');
   const [showAvatarModal, setShowAvatarModal]       = useState(false);
   const [showBitrixSettings, setShowBitrixSettings] = useState(false);
+  const [showHolidayAdmin, setShowHolidayAdmin]     = useState(false);
   const [usePhotos, setUsePhotos] = useState(() => localStorage.getItem('vla-use-photos') !== 'false');
   const sseRef = useRef<EventSource | null>(null);
   const [viewMode, setViewMode]         = useState<'list' | 'map'>('list');
@@ -53,7 +56,7 @@ export default function App() {
   // ── Bootstrap: get current user then load data ─────────────────────────────
 
   useEffect(() => {
-    api.get<{ id: string; role: string }>('/auth/me')
+    api.get<{ id: string; role: string; permissions: string[] }>('/auth/me')
       .then(u => setCurrentUser(u))
       .catch(() => {
         window.location.href = '/login';
@@ -221,6 +224,24 @@ export default function App() {
     }
   };
 
+  const applyHolidayOverride = async (holidayId: string, newDate: string, justification: string) => {
+    setActionLoading(true);
+    try {
+      await setHolidayOverride(holidayId, { newDate, justification });
+      await loadData();
+      setNotice(`Feriado movido al ${fmtDate(newDate)}`);
+    } catch (e) {
+      // Mismo patrón que applyAbsence: el 400 de mes-distinto ya lo frena el
+      // DateField (min/max), así que lo que llega acá suele ser un choque de
+      // concurrencia (alguien más lo movió primero) o un error genérico.
+      const detail = e instanceof ApiError ? (e.detail as StatusError | undefined) : undefined;
+      setError(detail?.errors?.[0]?.message ?? detail?.message ?? 'No se pudo mover el feriado');
+    } finally {
+      setActionLoading(false);
+      setPending(null);
+    }
+  };
+
   const renderPendingModal = () => {
     if (!pending) return null;
     switch (pending.kind) {
@@ -267,8 +288,12 @@ export default function App() {
           />
         );
       case 'holidayOverride':
-        // Feriado: la Task 23 agrega HolidayOverrideModal acá.
-        return null;
+        return (
+          <HolidayOverrideModal
+            onClose={() => setPending(null)}
+            onConfirm={applyHolidayOverride}
+          />
+        );
       default:
         return null;
     }
@@ -340,6 +365,11 @@ export default function App() {
 
   const officeUser = { id: currentUser?.id ?? '', firstName: myUser?.firstName ?? '', lastName: myUser?.lastName ?? '', role: currentUser?.role ?? '', email: '', permissions: [] };
 
+  // Gating de `office.manage`, no de rol: a diferencia del botón de Bitrix24
+  // (que solo mira `role === 'ADMIN'`), el calendario de feriados lo puede
+  // administrar cualquier rol al que se le haya otorgado el permiso.
+  const canManageHolidays = currentUser?.permissions?.includes('office.manage') ?? false;
+
   const officeActions = (
     <div className="hidden md:flex items-center gap-2">
       <span className="flex items-center gap-1.5 text-[10px] text-gray-400">
@@ -356,6 +386,17 @@ export default function App() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
           Bitrix24
+        </button>
+      )}
+
+      {canManageHolidays && (
+        <button onClick={() => setShowHolidayAdmin(true)}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] text-gray-500 hover:bg-gray-100 transition-colors"
+          title="Administrar feriados">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          Feriados
         </button>
       )}
 
@@ -395,6 +436,9 @@ export default function App() {
       )}
       {showBitrixSettings && (
         <BitrixSettings onClose={() => setShowBitrixSettings(false)} />
+      )}
+      {showHolidayAdmin && canManageHolidays && (
+        <HolidayAdminPanel onClose={() => setShowHolidayAdmin(false)} />
       )}
       {renderPendingModal()}
 
