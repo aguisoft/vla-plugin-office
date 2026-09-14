@@ -3549,7 +3549,12 @@ En `src/index.ts`, el bloque de las líneas 79-83 pasa a:
       //    del host seguiría diciendo "Con Beto" después de que Beto se fue.
       const before = await ctx.prisma.presenceStatus.findUnique({ where: { userId } });
       const previousMeetingId = (before as any)?.meetingId ?? null;
-      if (previousMeetingId && status !== 'IN_MEETING_INTERNAL') {
+      // Sin condicion sobre el estado nuevo: un invitado que acepto y ahora
+      // arma SU PROPIA reunion interna tambien tiene que soltar la fila vieja.
+      // Para un anfitrion la llamada es no-op garantizado, porque leave() solo
+      // matchea inviteeId === userId y `participantIds` excluye al propio host,
+      // asi que nadie tiene fila de invitado en su propia reunion.
+      if (previousMeetingId) {
         await meetings.leave(userId, previousMeetingId);
       }
 
