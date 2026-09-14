@@ -10,6 +10,17 @@ export type CreateResult =
   | { ok: false; errors: ValidationError[] }
   | { ok: false; conflict: AbsenceWindow };
 
+/**
+ * AbsenceWindow + identidad. El uso interno (solape, resolver de estado,
+ * blindaje del cron) no necesita id/userId; la respuesta HTTP de GET
+ * /absences sí, porque el frontend (Absence en frontend/src/types.ts) los
+ * necesita para poder borrar lo que lista.
+ */
+export interface AbsenceRecord extends AbsenceWindow {
+  id: string;
+  userId: string;
+}
+
 export class AbsenceService {
   constructor(private readonly ctx: PluginContext) {}
 
@@ -62,6 +73,23 @@ export class AbsenceService {
   }
 
   /**
+   * Igual que listForUser, pero para la respuesta HTTP de GET /absences:
+   * incluye id y userId (que el frontend necesita para poder borrar).
+   */
+  async listForUserDetailed(userId: string, from?: Date, to?: Date): Promise<AbsenceRecord[]> {
+    const where: any = { userId };
+    if (from && to) {
+      where.startAt = { lte: to };
+      where.endAt = { gte: from };
+    }
+    const rows = await this.ctx.prisma.absenceRecord.findMany({
+      where,
+      orderBy: { startAt: 'asc' },
+    });
+    return (rows as any[]).map(toRecord);
+  }
+
+  /**
    * Ausencia activa de cada usuario en un solo query.
    * El snapshot y el blindaje del cron lo usan para no pegarle a la base una
    * vez por usuario.
@@ -94,4 +122,8 @@ function toWindow(r: any): AbsenceWindow {
     endAt: r.endAt,
     justification: r.justification ?? null,
   };
+}
+
+function toRecord(r: any): AbsenceRecord {
+  return { id: r.id, userId: r.userId, ...toWindow(r) };
 }

@@ -158,7 +158,7 @@ const plugin: PluginDefinition = {
 
       const from = req.query.from ? new Date(req.query.from as string) : undefined;
       const to = req.query.to ? new Date(req.query.to as string) : undefined;
-      res.json(await absences.listForUser(requesterId, from, to));
+      res.json(await absences.listForUserDetailed(requesterId, from, to));
     });
 
     ctx.router.delete('/absences/:id', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
