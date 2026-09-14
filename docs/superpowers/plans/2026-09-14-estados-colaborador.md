@@ -4021,8 +4021,15 @@ Los colores están duplicados en tres archivos: `STATUS_CFG` en `App.tsx`, `STAT
 - Modify: `frontend/src/App.tsx` (quita `STATUS_CFG` y `STATUSES`)
 - Modify: `frontend/src/components/ZoneTile.tsx` (quita `STATUS_RING`)
 - Modify: `frontend/src/components/ZoneListView.tsx` (quita `STATUS_RING`)
-- Modify: `frontend/src/components/StatusSelector.tsx` (cambia el import)
-- Modify: `frontend/src/components/HoverCard.tsx` (cambia el import)
+- Modify: `frontend/src/components/StatusSelector.tsx` (cambia el import; además usa
+  `st.color` como clase de texto en dos puntos — pasa a `st.text`)
+- Modify: `frontend/src/components/HoverCard.tsx` (cambia el import; `st.color` → `st.text`)
+- Modify: `frontend/src/components/AvatarSVG.tsx` (indexa `STATUS_CFG` directo)
+- Modify: `frontend/src/components/Sidebar.tsx` (indexa `STATUS_CFG` directo y usa
+  `st.color` como clase de texto)
+
+Son **siete** archivos, no cinco. `git grep -l 'STATUS_CFG\|STATUS_RING' -- frontend/src`
+los lista todos: al sacar `STATUS_CFG` de `App.tsx`, los siete se rompen.
 
 **Interfaces:**
 - Consumes: nada
@@ -4219,6 +4226,17 @@ export interface UnavailableParticipant {
 ```
 
 - [ ] **Step 2: Agregar las llamadas en `api.ts`**
+
+**Antes de escribir nada, leer `frontend/src/api.ts`.** Son 18 líneas: un
+`request<T>(method, path, body)` privado y un objeto `api` con `get`, `post` y
+`patch`. Los helpers `apiFetch` / `postJson` / `getJson` / `putJson` / `del` que
+aparecen abajo **no existen** — usar el objeto `api`, que es el estilo de la casa.
+
+Y todo path del plugin lleva el prefijo **`/p/office`**: `api.get('/absences')`
+pega a `/api/v1/absences` y da 404. Definir `const PLUGIN = '/p/office'` y
+componer con eso, igual que `/p/office/snapshot` y `/p/office/layout`, que es
+como llama el resto del frontend.
+
 
 Siguiendo el estilo del archivo (mismo helper de fetch y de manejo de error):
 
