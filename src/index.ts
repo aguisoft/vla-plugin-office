@@ -3,12 +3,24 @@ import { PresenceService } from './services/presence.service';
 import { LayoutService } from './services/layout.service';
 import { SnapshotService } from './services/snapshot.service';
 import { BitrixService } from './services/bitrix.service';
+import { AbsenceService } from './services/absence.service';
+import { DEFAULT_TZ } from './lib/local-date';
 
 const PERMS = {
   VIEW:     'office.view',
   CHECKIN:  'office.checkin',
   MANAGE:   'office.manage',
 } as const;
+
+/**
+ * Los permisos ya vienen resueltos en el request (req.user.permissions);
+ * el SDK no expone un chequeo imperativo, así que este helper es el único
+ * punto donde se decide "puede o no puede" fuera de ctx.requirePermission.
+ */
+function can(req: any, permission: string): boolean {
+  if (req.user?.role === 'ADMIN') return true;
+  return (req.user?.permissions ?? []).includes(permission);
+}
 
 const plugin: PluginDefinition = {
   async register(ctx) {
@@ -37,6 +49,8 @@ const plugin: PluginDefinition = {
     const layout   = new LayoutService(ctx);
     const bitrix   = new BitrixService(ctx);
     const snapshot = new SnapshotService(ctx, bitrix);
+    const absences = new AbsenceService(ctx);
+    const tz = () => (ctx.plugin.config.TIMEZONE as string) || DEFAULT_TZ;
 
     // Sync Bitrix photos + timeman on startup — delayed 5s to let hydrateConfig complete first
     setTimeout(async () => {
@@ -109,6 +123,51 @@ const plugin: PluginDefinition = {
           ctx.logger.log(`timeman.close bitrixId=${bid} → ${ok ? 'OK' : 'FAIL'}`));
       }).catch(e => ctx.logger.warn(`timeman.close lookup error: ${e}`));
       res.json({ ok: true });
+    });
+
+    // ── Ausencias (permiso, vacaciones, incapacidad) ───────────────────────────
+
+    ctx.router.post('/absences', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
+      const requesterId = (req as any).user?.sub;
+      if (!requesterId) return res.status(401).json({ message: 'Unauthorized' });
+
+      // Registrar por otra persona exige office.manage
+      const targetUserId = (req.body.userId as string) || requesterId;
+      if (targetUserId !== requesterId && !can(req, PERMS.MANAGE)) {
+        return res.status(403).json({ message: 'Solo office.manage puede registrar ausencias de otros' });
+      }
+
+      const result = await absences.create(targetUserId, req.body, requesterId, tz());
+      if ('errors' in result) return res.status(400).json({ message: 'Datos inválidos', errors: result.errors });
+      if ('conflict' in result) {
+        return res.status(409).json({
+          message: 'Ya hay una ausencia registrada en ese rango',
+          conflict: result.conflict,
+        });
+      }
+      res.status(201).json({ id: result.id });
+    });
+
+    // Solo las ausencias propias. La rama ?userId= con filtro de visibilidad
+    // llega en la Task 14, que es donde existe OrgService para resolver el jefe
+    // directo. Acá no hace falta filtrar: cada uno ve sus propias
+    // justificaciones siempre.
+    ctx.router.get('/absences', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+      const requesterId = (req as any).user?.sub;
+      if (!requesterId) return res.status(401).json({ message: 'Unauthorized' });
+
+      const from = req.query.from ? new Date(req.query.from as string) : undefined;
+      const to = req.query.to ? new Date(req.query.to as string) : undefined;
+      res.json(await absences.listForUser(requesterId, from, to));
+    });
+
+    ctx.router.delete('/absences/:id', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
+      const requesterId = (req as any).user?.sub;
+      if (!requesterId) return res.status(401).json({ message: 'Unauthorized' });
+      const canManage = can(req, PERMS.MANAGE);
+      const done = await absences.remove(req.params.id, requesterId, canManage);
+      if (!done) return res.status(404).json({ message: 'Ausencia no encontrada' });
+      res.status(204).end();
     });
 
     // ── Snapshot (users + presence + avatars + bitrix photos) ─────────────────
@@ -247,6 +306,10 @@ const plugin: PluginDefinition = {
     ctx.hooks.declareHook('office.user.moved', {
       description: 'Un usuario se movió a otra zona del layout',
       payload: { userId: 'string', zoneId: 'string', x: 'number', y: 'number' },
+    });
+    ctx.hooks.declareHook('office.absence.created', {
+      description: 'Se registró una ausencia (permiso, vacaciones o incapacidad)',
+      payload: { userId: 'string', type: 'PERMISO | VACACIONES | INCAPACIDAD', startAt: 'Date', endAt: 'Date' },
     });
 
     // ── Cron: auto-checkout por inactividad (>8h) ─────────────────────────────

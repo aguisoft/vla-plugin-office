@@ -30,7 +30,8 @@
       "office.user.checked_in",
       "office.user.checked_out",
       "office.user.status_changed",
-      "office.user.moved"
+      "office.user.moved",
+      "office.absence.created"
     ]
   }
 }
