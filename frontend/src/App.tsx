@@ -340,7 +340,7 @@ export default function App() {
                       No hay un layout de oficina configurado.
                     </div>
                   ) : (
-                    <ZoneListView zones={zones} zoneUsersMap={zoneUsersMap} usePhotos={usePhotos} />
+                    <ZoneListView zones={zones} zoneUsersMap={zoneUsersMap} usePhotos={usePhotos} active={viewMode === 'list'} />
                   )}
                 </div>
 

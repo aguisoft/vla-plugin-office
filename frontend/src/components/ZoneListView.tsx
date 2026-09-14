@@ -1,4 +1,6 @@
+import { useState, useCallback, useEffect } from 'react';
 import { AvatarSVG } from './AvatarSVG';
+import { HoverCard } from './HoverCard';
 import type { Zone, UserSnapshot } from '../types';
 
 const STATUS_RING: Record<string, string> = {
@@ -10,11 +12,28 @@ const STATUS_RING: Record<string, string> = {
   BRB:        '#facc15',
 };
 
-export function ZoneListView({ zones, zoneUsersMap, usePhotos }: {
+export function ZoneListView({ zones, zoneUsersMap, usePhotos, active }: {
   zones: Zone[];
   zoneUsersMap: Map<string, UserSnapshot[]>;
   usePhotos?: boolean;
+  active?: boolean;
 }) {
+  const [selectedUser, setSelectedUser] = useState<{ userId: string; zoneName: string; rect: DOMRect } | null>(null);
+
+  useEffect(() => {
+    if (!active) setSelectedUser(null);
+  }, [active]);
+
+  const handleAvatarClick = useCallback((u: UserSnapshot, zoneName: string, el: HTMLElement) => {
+    const rect = el.getBoundingClientRect();
+    setSelectedUser(prev =>
+      prev?.userId === u.userId ? null : { userId: u.userId, zoneName, rect }
+    );
+  }, []);
+
+  const allUsers = Array.from(zoneUsersMap.values()).flat();
+  const selectedUserData = selectedUser ? allUsers.find(u => u.userId === selectedUser.userId) : null;
+
   const zoneCards = zones
     .map(zone => ({
       zone,
@@ -24,7 +43,7 @@ export function ZoneListView({ zones, zoneUsersMap, usePhotos }: {
     .sort((a, b) => b.online.length - a.online.length);
 
   return (
-    <div className="flex flex-col gap-3 p-4">
+    <div className="flex flex-col gap-3 p-4" onClick={() => setSelectedUser(null)}>
       {zoneCards.map(({ zone, users, online }) => (
         <div
           key={zone.id}
@@ -51,9 +70,27 @@ export function ZoneListView({ zones, zoneUsersMap, usePhotos }: {
             <div className="flex flex-wrap gap-3">
               {users.map(u => {
                 const ringColor = u.isCheckedIn ? (STATUS_RING[u.status] ?? '#4ade80') : undefined;
+                const isSelected = selectedUser?.userId === u.userId;
                 return (
-                  <div key={u.userId} className="flex flex-col items-center gap-0.5 flex-shrink-0" style={{ width: 44 }}>
-                    <div className="relative flex-shrink-0" style={{ width: 36, height: 36 }}>
+                  <div
+                    key={u.userId}
+                    className="flex flex-col items-center gap-0.5 flex-shrink-0 cursor-pointer"
+                    style={{ width: 44 }}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleAvatarClick(u, zone.name, e.currentTarget as HTMLElement);
+                    }}
+                  >
+                    <div
+                      className="relative flex-shrink-0"
+                      style={{
+                        width: 36,
+                        height: 36,
+                        outline: isSelected ? '2px solid #6366f1' : 'none',
+                        outlineOffset: 2,
+                        borderRadius: '50%',
+                      }}
+                    >
                       {u.isCheckedIn && u.status === 'AVAILABLE' && (
                         <span
                           className="absolute inset-0 rounded-full animate-ping pointer-events-none"
@@ -104,6 +141,14 @@ export function ZoneListView({ zones, zoneUsersMap, usePhotos }: {
           )}
         </div>
       ))}
+
+      {selectedUserData && selectedUser && (
+        <HoverCard
+          user={selectedUserData}
+          zoneName={selectedUser.zoneName}
+          anchorRect={selectedUser.rect}
+        />
+      )}
     </div>
   );
 }
