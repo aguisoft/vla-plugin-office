@@ -155,7 +155,7 @@ const plugin: PluginDefinition = {
       //    del host seguiría diciendo "Con Beto" después de que Beto se fue.
       const before = await ctx.prisma.presenceStatus.findUnique({ where: { userId } });
       const previousMeetingId = (before as any)?.meetingId ?? null;
-      if (previousMeetingId && status !== 'IN_MEETING_INTERNAL') {
+      if (previousMeetingId) {
         await meetings.leave(userId, previousMeetingId);
       }
 
