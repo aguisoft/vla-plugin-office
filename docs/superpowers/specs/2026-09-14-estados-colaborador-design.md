@@ -198,8 +198,18 @@ model BitrixUserMapping {
 
 ### Modelos nuevos y el cliente Prisma del plugin
 
-`ctx.prisma` es un `PluginPrismaClient` restringido: solo expone los modelos que
-el plugin declaró. Los cinco modelos nuevos (`AbsenceRecord`, `Holiday`,
+`ctx.prisma` **no** es un cliente restringido, pese a lo que sugiere su nombre.
+`PluginPrismaClient` está declarado como `type PluginPrismaClient = any` con el
+comentario "En runtime se valida según permisos", pero **esa validación no existe**:
+`plugin-context.factory.ts` entrega el `PrismaService` completo, sin filtro alguno
+por los permisos declarados. Verificado en el código, no inferido.
+
+O sea que los permisos de base de datos de `plugin.json` son **documentación de
+intención, no control de acceso**: cualquier plugin instalado puede leer y escribir
+cualquier tabla. Declararlos igual vale —dejan explícito qué toca este plugin y el
+día que el core implemente el filtro ya están—, pero no hay que confiar en ellos
+como barrera. Es una brecha de la plataforma, ajena a esta feature; queda anotada
+para el equipo del core. Los cinco modelos nuevos (`AbsenceRecord`, `Holiday`,
 `HolidayOverride`, `MeetingInvite`, `UserProfileOverride`) hay que exponerlos en
 los tipos del SDK y mapearlos a permisos nuevos:
 

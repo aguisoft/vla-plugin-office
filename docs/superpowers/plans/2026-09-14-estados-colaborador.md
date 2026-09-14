@@ -232,7 +232,7 @@ Postgres no permite quitar valores de un enum en caliente. `apps/api/package.jso
 La migración pierde qué filas eran `BUSY` y eso no se puede recuperar con el rollback.
 
 ```bash
-docker compose exec -T postgres pg_dump -U postgres -d vla \
+docker exec -i vla_postgres pg_dump -U vla_user -d vla_db \
   --table='virtual_office."PresenceStatus"' --data-only \
   > /tmp/presence-status-backup-$(date +%Y%m%d).sql
 wc -l /tmp/presence-status-backup-*.sql
@@ -241,7 +241,7 @@ wc -l /tmp/presence-status-backup-*.sql
 - [ ] **Step 2: Contar las filas que van a cambiar**
 
 ```bash
-docker compose exec -T postgres psql -U postgres -d vla -c \
+docker exec -i vla_postgres psql -U vla_user -d vla_db -c \
   "SELECT status, count(*) FROM virtual_office.\"PresenceStatus\" GROUP BY status ORDER BY 2 DESC;"
 ```
 
@@ -342,9 +342,9 @@ npx prisma generate
 Verificar que el conteo del Step 2 cuadre:
 
 ```bash
-docker compose exec -T postgres psql -U postgres -d vla -c \
+docker exec -i vla_postgres psql -U vla_user -d vla_db -c \
   "SELECT unnest(enum_range(NULL::virtual_office.\"OfficeStatus\"));"
-docker compose exec -T postgres psql -U postgres -d vla -c \
+docker exec -i vla_postgres psql -U vla_user -d vla_db -c \
   "SELECT status, count(*) FROM virtual_office.\"PresenceStatus\" GROUP BY status;"
 ```
 
@@ -355,7 +355,7 @@ Expected: 7 valores, ninguno `BUSY` ni `IN_MEETING`. El conteo de `AVAILABLE` su
 Es el error clásico de este tipo de migración: la columna queda sin default y las filas nuevas fallan.
 
 ```bash
-docker compose exec -T postgres psql -U postgres -d vla -c \
+docker exec -i vla_postgres psql -U vla_user -d vla_db -c \
   "SELECT column_default FROM information_schema.columns
     WHERE table_schema='virtual_office' AND table_name='PresenceStatus'
       AND column_name='status';"
@@ -512,11 +512,18 @@ Prisma exige el otro lado de cada relación. Dentro de `model User`, junto a las
 
 ```bash
 cd vla-system/apps/api
+# NO uses --from-migrations en este proyecto: con multiSchema activo genera
+# 300+ lineas que hacen DROP de todas las tablas y tipos y los recrean.
+# Verificado tres veces con shadow databases reales. Contra una base con datos,
+# los destruye. Usa la comparacion estatica de dos archivos de schema:
+git show HEAD:apps/api/prisma/schema.prisma > /tmp/schema-antes.prisma
 npx prisma migrate diff \
-  --from-migrations prisma/migrations \
+  --from-schema-datamodel /tmp/schema-antes.prisma \
   --to-schema-datamodel prisma/schema.prisma \
-  --shadow-database-url "$SHADOW_DATABASE_URL" \
   --script
+# INSPECCIONA la salida antes de aplicarla: debe traer solo CREATE TYPE,
+# CREATE TABLE, CREATE INDEX y ALTER TABLE ... ADD COLUMN. Si aparece un DROP,
+# para: el comando salio mal y aplicarlo pierde datos.
 ```
 
 Pegar la salida al final de `20260914120000_office_states_redesign/migration.sql`, bajo un comentario `-- 3. Tablas y columnas nuevas`.
@@ -554,7 +561,7 @@ ALTER TABLE virtual_office."BitrixUserMapping"
 cd vla-system/apps/api
 npx prisma migrate deploy
 npx prisma generate
-docker compose exec -T postgres psql -U postgres -d vla -c "\dt virtual_office.*"
+docker exec -i vla_postgres psql -U vla_user -d vla_db -c "\dt virtual_office.*"
 ```
 
 Expected: aparecen `AbsenceRecord`, `Holiday`, `HolidayOverride`, `MeetingInvite`, `UserProfileOverride`.
@@ -2256,7 +2263,7 @@ El token de las pruebas sale del login del seed:
 ```bash
 TOKEN=$(curl -s -X POST localhost:3001/api/v1/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"email":"admin@vla.com","password":"admin123"}' | jq -r .accessToken)
+  -d '{"email":"josue@vla.com","password":"admin123"}' | jq -r .accessToken)
 echo "${TOKEN:0:20}..."
 ```
 
@@ -3394,13 +3401,10 @@ En `src/index.ts`, donde se registra el endpoint de SSE, pasar el `userId` a `su
       });
     }
 
-    ctx.router.post('/meetings/:meetingId/leave', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
-      const userId = (req as any).user?.sub;
-      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-      await meetings.leave(userId, req.params.meetingId);
-      await presence.updateStatus(userId, 'AVAILABLE', { justification: null, meetingId: null });
-      res.json({ ok: true });
-    });
+    // NO hay endpoint /leave. La salida voluntaria del invitado es simplemente
+    // cambiar de estado con el selector, y el PATCH /presence/status de la Task 16
+    // se encarga de cerrar su fila de MeetingInvite. Un endpoint aparte seria
+    // saltable y exigiria una UI que el spec no pide.
 ```
 
 Y el helper de mensajes, junto a las demás funciones del archivo:
@@ -3493,9 +3497,23 @@ En `src/index.ts`, el bloque de las líneas 79-83 pasa a:
       }
 
       // ── Salir de la reunión anterior si había una ──
+      // Dos casos distintos y los dos hacen falta.
+      //
+      // 1. El host cambia de estado: se cancelan sus invitaciones y los que
+      //    habían aceptado vuelven a AVAILABLE.
       const returning = await meetings.cancelMeetingsHostedBy(userId);
       for (const participantId of returning) {
         await presence.updateStatus(participantId, 'AVAILABLE');
+      }
+
+      // 2. Un INVITADO que había aceptado cambia de estado por su cuenta. Sin
+      //    esto su fila de MeetingInvite queda en ACCEPTED, y como el snapshot
+      //    arma `meetingWith` leyendo justamente las filas ACCEPTED, la tarjeta
+      //    del host seguiría diciendo "Con Beto" después de que Beto se fue.
+      const before = await ctx.prisma.presenceStatus.findUnique({ where: { userId } });
+      const previousMeetingId = (before as any)?.meetingId ?? null;
+      if (previousMeetingId && status !== 'IN_MEETING_INTERNAL') {
+        await meetings.leave(userId, previousMeetingId);
       }
 
       let meetingId: string | null = null;
@@ -4167,7 +4185,7 @@ git commit -m "refactor(ui): unify status config, drop three duplicated color ma
 
 **Interfaces:**
 - Consumes: la forma de `UserSnapshot` de la Task 17
-- Produces: `UserSnapshot` con los campos nuevos; funciones `setStatus`, `createAbsence`, `listAbsences`, `deleteAbsence`, `listHolidays`, `listMovableHolidays`, `createHoliday`, `deleteHoliday`, `setHolidayOverride`, `listInvites`, `respondInvite`, `leaveMeeting`, `getOrg`, `setOrg`
+- Produces: `UserSnapshot` con los campos nuevos; funciones `setStatus`, `createAbsence`, `listAbsences`, `deleteAbsence`, `listHolidays`, `listMovableHolidays`, `createHoliday`, `deleteHoliday`, `setHolidayOverride`, `listInvites`, `respondInvite`, `getOrg`, `setOrg`
 
 - [ ] **Step 1: Ampliar `UserSnapshot` en `types.ts`**
 
@@ -4290,8 +4308,6 @@ export const listInvites = () => getJson<PendingInvite[]>('/meetings/invites');
 
 export const respondInvite = (id: string, action: 'accept' | 'decline') =>
   postJson(`/meetings/invites/${id}/${action}`, {});
-
-export const leaveMeeting = (meetingId: string) => postJson(`/meetings/${meetingId}/leave`, {});
 
 export const getOrg = (userId: string) =>
   getJson<{ userId: string; managerUserId: string | null; country: string }>(`/org/${userId}`);
