@@ -9,6 +9,7 @@ import { HolidayService } from './services/holiday.service';
 import { MeetingService } from './services/meeting.service';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { DEFAULT_TZ } from './lib/local-date';
+import { validateStatusInput, type StatusInput, type OfficeStatus } from './lib/status-rules';
 
 const PERMS = {
   VIEW:     'office.view',
@@ -98,15 +99,80 @@ const plugin: PluginDefinition = {
       res.json(record);
     });
 
-    // NOTA: este endpoint sin validación lo reemplaza la Task 16 (payload
-    // completo, permiso office.checkin, invitaciones a reunión). Se deja acá
-    // solo lo mínimo para que compile con la nueva firma de updateStatus:
-    // statusMessage pasa a justification, que es lo que la reemplaza.
-    ctx.router.patch('/presence/status', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
-      const { status, statusMessage } = req.body as { status: string; statusMessage?: string };
+    ctx.router.patch('/presence/status', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-      res.json(await presence.updateStatus(userId as any, status as any, { justification: statusMessage ?? null }));
+
+      const body = req.body as StatusInput;
+
+      const errors = validateStatusInput(body, tz());
+      if (errors.length) {
+        return res.status(400).json({ message: 'Datos inválidos', errors });
+      }
+      const status = body.status as OfficeStatus;
+
+      // ── Participantes: el host no se incluye y nadie puede estar ausente ──
+      const participantIds = (body.participantIds ?? []).filter(id => id !== userId);
+      if (participantIds.length) {
+        const active = await absences.activeByUserId(new Date());
+        const countryOf = await org.countryByUserId(participantIds);
+        const onHoliday = await holidays.effectiveByUserId(new Date(), countryOf, tz());
+
+        const blocked = participantIds.filter(id => active.has(id) || onHoliday.has(id));
+        if (blocked.length) {
+          const names = await ctx.prisma.user.findMany({
+            where: { id: { in: blocked } },
+            select: { id: true, firstName: true, lastName: true },
+          });
+          return res.status(400).json({
+            message: 'No se puede invitar a colaboradores ausentes',
+            unavailable: (names as any[]).map(u => {
+              const a = active.get(u.id);
+              return {
+                userId: u.id,
+                name: `${u.firstName} ${u.lastName}`,
+                reason: a?.type ?? 'FERIADO',
+                until: a?.endAt ?? null,
+              };
+            }),
+          });
+        }
+      }
+
+      // ── Salir de la reunión anterior si había una ──
+      // Dos casos distintos y los dos hacen falta.
+      //
+      // 1. El host cambia de estado: se cancelan sus invitaciones y los que
+      //    habían aceptado vuelven a AVAILABLE.
+      const returning = await meetings.cancelMeetingsHostedBy(userId);
+      for (const participantId of returning) {
+        await presence.updateStatus(participantId, 'AVAILABLE');
+      }
+
+      // 2. Un INVITADO que había aceptado cambia de estado por su cuenta. Sin
+      //    esto su fila de MeetingInvite queda en ACCEPTED, y como el snapshot
+      //    arma `meetingWith` leyendo justamente las filas ACCEPTED, la tarjeta
+      //    del host seguiría diciendo "Con Beto" después de que Beto se fue.
+      const before = await ctx.prisma.presenceStatus.findUnique({ where: { userId } });
+      const previousMeetingId = (before as any)?.meetingId ?? null;
+      if (previousMeetingId && status !== 'IN_MEETING_INTERNAL') {
+        await meetings.leave(userId, previousMeetingId);
+      }
+
+      let meetingId: string | null = null;
+      if (status === 'IN_MEETING_INTERNAL' && participantIds.length) {
+        const justification = body.justification!.trim();
+        ({ meetingId } = await meetings.invite(userId, participantIds, justification));
+      }
+
+      await presence.setManualOverride(userId);
+      const record = await presence.updateStatus(userId, status, {
+        justification: body.justification?.trim() || null,
+        startsAt: body.startsAt ? new Date(body.startsAt) : null,
+        endsAt: body.endsAt ? new Date(body.endsAt) : null,
+        meetingId,
+      });
+      res.json(record);
     });
 
     // ── Check-in / Check-out manual ────────────────────────────────────────────
@@ -457,7 +523,10 @@ const plugin: PluginDefinition = {
     });
     ctx.hooks.declareHook('office.user.status_changed', {
       description: 'Un usuario cambió su estado (disponible, ocupado, etc.)',
-      payload: { userId: 'string', status: 'AVAILABLE | BUSY | IN_MEETING | FOCUS | LUNCH | BRB' },
+      payload: {
+        userId: 'string',
+        status: 'AVAILABLE | IN_MEETING_INTERNAL | IN_MEETING_EXTERNAL | FOCUS | LUNCH | BRB',
+      },
     });
     ctx.hooks.declareHook('office.user.moved', {
       description: 'Un usuario se movió a otra zona del layout',
