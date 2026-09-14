@@ -2536,7 +2536,7 @@ git commit -m "feat: add absence service and endpoints"
   - `HolidayService.setOverride(userId, holidayId, newDate, justification, tz): Promise<{ok:true} | {ok:false; errors} >`
   - `HolidayService.clearOverride(userId, holidayId): Promise<boolean>`
   - `HolidayService.effectiveByUserId(now, countryOf, tz): Promise<Set<string>>`
-  - `HolidayService.overrideJustification(userId, now, tz): Promise<string | null>`
+  - `HolidayService.overrideJustification(userId, now, country, tz): Promise<string | null>`
 
 - [ ] **Step 1: Escribir el servicio**
 
@@ -2669,7 +2669,7 @@ export class HolidayService {
   }
 
   /** Justificación del override que cae hoy, para mostrarla en la tarjeta. */
-  async overrideJustification(userId: string, now: Date, tz: string): Promise<string | null> {
+  async overrideJustification(userId: string, now: Date, country: string, tz: string): Promise<string | null> {
     const today = localDateString(now, tz);
     const rows = await this.ctx.prisma.holidayOverride.findMany({ where: { userId } });
     for (const r of rows as any[]) {
@@ -3782,7 +3782,11 @@ El constructor recibe los servicios nuevos:
       // La justificación de un feriado movido vive en el override.
       let justification = resolved.justification;
       if (resolved.status === 'FERIADO') {
-        justification = await this.holidays.overrideJustification(u.id, now, this.tzOf());
+        // El filtro de pais va tambien en esta segunda ruta de lectura: un
+        // override viejo puede apuntar al feriado del pais anterior si RRHH
+        // corrigio el pais del colaborador.
+        justification = await this.holidays.overrideJustification(
+          u.id, now, countryOf.get(u.id)!, this.tzOf());
       }
 
       const snap: UserSnapshot = {
