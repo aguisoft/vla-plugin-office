@@ -5,6 +5,7 @@ import { SnapshotService } from './services/snapshot.service';
 import { BitrixService } from './services/bitrix.service';
 import { AbsenceService } from './services/absence.service';
 import { OrgService } from './services/org.service';
+import { HolidayService } from './services/holiday.service';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { DEFAULT_TZ } from './lib/local-date';
 
@@ -54,6 +55,7 @@ const plugin: PluginDefinition = {
     const absences = new AbsenceService(ctx);
     const tz = () => (ctx.plugin.config.TIMEZONE as string) || DEFAULT_TZ;
     const org = new OrgService(ctx, () => (ctx.plugin.config.DEFAULT_COUNTRY as string) || 'CR');
+    const holidays = new HolidayService(ctx);
 
     // Sync Bitrix photos + timeman on startup — delayed 5s to let hydrateConfig complete first
     setTimeout(async () => {
@@ -184,6 +186,66 @@ const plugin: PluginDefinition = {
       const canManage = can(req, PERMS.MANAGE);
       const done = await absences.remove(req.params.id, requesterId, canManage);
       if (!done) return res.status(404).json({ message: 'Ausencia no encontrada' });
+      res.status(204).end();
+    });
+
+    // ── Feriados (calendario por país + override personal) ────────────────────
+
+    ctx.router.get('/holidays', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+      const year = req.query.year ? Number(req.query.year) : undefined;
+      res.json(await holidays.list(year, req.query.country as string | undefined));
+    });
+
+    ctx.router.post('/holidays', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (req, res) => {
+      const { date, name, country } = req.body as { date: string; name: string; country: string };
+      if (!date || !name || !country) {
+        return res.status(400).json({ message: 'date, name y country son obligatorios' });
+      }
+      const parsed = new Date(date);
+      if (Number.isNaN(parsed.getTime())) {
+        return res.status(400).json({ message: 'Fecha inválida' });
+      }
+      try {
+        res.status(201).json({ id: await holidays.create(parsed, name, country) });
+      } catch {
+        res.status(409).json({ message: 'Ya existe un feriado en esa fecha para ese país' });
+      }
+    });
+
+    ctx.router.delete('/holidays/:id', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (req, res) => {
+      const done = await holidays.remove(req.params.id);
+      if (!done) return res.status(404).json({ message: 'Feriado no encontrado' });
+      res.status(204).end();
+    });
+
+    // Feriados que el colaborador todavía puede mover
+    ctx.router.get('/holidays/movable', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+      const userId = (req as any).user?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const country = await org.countryOf(userId);
+      res.json(await holidays.movableForUser(userId, country));
+    });
+
+    ctx.router.post('/holidays/:id/override', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
+      const userId = (req as any).user?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const { newDate, justification } = req.body as { newDate: string; justification: string };
+      // country es el país RESUELTO HOY del colaborador (org.countryOf), no un
+      // dato que venga del body: es la defensa en la escritura contra mover un
+      // feriado que no le corresponde (ver holiday.service.ts).
+      const country = await org.countryOf(userId);
+      const result = await holidays.setOverride(
+        userId, req.params.id, new Date(newDate), justification ?? '', country, tz(),
+      );
+      if (!result.ok) return res.status(400).json({ message: 'Datos inválidos', errors: result.errors });
+      res.status(201).json({ ok: true });
+    });
+
+    ctx.router.delete('/holidays/:id/override', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
+      const userId = (req as any).user?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const done = await holidays.clearOverride(userId, req.params.id);
+      if (!done) return res.status(404).json({ message: 'No hay override para ese feriado' });
       res.status(204).end();
     });
 
