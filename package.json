@@ -19,6 +19,6 @@
     "@types/node": "^20.11.0",
     "@vla/plugin-sdk": "file:./vendor/plugin-sdk",
     "typescript": "^5.3.3",
-    "vitest": "4.1.8"
+    "vitest": "^4.1.8"
   }
 }
