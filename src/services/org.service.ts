@@ -14,7 +14,12 @@ export class OrgService {
   /** Jefe directo: override del plugin, si no el UF_HEAD del departamento. */
   async managerOf(userId: string): Promise<string | null> {
     const override = await this.ctx.prisma.userProfileOverride.findUnique({ where: { userId } });
-    if ((override as any)?.managerUserId) return (override as any).managerUserId;
+    // Nadie es su propio jefe, tampoco vía override: PUT /org/:userId ya lo
+    // rechaza con 400, pero managerOf no debe depender de que ese sea el
+    // único escritor (import masivo, script, edición directa en la base).
+    if ((override as any)?.managerUserId && (override as any).managerUserId !== userId) {
+      return (override as any).managerUserId;
+    }
 
     const mine = await this.ctx.prisma.bitrixUserMapping.findUnique({ where: { userId } });
     const deptId = (mine as any)?.departmentId;
