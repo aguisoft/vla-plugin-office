@@ -113,9 +113,6 @@ export const listInvites = () => api.get<PendingInvite[]>(`${PLUGIN}/meetings/in
 export const respondInvite = (id: string, action: 'accept' | 'decline') =>
   api.post<{ ok: true }>(`${PLUGIN}/meetings/invites/${id}/${action}`, {});
 
-export const leaveMeeting = (meetingId: string) =>
-  api.post<{ ok: true }>(`${PLUGIN}/meetings/${meetingId}/leave`, {});
-
 export const getOrg = (userId: string) =>
   api.get<{ userId: string; managerUserId: string | null; country: string }>(`${PLUGIN}/org/${userId}`);
 
