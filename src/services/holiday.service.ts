@@ -1,6 +1,6 @@
 import type { PluginContext } from '@vla/plugin-sdk';
 import {
-  isHolidayEffective, movableHolidays, validateOverrideInput,
+  isHolidayEffective, movableHolidays, validateOverrideInput, holidayMatchesCountry,
   type HolidayRow, type OverrideRow,
 } from '../lib/holiday-resolver';
 import { localDateString } from '../lib/local-date';
@@ -64,7 +64,7 @@ export class HolidayService {
     if (!holiday) {
       return { ok: false, errors: [{ field: 'holidayId', message: 'Feriado no encontrado' }] };
     }
-    if ((holiday as any).country !== country) {
+    if (!holidayMatchesCountry(holiday as any as HolidayRow, country)) {
       return { ok: false, errors: [{ field: 'holidayId', message: 'El feriado no corresponde a tu país' }] };
     }
 
@@ -125,13 +125,24 @@ export class HolidayService {
     return result;
   }
 
-  /** Justificación del override que cae hoy, para mostrarla en la tarjeta. */
-  async overrideJustification(userId: string, now: Date, tz: string): Promise<string | null> {
+  /**
+   * Justificación del override que cae hoy, para mostrarla en la tarjeta.
+   *
+   * `country` es el país RESUELTO HOY del colaborador (org.countryOf /
+   * countryByUserId), igual que en setOverride: sin este filtro, un override
+   * viejo que quedó apuntando a un feriado de un país que el colaborador ya
+   * no tiene devolvería una justificación que no corresponde — el mismo
+   * agujero que isHolidayEffective ya cierra al leer (Task 8, Ruling 10).
+   */
+  async overrideJustification(userId: string, now: Date, country: string, tz: string): Promise<string | null> {
     const today = localDateString(now, tz);
     const rows = await this.ctx.prisma.holidayOverride.findMany({ where: { userId } });
-    for (const r of rows as any[]) {
-      if (r.newDate.toISOString().slice(0, 10) === today) return r.justification;
-    }
-    return null;
+    const todays = (rows as any[]).find(r => r.newDate.toISOString().slice(0, 10) === today);
+    if (!todays) return null;
+
+    const holiday = await this.ctx.prisma.holiday.findUnique({ where: { id: todays.holidayId } });
+    if (!holiday || !holidayMatchesCountry(holiday as any as HolidayRow, country)) return null;
+
+    return todays.justification;
   }
 }

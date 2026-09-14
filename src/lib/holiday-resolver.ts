@@ -1,4 +1,4 @@
-import { localDateString, sameLocalMonth } from './local-date';
+import { localDateString } from './local-date';
 import { MIN_JUSTIFICATION, type ValidationError } from './status-rules';
 
 export interface HolidayRow {
@@ -68,6 +68,17 @@ export function movableHolidays(
   return holidays.filter(h => h.country === country && !movedIds.has(h.id));
 }
 
+/**
+ * ¿Este feriado es del país del colaborador? Defensa en la ESCRITURA para
+ * setOverride: sin ella se podría crear un override apuntando a un feriado
+ * de otro país. Es el complemento de isHolidayEffective, que ya filtra por
+ * país al LEER (Task 8, Ruling 10) — hacen falta las dos porque el país del
+ * colaborador puede cambiar después de creado el override.
+ */
+export function holidayMatchesCountry(holiday: HolidayRow, country: string): boolean {
+  return holiday.country === country;
+}
+
 export function validateOverrideInput(
   holidayDate: Date,
   newDate: Date,
@@ -79,7 +90,13 @@ export function validateOverrideInput(
   if (Number.isNaN(newDate.getTime())) {
     return [{ field: 'newDate', message: 'Fecha inválida' }];
   }
-  if (!sameLocalMonth(holidayDate, newDate, tz)) {
+  // holidayDate y newDate son columnas @db.Date (medianoche UTC, sin hora
+  // real): se comparan como fechas de calendario en UTC, igual que dateOnly()
+  // más abajo. NO pasan por sameLocalMonth/tz — eso las trataría como
+  // instantes y las desplazaría un día en cualquier zona detrás de UTC (ej.
+  // América/Costa_Rica, UTC-6): un feriado del día 1 se leería como el
+  // último día del mes anterior.
+  if (!sameCalendarMonth(holidayDate, newDate)) {
     errors.push({
       field: 'newDate',
       message: 'El feriado solo se puede mover a otra fecha del mismo mes',
@@ -98,4 +115,9 @@ export function validateOverrideInput(
 /** Parte de fecha de una columna DATE, que Prisma entrega a medianoche UTC. */
 function dateOnly(d: Date): string {
   return d.toISOString().slice(0, 10);
+}
+
+/** Año y mes (UTC) de una columna DATE, sin desplazar por zona. */
+function sameCalendarMonth(a: Date, b: Date): boolean {
+  return a.toISOString().slice(0, 7) === b.toISOString().slice(0, 7);
 }
