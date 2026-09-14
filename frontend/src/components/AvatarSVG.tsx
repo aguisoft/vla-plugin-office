@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { STATUS_CFG } from '../App';
+import { cfgOf } from '../statusConfig';
 import type { AvatarCfg } from '../types';
 
 
@@ -19,7 +19,7 @@ export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true
 
   // Reset failure state whenever photoUrl changes (e.g. toggle photo/avatar)
   useEffect(() => { setPhotoFailed(false); }, [photoUrl]);
-  const dot   = STATUS_CFG[status]?.dot ?? 'bg-gray-300';
+  const dot   = cfgOf(status).dot;
   const s     = size;
 
   const dotColors: Record<string, string> = {

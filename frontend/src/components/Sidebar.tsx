@@ -1,5 +1,5 @@
 import { AvatarSVG } from './AvatarSVG';
-import { STATUS_CFG } from '../App';
+import { cfgOf } from '../statusConfig';
 import type { UserSnapshot } from '../types';
 
 function UserCard({ u, myUserId, onAvatarClick }: {
@@ -7,7 +7,7 @@ function UserCard({ u, myUserId, onAvatarClick }: {
   myUserId?: string;
   onAvatarClick: () => void;
 }) {
-  const st = STATUS_CFG[u.status] ?? STATUS_CFG['OFFLINE'];
+  const st = cfgOf(u.status);
   const isMe = u.userId === myUserId;
   return (
     <div className={`flex items-center gap-2.5 px-3 py-2 rounded-xl transition-colors ${isMe ? 'bg-green-50' : 'hover:bg-gray-50'}`}>
@@ -30,7 +30,7 @@ function UserCard({ u, myUserId, onAvatarClick }: {
           {u.firstName} {u.lastName}
           {isMe && <span className="text-green-500 ml-1 text-[9px]">tú</span>}
         </p>
-        <p className={`text-[10px] ${st.color} truncate`}>
+        <p className={`text-[10px] ${st.text} truncate`}>
           {st.label}{u.statusMessage ? ` · ${u.statusMessage}` : ''}
         </p>
       </div>

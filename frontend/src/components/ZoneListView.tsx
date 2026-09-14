@@ -1,16 +1,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { AvatarSVG } from './AvatarSVG';
 import { HoverCard } from './HoverCard';
+import { cfgOf } from '../statusConfig';
 import type { Zone, UserSnapshot } from '../types';
-
-const STATUS_RING: Record<string, string> = {
-  AVAILABLE:  '#4ade80',
-  BUSY:       '#f87171',
-  IN_MEETING: '#c084fc',
-  FOCUS:      '#60a5fa',
-  LUNCH:      '#fb923c',
-  BRB:        '#facc15',
-};
 
 export function ZoneListView({ zones, zoneUsersMap, usePhotos, active }: {
   zones: Zone[];
@@ -69,7 +61,7 @@ export function ZoneListView({ zones, zoneUsersMap, usePhotos, active }: {
           ) : (
             <div className="flex flex-wrap gap-3">
               {users.map(u => {
-                const ringColor = u.isCheckedIn ? (STATUS_RING[u.status] ?? '#4ade80') : undefined;
+                const ringColor = u.isCheckedIn ? cfgOf(u.status).color : undefined;
                 const isSelected = selectedUser?.userId === u.userId;
                 return (
                   <div

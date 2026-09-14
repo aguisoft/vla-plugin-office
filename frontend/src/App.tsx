@@ -11,19 +11,7 @@ import { BitrixSettings } from './components/BitrixSettings';
 import { MobileBottomBar } from './components/MobileBottomBar';
 import { ZoneListView } from './components/ZoneListView';
 import type { UserSnapshot, LayoutData, AvatarCfg } from './types';
-
-const STATUSES = ['AVAILABLE', 'BUSY', 'IN_MEETING', 'FOCUS', 'LUNCH', 'BRB'] as const;
-export { STATUSES };
-
-export const STATUS_CFG: Record<string, { label: string; color: string; dot: string }> = {
-  AVAILABLE:  { label: 'Disponible',    color: 'text-green-600',  dot: 'bg-green-400' },
-  BUSY:       { label: 'Ocupado',       color: 'text-red-500',    dot: 'bg-red-400' },
-  IN_MEETING: { label: 'En reunión',    color: 'text-purple-600', dot: 'bg-purple-400' },
-  FOCUS:      { label: 'Concentrado',   color: 'text-blue-600',   dot: 'bg-blue-400' },
-  LUNCH:      { label: 'Almuerzo',      color: 'text-orange-500', dot: 'bg-orange-400' },
-  BRB:        { label: 'Vuelvo pronto', color: 'text-yellow-600', dot: 'bg-yellow-400' },
-  OFFLINE:    { label: 'Desconectado',  color: 'text-gray-400',   dot: 'bg-gray-300' },
-};
+import { SELECTABLE, cfgOf } from './statusConfig';
 
 export const TILE = 20;
 
@@ -267,10 +255,10 @@ export default function App() {
                 {([
                   { key: 'ALL',    label: 'Todos',         dot: 'bg-gray-300',   count: users.length },
                   { key: 'ONLINE', label: 'En oficina',    dot: 'bg-green-400',  count: users.filter(u => u.isCheckedIn).length },
-                  ...STATUSES.map(s => ({
+                  ...SELECTABLE.map(s => ({
                     key: s,
-                    label: STATUS_CFG[s].label,
-                    dot: STATUS_CFG[s].dot,
+                    label: cfgOf(s).label,
+                    dot: cfgOf(s).dot,
                     count: users.filter(u => u.isCheckedIn && u.status === s).length,
                   })).filter(f => f.count > 0),
                 ] as { key: string; label: string; dot: string; count: number }[]).map(f => (

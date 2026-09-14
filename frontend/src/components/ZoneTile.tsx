@@ -2,17 +2,8 @@ import { useState } from 'react';
 import { AvatarSVG } from './AvatarSVG';
 import { HoverCard } from './HoverCard';
 import { TILE } from '../App';
+import { cfgOf } from '../statusConfig';
 import type { Zone, UserSnapshot } from '../types';
-
-const STATUS_RING: Record<string, string> = {
-  AVAILABLE:  '#4ade80',
-  BUSY:       '#f87171',
-  IN_MEETING: '#c084fc',
-  FOCUS:      '#60a5fa',
-  LUNCH:      '#fb923c',
-  BRB:        '#facc15',
-};
-
 
 export function ZoneTile({ zone, users, usePhotos }: { zone: Zone; users: UserSnapshot[]; usePhotos?: boolean }) {
   const [hoveredUser, setHoveredUser] = useState<string | null>(null);
@@ -47,7 +38,7 @@ export function ZoneTile({ zone, users, usePhotos }: { zone: Zone; users: UserSn
       {/* Avatars — pt-4 leaves room for emoji badges that extend above the avatar */}
       <div className="flex-1 flex flex-wrap gap-2 px-2 pb-2 content-start pt-4" style={{ overflow: 'visible' }}>
         {users.map(u => {
-          const ringColor = u.isCheckedIn ? (STATUS_RING[u.status] ?? '#4ade80') : undefined;
+          const ringColor = u.isCheckedIn ? cfgOf(u.status).color : undefined;
           const isPulse = u.isCheckedIn && u.status === 'AVAILABLE';
 
           return (

@@ -1,6 +1,6 @@
 import { createPortal } from 'react-dom';
 import { AvatarSVG } from './AvatarSVG';
-import { STATUS_CFG } from '../App';
+import { cfgOf } from '../statusConfig';
 import type { UserSnapshot } from '../types';
 
 function timeAgo(iso: string): string {
@@ -40,7 +40,7 @@ interface HoverCardProps {
 }
 
 export function HoverCard({ user, zoneName, anchorRect }: HoverCardProps) {
-  const st = STATUS_CFG[user.status] ?? STATUS_CFG['OFFLINE'];
+  const st = cfgOf(user.status);
 
   const CARD_W = 240;
   const CARD_H = 200; // approximate
@@ -126,7 +126,7 @@ export function HoverCard({ user, zoneName, anchorRect }: HoverCardProps) {
             <span
               className={`w-2 h-2 rounded-full flex-shrink-0 ${st.dot} ${user.isCheckedIn && user.status === 'AVAILABLE' ? 'animate-pulse' : ''}`}
             />
-            <span className={st.color}>{st.label}</span>
+            <span className={st.text}>{st.label}</span>
             {user.statusMessage && (
               <span className="text-gray-400 font-normal ml-auto truncate max-w-[80px] text-[10px]">
                 {user.statusMessage}
