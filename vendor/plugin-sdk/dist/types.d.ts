@@ -1,6 +1,6 @@
 import type { Router } from 'express';
 /** Integraciones del core que un plugin puede declarar como requisito */
-export type CoreIntegration = 'bitrix' | 'ai';
+export type CoreIntegration = 'bitrix';
 /**
  * Contenido del archivo plugin.json que debe incluir todo plugin.
  * Este archivo es la "identidad" del plugin y lo que el sistema valida
@@ -43,6 +43,14 @@ export interface PluginManifest {
      *  write:presence     → ctx.prisma.presenceStatus.update(...)
      *  read:checkins      → ctx.prisma.checkInRecord.findMany(...)
      *  write:checkins     → ctx.prisma.checkInRecord.create(...)
+     *  read:absences      → ctx.prisma.absenceRecord.findMany(...)
+     *  write:absences     → ctx.prisma.absenceRecord.create(...)
+     *  read:holidays      → ctx.prisma.holiday.findMany(...) / holidayOverride
+     *  write:holidays     → ctx.prisma.holiday.create(...)   / holidayOverride
+     *  read:meetings      → ctx.prisma.meetingInvite.findMany(...)
+     *  write:meetings     → ctx.prisma.meetingInvite.update(...)
+     *  read:org           → ctx.prisma.userProfileOverride.findMany(...)
+     *  write:org          → ctx.prisma.userProfileOverride.upsert(...)
      *  read:plugins       → ctx.pluginRegistry.getAll()
      *  manage:plugins     → ctx.pluginRegistry.activate/deactivate()
      */
@@ -109,7 +117,7 @@ export interface SelectSettingField extends SettingFieldBase {
         label: string;
     }[];
 }
-export type PluginPermission = 'read:users' | 'write:users' | 'read:presence' | 'write:presence' | 'read:checkins' | 'write:checkins' | 'read:plugins' | 'manage:plugins';
+export type PluginPermission = 'read:users' | 'write:users' | 'read:presence' | 'write:presence' | 'read:checkins' | 'write:checkins' | 'read:absences' | 'write:absences' | 'read:holidays' | 'write:holidays' | 'read:meetings' | 'write:meetings' | 'read:org' | 'write:org' | 'read:plugins' | 'manage:plugins';
 /**
  * El objeto que recibe el método `register()` de cada plugin.
  * Contiene todo lo que un plugin necesita para funcionar.
@@ -190,9 +198,9 @@ export interface PluginContext {
      */
     bitrix?: PluginBitrixClient;
     /**
-     * Cliente AI unificado del core. Soporta Claude, OpenAI, Groq y Gemini.
-     * Solo disponible si al menos un provider está configurado.
-     * Plugins que declaren `"requires": ["ai"]` pueden usar `ctx.ai!` con seguridad.
+     * Cliente de IA del core (LLM). Solo disponible si hay un proveedor configurado
+     * (IA_API_KEY). Plugins que declaren `"requires": ["ai"]` pueden usar `ctx.ai!`
+     * con seguridad; el resto debe usar `ctx.ai?.` defensivamente.
      */
     ai?: PluginAiClient;
     /**

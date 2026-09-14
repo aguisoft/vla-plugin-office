@@ -14,7 +14,15 @@
     "read:presence",
     "write:presence",
     "read:checkins",
-    "write:checkins"
+    "write:checkins",
+    "read:absences",
+    "write:absences",
+    "read:holidays",
+    "write:holidays",
+    "read:meetings",
+    "write:meetings",
+    "read:org",
+    "write:org"
   ],
   "hooks": {
     "listens": ["core.user.created"],
