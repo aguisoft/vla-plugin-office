@@ -1,6 +1,7 @@
 import { createPortal } from 'react-dom';
 import { AvatarSVG } from './AvatarSVG';
-import { STATUS_CFG } from '../App';
+import { cfgOf } from '../statusConfig';
+import { fmtTime, absenceReturnDate } from '../format';
 import type { UserSnapshot } from '../types';
 
 function timeAgo(iso: string): string {
@@ -11,10 +12,6 @@ function timeAgo(iso: string): string {
   const h = Math.floor(m / 60);
   if (h < 24) return `hace ${h}h ${m % 60}m`;
   return `hace ${Math.floor(h / 24)}d`;
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('es', { hour: '2-digit', minute: '2-digit' });
 }
 
 function duration(iso: string): string {
@@ -40,7 +37,7 @@ interface HoverCardProps {
 }
 
 export function HoverCard({ user, zoneName, anchorRect }: HoverCardProps) {
-  const st = STATUS_CFG[user.status] ?? STATUS_CFG['OFFLINE'];
+  const st = cfgOf(user.status);
 
   const CARD_W = 240;
   const CARD_H = 200; // approximate
@@ -68,16 +65,7 @@ export function HoverCard({ user, zoneName, anchorRect }: HoverCardProps) {
   let arrowLeft = anchorCenterX - left - 6;
   arrowLeft = Math.max(12, Math.min(CARD_W - 24, arrowLeft));
 
-  const dotColorMap: Record<string, string> = {
-    'bg-green-400':  '#4ade80',
-    'bg-red-400':    '#f87171',
-    'bg-purple-400': '#c084fc',
-    'bg-blue-400':   '#60a5fa',
-    'bg-orange-400': '#fb923c',
-    'bg-yellow-400': '#facc15',
-    'bg-gray-300':   '#d1d5db',
-  };
-  const stripColor = dotColorMap[st.dot] ?? '#d1d5db';
+  const stripColor = st.color;
 
   const card = (
     <div
@@ -126,13 +114,47 @@ export function HoverCard({ user, zoneName, anchorRect }: HoverCardProps) {
             <span
               className={`w-2 h-2 rounded-full flex-shrink-0 ${st.dot} ${user.isCheckedIn && user.status === 'AVAILABLE' ? 'animate-pulse' : ''}`}
             />
-            <span className={st.color}>{st.label}</span>
+            <span className={st.text}>{st.label}</span>
             {user.statusMessage && (
               <span className="text-gray-400 font-normal ml-auto truncate max-w-[80px] text-[10px]">
                 {user.statusMessage}
               </span>
             )}
           </div>
+
+          {/* Justificación: solo llega si el viewer tiene permiso. */}
+          {user.justification && (
+            <p className="mt-1.5 rounded-lg bg-gray-50 px-2 py-1.5 text-[11px] leading-snug text-gray-600">
+              {user.justification}
+            </p>
+          )}
+
+          {/* Cuándo vuelve, en ausencias con rango. absenceEndsAt es el
+              ÚLTIMO día que todavía está afuera (fin de día inclusivo), así
+              que "vuelve el" es ese día + 1 -- no el día crudo del instante,
+              que es lo que muestra "hasta" en ParticipantPicker/App.tsx. */}
+          {user.absenceEndsAt && (
+            <p className="mt-1 text-[10px] text-gray-400">
+              Vuelve el {absenceReturnDate(user.absenceEndsAt).toLocaleDateString('es', { day: 'numeric', month: 'long' })}
+            </p>
+          )}
+
+          {/* Almuerzo: el rango es informativo y no se revierte solo, así que el
+              vencimiento se marca acá. También hace visible quién se pasa. */}
+          {user.status === 'LUNCH' && user.statusEndsAt && (
+            <p className="mt-1 text-[10px]">
+              {new Date(user.statusEndsAt) < new Date()
+                ? <span className="text-orange-500">⚠ Venció {duration(user.statusEndsAt)} atrás</span>
+                : <span className="text-gray-400">Hasta {fmtTime(user.statusEndsAt)}</span>}
+            </p>
+          )}
+
+          {/* Con quién está reunido. */}
+          {user.meetingWith?.length ? (
+            <p className="mt-1 text-[10px] text-gray-400">
+              Con {user.meetingWith.map(p => p.firstName).join(', ')}
+            </p>
+          ) : null}
 
           {/* Info rows */}
           <div className="space-y-1.5">
@@ -143,7 +165,7 @@ export function HoverCard({ user, zoneName, anchorRect }: HoverCardProps) {
                     icon={<EnterIcon />}
                     label="Entró a las"
                     value={
-                      <>{formatTime(user.checkedInAt)} <span className="text-gray-400 font-normal">({duration(user.checkedInAt)})</span></>
+                      <>{fmtTime(user.checkedInAt)} <span className="text-gray-400 font-normal">({duration(user.checkedInAt)})</span></>
                     }
                   />
                 )}

@@ -1,9 +1,11 @@
 {
   "name": "vla-plugin-office",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Office presence plugin for VLA System",
   "private": true,
   "scripts": {
+    "test": "vitest run",
+    "test:watch": "vitest",
     "build": "tsc",
     "build:watch": "tsc --watch",
     "build:frontend": "cd frontend && npm install && npm run build",
@@ -16,6 +18,7 @@
     "@types/express": "^4.17.21",
     "@types/node": "^20.11.0",
     "@vla/plugin-sdk": "file:./vendor/plugin-sdk",
-    "typescript": "^5.3.3"
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.8"
   }
 }

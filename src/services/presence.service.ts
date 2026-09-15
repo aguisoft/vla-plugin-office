@@ -2,7 +2,17 @@ import type { PluginContext } from '@vla/plugin-sdk';
 
 const PRESENCE_CACHE_TTL = 120; // seconds
 
-export type OfficeStatus = 'AVAILABLE' | 'BUSY' | 'IN_MEETING' | 'FOCUS' | 'LUNCH' | 'BRB' | 'OFFLINE';
+export type OfficeStatus =
+  | 'AVAILABLE' | 'IN_MEETING_INTERNAL' | 'IN_MEETING_EXTERNAL'
+  | 'FOCUS' | 'LUNCH' | 'BRB' | 'OFFLINE';
+
+export interface StatusExtra {
+  justification?: string | null;
+  startsAt?: Date | null;
+  endsAt?: Date | null;
+  meetingId?: string | null;
+}
+
 export type CheckSource = 'WEB' | 'BITRIX' | 'MOBILE';
 
 export interface PresenceRecord {
@@ -20,6 +30,18 @@ export interface PresenceRecord {
 export class PresenceService {
   constructor(private readonly ctx: PluginContext) {}
 
+  // Inyectado tras construir MeetingService en index.ts (que a su vez depende
+  // de este servicio para broadcastToUser — un setter rompe el ciclo que un
+  // parámetro de constructor no podría). Sin este hook, checkIn/checkOut
+  // limpian la fila de PresenceStatus del usuario pero nunca cancelan las
+  // reuniones que hospeda ni la invitación que había aceptado, dejando a
+  // otros varados en IN_MEETING_INTERNAL — ver Fix #1 de la ola final.
+  private releaseFromMeetings: ((userId: string) => Promise<void>) | null = null;
+
+  setMeetingReleaser(fn: (userId: string) => Promise<void>): void {
+    this.releaseFromMeetings = fn;
+  }
+
   private manualOverrideKey(userId: string) { return `manual-override:${userId}`; }
 
   async setManualOverride(userId: string): Promise<void> {
@@ -36,20 +58,15 @@ export class PresenceService {
   }
 
   async checkIn(userId: string, source: CheckSource = 'WEB'): Promise<PresenceRecord> {
+    if (this.releaseFromMeetings) await this.releaseFromMeetings(userId);
     const now = new Date();
 
     const presence = await this.ctx.prisma.presenceStatus.upsert({
       where: { userId },
-      create: {
-        userId,
-        isCheckedIn: true,
-        status: 'AVAILABLE',
-        lastActivityAt: now,
-      },
+      create: { userId, isCheckedIn: true, status: 'AVAILABLE', lastActivityAt: now },
       update: {
-        isCheckedIn: true,
-        status: 'AVAILABLE',
-        lastActivityAt: now,
+        isCheckedIn: true, status: 'AVAILABLE', lastActivityAt: now,
+        justification: null, statusStartsAt: null, statusEndsAt: null, meetingId: null,
       },
     });
 
@@ -72,6 +89,7 @@ export class PresenceService {
   }
 
   async checkOut(userId: string, source: CheckSource = 'WEB'): Promise<void> {
+    if (this.releaseFromMeetings) await this.releaseFromMeetings(userId);
     const now = new Date();
 
     await this.ctx.prisma.presenceStatus.upsert({
@@ -89,6 +107,7 @@ export class PresenceService {
         positionX: null,
         positionY: null,
         lastActivityAt: now,
+        justification: null, statusStartsAt: null, statusEndsAt: null, meetingId: null,
       },
     });
 
@@ -110,19 +129,31 @@ export class PresenceService {
     this.broadcast({ type: 'user:left', userId });
   }
 
-  async updateStatus(userId: string, status: OfficeStatus, statusMessage?: string): Promise<PresenceRecord> {
+  async updateStatus(
+    userId: string,
+    status: OfficeStatus,
+    extra: StatusExtra = {},
+  ): Promise<PresenceRecord> {
     const now = new Date();
+    const data = {
+      status,
+      justification:  extra.justification ?? null,
+      statusStartsAt: extra.startsAt ?? null,
+      statusEndsAt:   extra.endsAt ?? null,
+      meetingId:      extra.meetingId ?? null,
+      lastActivityAt: now,
+    };
 
     const presence = await this.ctx.prisma.presenceStatus.upsert({
-      where: { userId },
-      create: { userId, status, isCheckedIn: true, statusMessage: statusMessage ?? null, lastActivityAt: now },
-      update: { status, statusMessage: statusMessage ?? null, lastActivityAt: now },
+      where:  { userId },
+      create: { userId, isCheckedIn: true, ...data },
+      update: data,
     });
 
     const record = this.toRecord(presence);
     await this.ctx.redis.setJson(`presence:${userId}`, record, PRESENCE_CACHE_TTL);
     await this.ctx.hooks.doAction('office.user.status_changed', { userId, status });
-    this.broadcast({ type: 'user:status', userId, status, statusMessage });
+    this.broadcast({ type: 'user:status', userId, status });
 
     return record;
   }
@@ -152,16 +183,25 @@ export class PresenceService {
 
   // ── SSE broadcast ─────────────────────────────────────────────────────────
 
-  private clients = new Set<(data: string) => void>();
+  private clients = new Map<(data: string) => void, string | null>();
 
-  subscribe(send: (data: string) => void): () => void {
-    this.clients.add(send);
+  subscribe(send: (data: string) => void, userId: string | null = null): () => void {
+    this.clients.set(send, userId);
     return () => this.clients.delete(send);
   }
 
   private broadcast(payload: object): void {
     const data = `data: ${JSON.stringify(payload)}\n\n`;
-    for (const send of this.clients) {
+    for (const [send] of this.clients) {
+      try { send(data); } catch { this.clients.delete(send); }
+    }
+  }
+
+  /** Manda solo a las conexiones de ese usuario. Para invitaciones dirigidas. */
+  broadcastToUser(userId: string, payload: object): void {
+    const data = `data: ${JSON.stringify(payload)}\n\n`;
+    for (const [send, uid] of this.clients) {
+      if (uid !== userId) continue;
       try { send(data); } catch { this.clients.delete(send); }
     }
   }

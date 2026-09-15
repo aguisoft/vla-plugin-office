@@ -6,7 +6,15 @@ export interface BitrixUser {
   LAST_NAME: string;
   EMAIL: string;
   PERSONAL_PHOTO?: string;
+  UF_DEPARTMENT?: number[];
+  PERSONAL_COUNTRY?: string | number;
   ACTIVE: boolean;
+}
+
+export interface BitrixDepartment {
+  ID: string;
+  NAME: string;
+  UF_HEAD?: string;
 }
 
 export interface BitrixTimemanStatus {
@@ -18,6 +26,24 @@ export interface BitrixTimemanStatus {
 
 const PHOTO_TTL = 60 * 60 * 24; // 24 h
 const PHOTO_KEY = (userId: string) => `photo:${userId}`;
+
+/**
+ * IDs de país de Bitrix a ISO alpha-2. Bitrix guarda PERSONAL_COUNTRY como un
+ * ID numérico de su propia lista, no como ISO. Solo se mapean los países donde
+ * VLA tiene gente; un ID desconocido queda en null y el resolver (OrgService)
+ * cae al DEFAULT_COUNTRY en vez de asignar un país equivocado.
+ *
+ * NOTA: este mapa es una conjetura, no un dato verificado contra el portal
+ * real de Bitrix — nunca se vio la lista real de IDs de país de esta cuenta.
+ */
+const BITRIX_COUNTRY_ISO: Record<string, string> = {
+  '1':  'CR', // Costa Rica
+  '2':  'NI', // Nicaragua
+  '3':  'PA', // Panamá
+  '4':  'GT', // Guatemala
+  '5':  'HN', // Honduras
+  '6':  'SV', // El Salvador
+};
 
 /**
  * Domain-specific Bitrix helper for the office plugin.
@@ -35,7 +61,8 @@ export class BitrixService {
   async getBitrixUsers(): Promise<BitrixUser[]> {
     return this.ctx.bitrix!.callAll<BitrixUser>('user.get', {
       FILTER: { ACTIVE: true },
-      SELECT: ['ID', 'NAME', 'LAST_NAME', 'EMAIL', 'PERSONAL_PHOTO'],
+      SELECT: ['ID', 'NAME', 'LAST_NAME', 'EMAIL', 'PERSONAL_PHOTO',
+               'UF_DEPARTMENT', 'PERSONAL_COUNTRY'],
     });
   }
 
@@ -95,6 +122,86 @@ export class BitrixService {
       }),
     );
     return map;
+  }
+
+  // ── Org structure sync (departamento, jefe directo, país) ──────────────────
+
+  /**
+   * Trae departamentos + usuarios de Bitrix y actualiza BitrixUserMapping con
+   * departmentId / isDepartmentHead / country. Alimenta a OrgService, que
+   * resuelve jefe directo y país (con override manual por encima).
+   *
+   * Nunca debe propagar una excepción: la corre tanto el endpoint POST
+   * /org/sync como el cron de 6 horas, y en este entorno Bitrix puede estar
+   * "configurado" (tokens presentes) pero ser inalcanzable en la red (dominio
+   * que no resuelve). isConfigured() no detecta ese caso — solo revisa que
+   * haya credenciales guardadas — así que las llamadas de red están cubiertas
+   * por su propio try/catch, no solo el chequeo inicial.
+   */
+  async syncOrgStructure(): Promise<{ synced: number; heads: number; withCountry: number }> {
+    if (!this.isConfigured()) {
+      this.ctx.logger.warn('Sync de organigrama omitido: Bitrix no configurado');
+      return { synced: 0, heads: 0, withCountry: 0 };
+    }
+
+    let departments: BitrixDepartment[];
+    let bitrixUsers: BitrixUser[];
+    let emailMap: Map<string, string>;
+    try {
+      [departments, bitrixUsers, emailMap] = await Promise.all([
+        this.ctx.bitrix!.callAll<BitrixDepartment>('department.get', {}),
+        this.getBitrixUsers(),
+        this.getVlaEmailMap(),
+      ]);
+    } catch (e) {
+      this.ctx.logger.warn(`Sync de organigrama falló (Bitrix inalcanzable): ${e}`);
+      return { synced: 0, heads: 0, withCountry: 0 };
+    }
+
+    // departamento → bitrixId del jefe
+    const headByDept = new Map<string, string>();
+    for (const d of departments) {
+      if (d.UF_HEAD) headByDept.set(String(d.ID), String(d.UF_HEAD));
+    }
+
+    let synced = 0, heads = 0, withCountry = 0;
+
+    for (const bu of bitrixUsers) {
+      try {
+        const vlaUserId = emailMap.get((bu.EMAIL ?? '').toLowerCase());
+        if (!vlaUserId) continue;
+
+        const deptId = bu.UF_DEPARTMENT?.[0] != null ? String(bu.UF_DEPARTMENT[0]) : null;
+        const isHead = deptId ? headByDept.get(deptId) === String(bu.ID) : false;
+
+        const rawCountry = bu.PERSONAL_COUNTRY != null ? String(bu.PERSONAL_COUNTRY) : '';
+        const country = BITRIX_COUNTRY_ISO[rawCountry] ?? null;
+        if (rawCountry && !country) {
+          this.ctx.logger.warn(`PERSONAL_COUNTRY desconocido "${rawCountry}" para ${bu.EMAIL}`);
+        }
+
+        // upsert, no update: un usuario VLA con email coincidente puede no
+        // tener todavía una fila BitrixUserMapping (solo el script de seed la
+        // crea hoy). update() lanzaría "record not found" y abortaría el
+        // resto del lote — un solo usuario sin mapear no debe tumbar el sync.
+        await this.ctx.prisma.bitrixUserMapping.upsert({
+          where: { userId: vlaUserId },
+          create: { userId: vlaUserId, bitrixUserId: Number(bu.ID), departmentId: deptId, isDepartmentHead: isHead, country },
+          update: { departmentId: deptId, isDepartmentHead: isHead, country },
+        });
+
+        synced++;
+        if (isHead) heads++;
+        if (country) withCountry++;
+      } catch (e) {
+        this.ctx.logger.warn(`Sync de organigrama: error con usuario Bitrix ${bu.ID} (${bu.EMAIL}): ${e}`);
+      }
+    }
+
+    this.ctx.logger.log(
+      `Organigrama: ${synced} usuarios, ${heads} jefes, ${withCountry} con país`,
+    );
+    return { synced, heads, withCountry };
   }
 
   // ── Timeman status ──────────────────────────────────────────────────────────

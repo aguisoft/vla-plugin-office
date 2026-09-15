@@ -10,8 +10,14 @@
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "skipLibCheck": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "vendor"]
+  "exclude": [
+    "node_modules",
+    "dist",
+    "vendor",
+    "**/*.test.ts" // Test files are compiled by vitest with ESM semantics; including them in the tsc build causes import.meta compilation errors
+  ]
 }

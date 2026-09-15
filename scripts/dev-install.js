@@ -43,10 +43,9 @@ fs.mkdirSync(targetDir, { recursive: true });
 
 fs.copyFileSync(path.join(pluginDir, 'plugin.json'), path.join(targetDir, 'plugin.json'));
 
-fs.mkdirSync(path.join(targetDir, 'dist'), { recursive: true });
-for (const file of fs.readdirSync(distSrc)) {
-  fs.copyFileSync(path.join(distSrc, file), path.join(targetDir, 'dist', file));
-}
+// Copia recursiva: dist/ ya trae subcarpetas (lib/, services/), no solo
+// archivos sueltos como cuando el plugin era solo index.ts.
+fs.cpSync(distSrc, path.join(targetDir, 'dist'), { recursive: true });
 
 console.log(`\n✓ Plugin "${manifest.name}" instalado en:`);
 console.log(`  ${targetDir}\n`);
