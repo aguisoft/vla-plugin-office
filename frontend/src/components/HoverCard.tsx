@@ -122,6 +122,37 @@ export function HoverCard({ user, zoneName, anchorRect }: HoverCardProps) {
             )}
           </div>
 
+          {/* Justificación: solo llega si el viewer tiene permiso. */}
+          {user.justification && (
+            <p className="mt-1.5 rounded-lg bg-gray-50 px-2 py-1.5 text-[11px] leading-snug text-gray-600">
+              {user.justification}
+            </p>
+          )}
+
+          {/* Cuándo vuelve, en ausencias con rango. */}
+          {user.absenceEndsAt && (
+            <p className="mt-1 text-[10px] text-gray-400">
+              Vuelve el {new Date(user.absenceEndsAt).toLocaleDateString('es', { day: 'numeric', month: 'long' })}
+            </p>
+          )}
+
+          {/* Almuerzo: el rango es informativo y no se revierte solo, así que el
+              vencimiento se marca acá. También hace visible quién se pasa. */}
+          {user.status === 'LUNCH' && user.statusEndsAt && (
+            <p className="mt-1 text-[10px]">
+              {new Date(user.statusEndsAt) < new Date()
+                ? <span className="text-orange-500">⚠ Venció {duration(user.statusEndsAt)} atrás</span>
+                : <span className="text-gray-400">Hasta {fmtTime(user.statusEndsAt)}</span>}
+            </p>
+          )}
+
+          {/* Con quién está reunido. */}
+          {user.meetingWith?.length ? (
+            <p className="mt-1 text-[10px] text-gray-400">
+              Con {user.meetingWith.map(p => p.firstName).join(', ')}
+            </p>
+          ) : null}
+
           {/* Info rows */}
           <div className="space-y-1.5">
             {user.isCheckedIn ? (

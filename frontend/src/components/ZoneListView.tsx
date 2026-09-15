@@ -30,7 +30,8 @@ export function ZoneListView({ zones, zoneUsersMap, usePhotos, active }: {
     .map(zone => ({
       zone,
       users: zoneUsersMap.get(zone.id) ?? [],
-      online: (zoneUsersMap.get(zone.id) ?? []).filter(u => u.isCheckedIn),
+      // Un ausente no ocupa un puesto: el conteo de la zona sigue midiendo presencia real.
+      online: (zoneUsersMap.get(zone.id) ?? []).filter(u => u.isCheckedIn && !u.isAbsent),
     }))
     .sort((a, b) => b.online.length - a.online.length);
 
@@ -61,7 +62,11 @@ export function ZoneListView({ zones, zoneUsersMap, usePhotos, active }: {
           ) : (
             <div className="flex flex-wrap gap-3">
               {users.map(u => {
-                const ringColor = u.isCheckedIn ? cfgOf(u.status).color : undefined;
+                // Un ausente tiene isCheckedIn en false pero igual se pinta: si no, se vería
+                // gris, idéntico a un desconectado.
+                const ringColor = (u.isCheckedIn || u.isAbsent) ? cfgOf(u.status).color : undefined;
+                // El pulso de AVAILABLE solo aplica a quien está presente de verdad.
+                const isPulse = u.isCheckedIn && !u.isAbsent && u.status === 'AVAILABLE';
                 const isSelected = selectedUser?.userId === u.userId;
                 return (
                   <div
@@ -83,13 +88,13 @@ export function ZoneListView({ zones, zoneUsersMap, usePhotos, active }: {
                         borderRadius: '50%',
                       }}
                     >
-                      {u.isCheckedIn && u.status === 'AVAILABLE' && (
+                      {isPulse && (
                         <span
                           className="absolute inset-0 rounded-full animate-ping pointer-events-none"
                           style={{ backgroundColor: ringColor, opacity: 0.3 }}
                         />
                       )}
-                      {u.isCheckedIn && u.status !== 'AVAILABLE' && ringColor && (
+                      {(u.isCheckedIn || u.isAbsent) && !isPulse && ringColor && (
                         <span
                           className="absolute inset-0 rounded-full pointer-events-none"
                           style={{ boxShadow: `0 0 0 2px ${ringColor}`, borderRadius: '50%' }}
@@ -112,6 +117,11 @@ export function ZoneListView({ zones, zoneUsersMap, usePhotos, active }: {
                           name={`${u.firstName} ${u.lastName}`}
                         />
                       </div>
+                      {u.isAbsent && cfgOf(u.status).icon && (
+                        <span className="absolute -bottom-0.5 -right-0.5 text-[9px] leading-none">
+                          {cfgOf(u.status).icon}
+                        </span>
+                      )}
                     </div>
                     <span
                       className="text-center leading-tight select-none"

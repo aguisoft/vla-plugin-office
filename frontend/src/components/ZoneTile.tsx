@@ -8,7 +8,8 @@ import type { Zone, UserSnapshot } from '../types';
 export function ZoneTile({ zone, users, usePhotos }: { zone: Zone; users: UserSnapshot[]; usePhotos?: boolean }) {
   const [hoveredUser, setHoveredUser] = useState<string | null>(null);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
-  const online = users.filter(u => u.isCheckedIn);
+  // Un ausente no ocupa un puesto: el conteo de la zona sigue midiendo presencia real.
+  const online = users.filter(u => u.isCheckedIn && !u.isAbsent);
 
   return (
     <div
@@ -38,8 +39,11 @@ export function ZoneTile({ zone, users, usePhotos }: { zone: Zone; users: UserSn
       {/* Avatars — pt-4 leaves room for emoji badges that extend above the avatar */}
       <div className="flex-1 flex flex-wrap gap-2 px-2 pb-2 content-start pt-4" style={{ overflow: 'visible' }}>
         {users.map(u => {
-          const ringColor = u.isCheckedIn ? cfgOf(u.status).color : undefined;
-          const isPulse = u.isCheckedIn && u.status === 'AVAILABLE';
+          // Un ausente tiene isCheckedIn en false pero igual se pinta: si no, se vería
+          // gris, idéntico a un desconectado.
+          const ringColor = (u.isCheckedIn || u.isAbsent) ? cfgOf(u.status).color : undefined;
+          // El pulso de AVAILABLE solo aplica a quien está presente de verdad.
+          const isPulse = u.isCheckedIn && !u.isAbsent && u.status === 'AVAILABLE';
 
           return (
             <div
@@ -63,7 +67,7 @@ export function ZoneTile({ zone, users, usePhotos }: { zone: Zone; users: UserSn
                     style={{ backgroundColor: ringColor, opacity: 0.3 }}
                   />
                 )}
-                {u.isCheckedIn && !isPulse && (
+                {(u.isCheckedIn || u.isAbsent) && !isPulse && (
                   <span
                     className="absolute inset-0 rounded-full pointer-events-none"
                     style={{ boxShadow: `0 0 0 2px ${ringColor}`, borderRadius: '50%' }}
@@ -86,6 +90,11 @@ export function ZoneTile({ zone, users, usePhotos }: { zone: Zone; users: UserSn
                     name={`${u.firstName} ${u.lastName}`}
                   />
                 </div>
+                {u.isAbsent && cfgOf(u.status).icon && (
+                  <span className="absolute -bottom-0.5 -right-0.5 text-[9px] leading-none">
+                    {cfgOf(u.status).icon}
+                  </span>
+                )}
               </div>
               {/* Name */}
               <span
