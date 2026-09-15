@@ -81,6 +81,14 @@ export interface StatusError {
 export const setStatus = (payload: StatusPayload) =>
   api.patch<void>(`${PLUGIN}/presence/status`, payload);
 
+/**
+ * `startAt`/`endAt` cambian de forma según `type`: PERMISO manda un instante
+ * real (ISO datetime, ver PermisoModal.tsx); VACACIONES/INCAPACIDAD mandan
+ * fecha PURA "YYYY-MM-DD" sin hora ni zona (ver DateRangeModal.tsx) -- el
+ * servidor es quien la ancla a la zona de la operación. No conviertas estos
+ * dos con `new Date(...).toISOString()` antes de llamar: eso reintroduce la
+ * doble conversión de zona que corría la ausencia un día entero.
+ */
 export const createAbsence = (body: {
   type: string; startAt: string; endAt: string; justification?: string;
 }) => api.post<{ id: string }>(`${PLUGIN}/absences`, body);

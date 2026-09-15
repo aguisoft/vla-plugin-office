@@ -21,12 +21,19 @@ export function DateRangeModal({ status, onClose, onConfirm }: {
   const rangeInvalid = !!from && !!to && to < from;
   const invalid = !from || !to || rangeInvalid || missing > 0;
 
-  // Extremos del día local: construir el Date sin la `Z` hace que el
-  // navegador lo interprete en la zona local — medianoche local, no
-  // medianoche UTC. Con `Z` la ausencia se corre y termina cubriendo el día
-  // equivocado.
-  const startIso = (d: string) => new Date(`${d}T00:00:00`).toISOString();
-  const endIso   = (d: string) => new Date(`${d}T23:59:59.999`).toISOString();
+  // VACACIONES/INCAPACIDAD son de día completo, y el contrato de
+  // POST /absences para estos dos pide FECHA PURA ("YYYY-MM-DD"), sin
+  // construir un `Date` ni llamar `toISOString()` acá. `from`/`to` YA son
+  // "YYYY-MM-DD" (vienen de un <input type="date">) -- se mandan tal cual.
+  //
+  // Antes esta función convertía a instante con `new Date(...).toISOString()`,
+  // que usa la zona del NAVEGADOR. El servidor (`AbsenceService.create`)
+  // ancla la fecha y la convierte OTRA VEZ, ahora sí a la zona de la
+  // operación -- dos conversiones de zona distintas sobre el mismo dato.
+  // Para cualquier navegador que no esté en UTC+0 eso corre la ausencia un
+  // día (el caso real: Costa Rica, UTC-6, alargaba el rango 24h). Mandar la
+  // fecha pura elimina la primera conversión: solo queda la del servidor,
+  // que es la única que tiene que existir.
 
   return (
     <Shell title={cfg.label} dot={cfg.dot} onClose={onClose}>
@@ -51,7 +58,7 @@ export function DateRangeModal({ status, onClose, onConfirm }: {
         onClose={onClose}
         disabled={invalid}
         confirmLabel={missing > 0 ? missingLabel(missing) : 'Confirmar'}
-        onConfirm={() => onConfirm(startIso(from), endIso(to), needsJustification ? text.trim() : undefined)}
+        onConfirm={() => onConfirm(from, to, needsJustification ? text.trim() : undefined)}
       />
     </Shell>
   );

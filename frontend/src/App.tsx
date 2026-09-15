@@ -194,6 +194,14 @@ export default function App() {
     setPending({ status, kind });
   };
 
+  // El contrato de POST /absences difiere por tipo (ver AbsenceInput en
+  // absence-validation.ts, lado servidor): PERMISO manda `startAt`/`endAt`
+  // como instantes reales (ISO datetime); VACACIONES/INCAPACIDAD mandan
+  // fecha PURA "YYYY-MM-DD" -- sin hora, sin `new Date()`/`toISOString()`
+  // de por medio (ver DateRangeModal.tsx). Por eso acá abajo la fecha de un
+  // permiso se lee con fmtDate (instante) y la de los otros dos con
+  // fmtDateOnly (fecha pura) -- son formatos de entrada distintos, no
+  // intercambiables.
   const applyAbsence = async (body: { type: string; startAt: string; endAt: string; justification?: string }) => {
     setActionLoading(true);
     try {
@@ -211,7 +219,7 @@ export default function App() {
       const startsLater = starts > new Date();
       const schedule = isPermiso
         ? `el ${fmtDate(body.startAt)} de ${fmtTime(body.startAt)} a ${fmtTime(body.endAt)}`
-        : `del ${fmtDate(body.startAt)} al ${fmtDate(body.endAt)}`;
+        : `del ${fmtDateOnly(body.startAt)} al ${fmtDateOnly(body.endAt)}`;
       // Concordancia del participio con el tipo: "Permiso" es masculino
       // singular, "Vacaciones" femenino PLURAL, "Incapacidad" femenino
       // singular. El ternario isPermiso ? x : y solo distinguía dos casos y

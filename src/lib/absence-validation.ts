@@ -12,6 +12,15 @@ export const RESTRICTED_ABSENCES = new Set<AbsenceType>([
   'PERMISO', 'INCAPACIDAD',
 ]);
 
+/**
+ * VACACIONES e INCAPACIDAD son de día completo: el servidor las normaliza a
+ * 00:00:00/23:59:59.999 hora de la operación (ver `absence-bounds.ts`).
+ * PERMISO lleva hora real y no se normaliza. Fuente única de esta
+ * clasificación -- `absence-bounds.ts` la importa de acá en vez de tener su
+ * propia copia.
+ */
+export const FULL_DAY_TYPES = new Set<AbsenceType>(['VACACIONES', 'INCAPACIDAD']);
+
 export interface AbsenceWindow {
   type: AbsenceType;
   startAt: Date;
@@ -19,6 +28,18 @@ export interface AbsenceWindow {
   justification: string | null;
 }
 
+/**
+ * El contrato de `startAt`/`endAt` difiere según `type`, y es a propósito:
+ *  - VACACIONES/INCAPACIDAD (día completo): fecha PURA `"YYYY-MM-DD"`, sin
+ *    hora ni zona. El cliente NO debe construir un `Date`/`toISOString()`
+ *    para estos dos -- eso fue justo la regresión de la ola de arreglo
+ *    final: el navegador convertía "medianoche local" a UTC con SU zona, y
+ *    el anclaje del servidor (que ya asume que solo llega una fecha) le
+ *    aplicaba una segunda conversión a una hora que ya había sido corrida
+ *    una vez. Ver `absence-bounds.ts` para el anclaje real.
+ *  - PERMISO: instante real (ISO datetime con hora), porque un permiso vive
+ *    dentro de un día concreto y necesita la hora exacta.
+ */
 export interface AbsenceInput {
   type: string;
   startAt: string;
@@ -43,7 +64,15 @@ export function validateAbsenceInput(input: AbsenceInput, tz: string): Validatio
   if (Number.isNaN(startAt.getTime()) || Number.isNaN(endAt.getTime())) {
     return [{ field: 'startAt', message: 'Fechas inválidas' }];
   }
-  if (endAt.getTime() <= startAt.getTime()) {
+  // Los de día completo mandan fecha pura ("YYYY-MM-DD"): unas vacaciones de
+  // UN SOLO día llegan con el mismo string en los dos campos, que al
+  // parsear son el MISMO instante (medianoche UTC) -- así que ahí la
+  // igualdad es válida, no un rango vacío. PERMISO manda hora real y sigue
+  // exigiendo fin estrictamente posterior al inicio.
+  const invalidRange = FULL_DAY_TYPES.has(type)
+    ? endAt.getTime() < startAt.getTime()
+    : endAt.getTime() <= startAt.getTime();
+  if (invalidRange) {
     errors.push({ field: 'endAt', message: 'El fin debe ser posterior al inicio' });
   }
 

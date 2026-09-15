@@ -4,25 +4,7 @@ import {
   type AbsenceInput, type AbsenceWindow,
 } from '../lib/absence-validation';
 import type { ValidationError } from '../lib/status-rules';
-import { localDayStart, localDayEnd } from '../lib/local-date';
-
-/** VACACIONES e INCAPACIDAD son de día completo y se normalizan a
- *  00:00:00/23:59:59 hora local; PERMISO lleva hora real y no se toca. */
-const FULL_DAY_TYPES = new Set(['VACACIONES', 'INCAPACIDAD']);
-
-/**
- * Ancla a mediodía UTC de la fecha indicada por el string recibido del
- * cliente -- se usa SOLO la parte de fecha (`slice(0, 10)`), no la hora. El
- * frontend arma `startAt`/`endAt` con la zona del NAVEGADOR (ver
- * `DateRangeModal.tsx`), no la de la operación, así que la hora que manda no
- * es confiable; la fecha sí lo es para cualquier zona real (mediodía UTC
- * cae dentro del mismo día calendario en cualquier huso horario habitado).
- * `localDayStart`/`localDayEnd` recién después proyectan ESA fecha a los
- * límites de día en la zona de la operación (`tz`).
- */
-function dateOnlyAnchor(iso: string): Date {
-  return new Date(`${iso.slice(0, 10)}T12:00:00.000Z`);
-}
+import { absenceBounds } from '../lib/absence-bounds';
 
 export type CreateResult =
   | { ok: true; id: string }
@@ -53,21 +35,15 @@ export class AbsenceService {
     if (errors.length) return { ok: false, errors };
 
     // El spec exige que VACACIONES/INCAPACIDAD se guarden como 00:00:00 y
-    // 23:59:59 HORA LOCAL convertida a UTC, y la zona que cuenta es la de la
-    // operación (`tz`, parámetro de este método), no la del navegador de
-    // quien registra. Antes de este fix el único lugar que aplicaba esa
-    // regla era `DateRangeModal.tsx` en el frontend, con la zona DEL
-    // NAVEGADOR -- una laptop en UTC registrando "3 al 14 de noviembre"
-    // mandaba límites que en Costa Rica empezaban la tarde del 2 y
-    // terminaban la tarde del 14. Los helpers de `local-date.ts` existen
-    // para esto desde hace varias tareas; hasta este fix no los llamaba
-    // nadie en producción, solo su propio archivo de pruebas.
-    const startAt = FULL_DAY_TYPES.has(input.type)
-      ? localDayStart(dateOnlyAnchor(input.startAt), tz)
-      : new Date(input.startAt);
-    const endAt = FULL_DAY_TYPES.has(input.type)
-      ? localDayEnd(dateOnlyAnchor(input.endAt), tz)
-      : new Date(input.endAt);
+    // 23:59:59.999 HORA LOCAL convertida a UTC, y la zona que cuenta es la
+    // de la operación (`tz`, parámetro de este método), no la de quien
+    // registra. El cálculo vive en `absence-bounds.ts` (función pura,
+    // probada sin mocks de Prisma) porque ahí se documenta también el
+    // contrato: estos dos tipos reciben FECHA PURA de `input.startAt`/
+    // `endAt` ("YYYY-MM-DD"), no un instante -- PERMISO sigue mandando hora
+    // real, sin normalizar. Ver el comentario de `absenceBounds` para la
+    // regresión concreta que este contrato existe para evitar.
+    const { startAt, endAt } = absenceBounds(input.type, input.startAt, input.endAt, tz);
 
     const existing = await this.listForUser(userId);
     const clash = findOverlap({ startAt, endAt }, existing);

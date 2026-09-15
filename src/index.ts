@@ -203,6 +203,12 @@ const plugin: PluginDefinition = {
     });
 
     // ── Ausencias (permiso, vacaciones, incapacidad) ───────────────────────────
+    // El body.startAt/endAt cambia de forma según el type (AbsenceInput en
+    // absence-validation.ts): PERMISO manda instante real; VACACIONES/
+    // INCAPACIDAD mandan fecha PURA "YYYY-MM-DD" que el servidor ancla a la
+    // zona de la operación (ver absence-bounds.ts). No es simetría por
+    // gusto: es la corrección de la regresión donde el navegador convertía
+    // esas dos fechas a instante con SU zona antes de mandarlas.
 
     ctx.router.post('/absences', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
       const requesterId = (req as any).user?.sub;

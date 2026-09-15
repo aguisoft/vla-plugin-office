@@ -29,6 +29,37 @@ describe('validateAbsenceInput — rango', () => {
       endAt: '2026-11-15T05:59:59.999Z',
     }, TZ)).toEqual([]);
   });
+
+  it('acepta un solo día de vacaciones -- fecha pura, mismo string en los dos campos', () => {
+    // El contrato de día completo manda "YYYY-MM-DD" sin hora (ver
+    // AbsenceInput). Un rango de un solo día llega con el MISMO string en
+    // startAt/endAt, que al parsear son el mismo instante -- eso es válido,
+    // no un rango vacío. Es justo lo que rompía la comparación estricta
+    // `<=` de antes de la ola de arreglo final.
+    expect(validateAbsenceInput({
+      type: 'VACACIONES',
+      startAt: '2026-09-15',
+      endAt: '2026-09-15',
+    }, TZ)).toEqual([]);
+  });
+
+  it('acepta una sola incapacidad de un día -- misma fecha pura en los dos campos', () => {
+    expect(validateAbsenceInput({
+      type: 'INCAPACIDAD',
+      startAt: '2026-09-15',
+      endAt: '2026-09-15',
+      justification: JUST,
+    }, TZ)).toEqual([]);
+  });
+
+  it('PERMISO sigue exigiendo fin ESTRICTAMENTE posterior -- el mismo instante no vale', () => {
+    expect(fields({
+      type: 'PERMISO',
+      startAt: '2026-09-14T20:00:00Z',
+      endAt: '2026-09-14T20:00:00Z',
+      justification: JUST,
+    })).toContain('endAt');
+  });
 });
 
 describe('validateAbsenceInput — PERMISO', () => {
