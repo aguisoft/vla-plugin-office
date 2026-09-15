@@ -118,14 +118,12 @@ export class SnapshotService {
         now,
       });
 
-      // La justificación de un feriado movido vive en el override.
+      // La justificación de un feriado movido vive en el override, y ya
+      // llegó resuelta en el mismo query por lotes de effectiveByUserId más
+      // arriba — no una llamada más a la base por persona en este ciclo.
       let justification = resolved.justification;
       if (resolved.status === 'FERIADO') {
-        // El filtro de pais va tambien en esta segunda ruta de lectura: un
-        // override viejo puede apuntar al feriado del pais anterior si RRHH
-        // corrigio el pais del colaborador.
-        justification = await this.holidays.overrideJustification(
-          u.id, now, countryOf.get(u.id)!, this.tzOf());
+        justification = onHoliday.get(u.id) ?? null;
       }
 
       const snap: UserSnapshot = {
@@ -157,7 +155,7 @@ export class SnapshotService {
       };
 
       // El campo se OMITE, no se manda vacío: el texto no viaja sin permiso.
-      if (justification && canSeeJustification(viewerCtx, u.id, resolved.status as any)) {
+      if (justification && canSeeJustification(viewerCtx, u.id, resolved.status)) {
         snap.justification = justification;
       }
 

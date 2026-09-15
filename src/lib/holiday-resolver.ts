@@ -112,8 +112,14 @@ export function validateOverrideInput(
   return errors;
 }
 
-/** Parte de fecha de una columna DATE, que Prisma entrega a medianoche UTC. */
-function dateOnly(d: Date): string {
+/**
+ * Parte de fecha de una columna DATE, que Prisma entrega a medianoche UTC.
+ * Exportada porque holiday.service.ts la necesita para encontrar CUÁL
+ * override cae hoy (y así devolver su justificación) con la misma regla que
+ * usa el booleano de acá adentro — sin reimplementarla ni pedirla a la base
+ * una segunda vez.
+ */
+export function dateOnly(d: Date): string {
   return d.toISOString().slice(0, 10);
 }
 
