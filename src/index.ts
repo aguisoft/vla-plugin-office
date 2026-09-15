@@ -546,11 +546,18 @@ const plugin: PluginDefinition = {
     // Cierra tanto en VLA como en Bitrix ANTES de que la jornada expire (~24h)
     ctx.cron('*/5 * * * *', async () => {
       const threshold = new Date(Date.now() - 8 * 60 * 60 * 1000);
+      const absent = await absentUserIds(new Date());
       const stale = await ctx.prisma.presenceStatus.findMany({
         where: { isCheckedIn: true, lastActivityAt: { lt: threshold } },
       });
       for (const p of stale) {
         const userId = (p as any).userId;
+        // No tiene sentido cerrar por inactividad a quien está de
+        // incapacidad/vacaciones/permiso o de feriado hoy.
+        if (absent.has(userId)) {
+          ctx.logger.log(`Auto checkout omitido por ausencia: ${userId}`);
+          continue;
+        }
         await presence.checkOut(userId, 'WEB');
         // Also close in Bitrix to prevent EXPIRED state
         const bid = await bitrix.getBitrixIdForVlaUser(userId);
@@ -583,14 +590,59 @@ const plugin: PluginDefinition = {
       }
     }
 
+    // ── Helper: usuarios a los que el cron no debe tocar ──────────────────────
+    /**
+     * Usuarios a los que el cron no debe tocar: tienen ausencia activa o
+     * feriado efectivo hoy. Un solo par de queries, no uno por usuario.
+     */
+    async function absentUserIds(now: Date): Promise<Set<string>> {
+      const users = await ctx.prisma.user.findMany({
+        where: { isActive: true },
+        select: { id: true },
+      });
+      const ids = (users as any[]).map(u => u.id);
+
+      const [active, countryOf] = await Promise.all([
+        absences.activeByUserId(now),
+        org.countryByUserId(ids),
+      ]);
+      const onHoliday = await holidays.effectiveByUserId(now, countryOf, tz());
+
+      // .keys() en los dos: `active` es Map<userId, AbsenceWindow> y `onHoliday`
+      // es Map<userId, justificacion|null>. Esparcir un Map da pares
+      // [clave, valor], no claves, y el Set quedaria lleno de arreglos: el
+      // `absent.has(userId)` de abajo daria siempre false y el blindaje no
+      // blindaria nada, en silencio.
+      return new Set([...active.keys(), ...onHoliday.keys()]);
+    }
+
     // ── Helper: sync timeman → presence ───────────────────────────────────────
-    async function runTimemanSync(): Promise<{ synced: number; errors: number; skipped: number }> {
-      const statuses = await bitrix.syncTimemanStatuses();
-      let synced = 0;
-      let errors = 0;
-      let skipped = 0;
+    async function runTimemanSync(): Promise<{ synced: number; errors: number; skipped: number; skippedByAbsence: number }> {
+      const now = new Date();
+      const absent = await absentUserIds(now);
+
+      let synced = 0, errors = 0, skipped = 0, skippedByAbsence = 0;
+
+      // syncTimemanStatuses() no atrapa sus propios fallos de red (a diferencia
+      // de syncOrgStructure(), que sí lo hace) — un Bitrix inalcanzable lanza
+      // TypeError: fetch failed y, sin este try/catch, tumba el proceso entero
+      // cuando el llamador es un endpoint HTTP (Express 4 no atrapa rechazos
+      // de promesas en handlers async; el cron sí tiene su propio wrapper).
+      // Verificado en vivo: POST /timeman/sync contra el stub de Bitrix
+      // (dominio nonexistent.invalid) mató el servidor antes de este guard.
+      let statuses: Array<{ userId: string; isOpen: boolean }>;
+      try {
+        statuses = await bitrix.syncTimemanStatuses();
+      } catch (e) {
+        ctx.logger.warn(`Timeman sync: Bitrix inalcanzable, nada que procesar: ${e}`);
+        return { synced, errors, skipped, skippedByAbsence };
+      }
+
       for (const { userId, isOpen } of statuses) {
         try {
+          // Una ausencia o un feriado gana sobre lo que diga timeman.
+          if (absent.has(userId)) { skippedByAbsence++; continue; }
+
           // Respect manual override — user manually checked in/out from the plugin
           if (await presence.hasManualOverride(userId)) {
             skipped++;
@@ -609,9 +661,21 @@ const plugin: PluginDefinition = {
           errors++;
         }
       }
-      if (synced > 0 || skipped > 0) ctx.logger.log(`Timeman sync: ${synced} actualizados, ${skipped} omitidos (manual override)`);
-      return { synced, errors, skipped };
+
+      if (synced > 0 || skipped > 0 || skippedByAbsence > 0) {
+        ctx.logger.log(
+          `Timeman sync: ${synced} actualizados, ${skipped} omitidos (manual override), ` +
+          `${skippedByAbsence} omitidos (ausencia o feriado)`,
+        );
+      }
+      return { synced, errors, skipped, skippedByAbsence };
     }
+
+    // Sincronización manual de timeman, disponible para quien administra la
+    // oficina (no solo ADMIN) — es la que usa la verificación del blindaje.
+    ctx.router.post('/timeman/sync', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (_req, res) => {
+      res.json(await runTimemanSync());
+    });
 
     // ── Cron: sincronizar timeman de Bitrix cada 2 minutos ────────────────────
     ctx.cron('*/2 * * * *', async () => {
