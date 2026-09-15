@@ -17,6 +17,7 @@ import { PermisoModal } from './components/PermisoModal';
 import { ParticipantPicker } from './components/ParticipantPicker';
 import { MeetingInviteModal } from './components/MeetingInviteModal';
 import { HolidayOverrideModal } from './components/HolidayOverrideModal';
+import { MyAbsencesModal } from './components/MyAbsencesModal';
 import { HolidayAdminPanel } from './components/HolidayAdminPanel';
 import { Shell } from './components/modalParts';
 import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant, PendingInvite } from './types';
@@ -43,6 +44,7 @@ export default function App() {
   const [showAvatarModal, setShowAvatarModal]       = useState(false);
   const [showBitrixSettings, setShowBitrixSettings] = useState(false);
   const [showHolidayAdmin, setShowHolidayAdmin]     = useState(false);
+  const [showAbsences, setShowAbsences]             = useState(false);
   const [usePhotos, setUsePhotos] = useState(() => localStorage.getItem('vla-use-photos') !== 'false');
   const sseRef = useRef<EventSource | null>(null);
   const [viewMode, setViewMode]         = useState<'list' | 'map'>('list');
@@ -435,7 +437,12 @@ export default function App() {
       )}
 
       {isCheckedIn && (
-        <StatusSelector current={myStatus} onPick={handlePick} disabled={actionLoading} />
+        <StatusSelector
+          current={myStatus}
+          onPick={handlePick}
+          onManageAbsences={() => setShowAbsences(true)}
+          disabled={actionLoading}
+        />
       )}
 
       <button onClick={isCheckedIn ? handleCheckOut : handleCheckIn} disabled={actionLoading}
@@ -462,6 +469,9 @@ export default function App() {
       )}
       {showHolidayAdmin && canManageHolidays && (
         <HolidayAdminPanel onClose={() => setShowHolidayAdmin(false)} />
+      )}
+      {showAbsences && (
+        <MyAbsencesModal onClose={() => setShowAbsences(false)} onChanged={() => void loadData()} />
       )}
       {renderPendingModal()}
 
@@ -623,6 +633,7 @@ export default function App() {
             onCheckIn={handleCheckIn}
             onCheckOut={handleCheckOut}
             onPick={handlePick}
+            onManageAbsences={() => setShowAbsences(true)}
             onOpenDrawer={() => setIsDrawerOpen(true)}
             onOpenAvatar={() => setShowAvatarModal(true)}
           />

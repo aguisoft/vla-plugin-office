@@ -2,9 +2,11 @@ import { useState } from 'react';
 import { ABSENCE_GROUP, DAY_GROUP, STATUS_CFG, cfgOf } from '../statusConfig';
 import type { ResolvedStatus } from '../statusConfig';
 
-export function StatusSelector({ current, onPick, disabled, dropUp }: {
+export function StatusSelector({ current, onPick, onManageAbsences, disabled, dropUp }: {
   current: string;
   onPick: (s: ResolvedStatus) => void;
+  /** Abre la lista de ausencias propias, el único lugar donde se cancelan. */
+  onManageAbsences: () => void;
   disabled: boolean;
   dropUp?: boolean;
 }) {
@@ -34,6 +36,16 @@ export function StatusSelector({ current, onPick, disabled, dropUp }: {
           <Group title="Estado del día" items={DAY_GROUP} current={current} onPick={pick} />
           <div className="border-t border-gray-100" />
           <Group title="Ausencia" items={ABSENCE_GROUP} current={current} onPick={pick} />
+          {/* Sin esta entrada una ausencia no se puede deshacer desde ningún
+              lado: al estar ausente, el resolver ignora el estado del día, así
+              que volver a elegir "Disponible" no la levanta. */}
+          <div className="border-t border-gray-100" />
+          <button
+            onClick={() => { onManageAbsences(); setOpen(false); }}
+            className="w-full px-3 py-2 text-left text-xs text-gray-500 transition-colors hover:bg-gray-50"
+          >
+            Mis ausencias…
+          </button>
         </div>
       )}
     </div>

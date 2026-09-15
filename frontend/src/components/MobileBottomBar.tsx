@@ -11,13 +11,14 @@ interface MobileBottomBarProps {
   onCheckIn: () => void;
   onCheckOut: () => void;
   onPick: (status: ResolvedStatus) => void;
+  onManageAbsences: () => void;
   onOpenDrawer: () => void;
   onOpenAvatar: () => void;
 }
 
 export function MobileBottomBar({
   isCheckedIn, myStatus, myUser, actionLoading,
-  onCheckIn, onCheckOut, onPick, onOpenDrawer, onOpenAvatar,
+  onCheckIn, onCheckOut, onPick, onManageAbsences, onOpenDrawer, onOpenAvatar,
 }: MobileBottomBarProps) {
   return (
     <div
@@ -30,6 +31,7 @@ export function MobileBottomBar({
           <StatusSelector
             current={myStatus}
             onPick={onPick}
+            onManageAbsences={onManageAbsences}
             disabled={actionLoading}
             dropUp
           />
