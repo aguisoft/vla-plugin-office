@@ -319,7 +319,9 @@ export default function App() {
   const filteredUsers = users.filter(u => {
     if (statusFilter === 'ALL')    return true;
     if (statusFilter === 'ONLINE') return u.isCheckedIn;
-    return u.status === statusFilter && u.isCheckedIn;
+    // Un ausente no está isCheckedIn pero sí tiene un estado resuelto (VACACIONES,
+    // PERMISO...): sin isAbsent acá, el filtro por ese estado nunca devuelve a nadie.
+    return u.status === statusFilter && (u.isCheckedIn || u.isAbsent);
   });
 
   const zoneUsersMap = new Map<string, UserSnapshot[]>();
@@ -489,7 +491,9 @@ export default function App() {
                     key: s,
                     label: cfgOf(s).label,
                     dot: cfgOf(s).dot,
-                    count: users.filter(u => u.isCheckedIn && u.status === s).length,
+                    // Mismo motivo que en filteredUsers: un chip de ausencia (VACACIONES...)
+                    // debe contar a quien está en ese estado aunque isCheckedIn sea false.
+                    count: users.filter(u => (u.isCheckedIn || u.isAbsent) && u.status === s).length,
                   })).filter(f => f.count > 0),
                 ] as { key: string; label: string; dot: string; count: number }[]).map(f => (
                   <button
