@@ -22,6 +22,10 @@ export class MeetingService {
   constructor(
     private readonly ctx: PluginContext,
     private readonly broadcastToUser: (userId: string, payload: object) => void,
+    // Cierra el círculo con PresenceService sin depender de su tipo (evitaría
+    // un ciclo: PresenceService se construye antes que este servicio). Vuelve
+    // a AVAILABLE a los participantes que `cancelMeetingsHostedBy` libera.
+    private readonly setAvailable: (userId: string) => Promise<void>,
   ) {}
 
   async invite(
@@ -31,8 +35,15 @@ export class MeetingService {
   ): Promise<{ meetingId: string }> {
     const meetingId = cryptoRandomId();
 
-    // Si el host ya tenía una reunión abierta, se cierra antes de abrir otra.
-    await this.cancelMeetingsHostedBy(hostId);
+    // Si el host ya tenía una reunión abierta, se cierra antes de abrir otra
+    // y quien la había aceptado vuelve a AVAILABLE. Pasa por el mismo helper
+    // que releaseUser() en vez de llamar cancelMeetingsHostedBy() a secas:
+    // hoy es un no-op porque el caller (PATCH /presence/status) ya liberó al
+    // host antes de llegar acá, pero si algún día invite() se llama sin ese
+    // release explícito previo, descartar el retorno dejaría gente varada en
+    // silencio (defecto #41 de la revisión final). Consumirlo acá lo vuelve
+    // imposible de saltar.
+    await this.releaseHostedMeetings(hostId);
 
     for (const inviteeId of participantIds) {
       const row = await this.ctx.prisma.meetingInvite.create({
@@ -129,6 +140,11 @@ export class MeetingService {
    * sigue tomando `nextInviteState`, no este filtro — si esa regla cambiara
    * algún día, este WHERE en el peor caso deja de ser exacto, pero nunca
    * cancela algo que la función no autorice.
+   *
+   * Devuelve la lista en vez de aplicar el AVAILABLE ella misma porque el
+   * PATCH de status histórico necesitaba el dato crudo; `releaseHostedMeetings`
+   * de abajo es quien de verdad lo consume hoy. Se mantiene público porque
+   * ese es el contrato que ya usaban los callers existentes.
    */
   async cancelMeetingsHostedBy(hostId: string): Promise<string[]> {
     const rows = await this.ctx.prisma.meetingInvite.findMany({
@@ -156,10 +172,41 @@ export class MeetingService {
     return accepted;
   }
 
-  /** El invitado se sale por su cuenta; la reunión sigue con el resto. */
-  async leave(userId: string, meetingId: string): Promise<void> {
+  /** Cancela lo que `hostId` hospeda y devuelve a AVAILABLE a quien lo había
+   *  aceptado. Privado: todo caller externo pasa por `releaseUser`. */
+  private async releaseHostedMeetings(hostId: string): Promise<void> {
+    const returning = await this.cancelMeetingsHostedBy(hostId);
+    for (const participantId of returning) {
+      await this.setAvailable(participantId);
+    }
+  }
+
+  /**
+   * Libera por completo a un usuario del ciclo de vida de reunión, antes de
+   * que cambie de estado, se desconecte, o quede inactivo. Dos partes:
+   *
+   *  1. Si hospeda una reunión, se cancela y quien la había aceptado vuelve
+   *     a AVAILABLE (`releaseHostedMeetings`).
+   *  2. Si es invitado con una invitación aceptada, esa fila se cierra — sin
+   *     esto, `meetingWith` (armado con filas ACCEPTED) seguiría listándolo
+   *     en la tarjeta del host después de que se fue.
+   *
+   * `exceptInviteId` existe solo para el handler de aceptar: ahí este método
+   * se llama DESPUÉS de que `respond()` ya puso la invitación nueva en
+   * ACCEPTED, así que sin la excepción se cancelaría a sí misma.
+   *
+   * Único punto de entrada para el release — index.ts lo llama desde el PATCH
+   * de status y desde el handler de aceptar; PresenceService lo invoca desde
+   * checkIn/checkOut, así que cron e webhook de Bitrix lo heredan gratis.
+   */
+  async releaseUser(userId: string, exceptInviteId?: string): Promise<void> {
+    await this.releaseHostedMeetings(userId);
     await this.ctx.prisma.meetingInvite.updateMany({
-      where: { inviteeId: userId, meetingId, state: 'ACCEPTED' },
+      where: {
+        inviteeId: userId,
+        state: 'ACCEPTED',
+        ...(exceptInviteId ? { id: { not: exceptInviteId } } : {}),
+      },
       data: { state: 'CANCELLED', respondedAt: new Date() },
     });
   }

@@ -140,7 +140,9 @@ export class SnapshotService {
         statusEndsAt:   p?.statusEndsAt?.toISOString(),
         absenceEndsAt:  resolved.absenceEndsAt?.toISOString(),
         meetingId:      p?.meetingId ?? undefined,
-        meetingWith:    p?.meetingId ? participantsByMeeting.get(p.meetingId) : undefined,
+        meetingWith:    p?.meetingId
+          ? participantsByMeeting.get(p.meetingId)?.filter(m => m.userId !== u.id)
+          : undefined,
         currentZoneId: p?.currentZoneId ?? undefined,
         defaultZoneId: p?.defaultZoneId ?? undefined,
         positionX: p?.positionX ?? undefined,
@@ -165,6 +167,19 @@ export class SnapshotService {
     return out;
   }
 
+  /**
+   * Participantes de cada reunión activa: el host + los invitados ACCEPTED.
+   * El host no tiene fila propia en MeetingInvite (es quien crea las filas de
+   * los demás), así que hay que agregarlo aparte o `meetingWith` nunca lo
+   * menciona en la tarjeta de sus invitados. Se deriva de cualquier fila de
+   * esa reunión (todas comparten `hostId` sin importar su estado — incluso
+   * si nadie aceptó todavía, o si algunas ya fueron declinadas).
+   *
+   * `getAll` filtra al propio usuario renderizado antes de asignar
+   * `meetingWith`: sin eso, la tarjeta de un invitado que aceptó se leía a sí
+   * mismo en la lista ("Con Beto" en la tarjeta de Beto) y nunca mencionaba
+   * al anfitrión.
+   */
   private async loadMeetingParticipants(
     meetingIds: string[],
     users: { id: string; firstName: string; lastName: string }[],
@@ -173,11 +188,21 @@ export class SnapshotService {
     if (!meetingIds.length) return result;
 
     const invites = await this.ctx.prisma.meetingInvite.findMany({
-      where: { meetingId: { in: meetingIds }, state: 'ACCEPTED' },
+      where: { meetingId: { in: meetingIds } },
     });
     const nameOf = new Map(users.map(u => [u.id, u]));
 
+    const hostIdByMeeting = new Map<string, string>();
     for (const i of invites as any[]) {
+      if (!hostIdByMeeting.has(i.meetingId)) hostIdByMeeting.set(i.meetingId, i.hostId);
+    }
+    for (const [meetingId, hostId] of hostIdByMeeting) {
+      const h = nameOf.get(hostId);
+      if (h) result.set(meetingId, [{ userId: h.id, firstName: h.firstName, lastName: h.lastName }]);
+    }
+
+    for (const i of invites as any[]) {
+      if (i.state !== 'ACCEPTED') continue;
       const u = nameOf.get(i.inviteeId);
       if (!u) continue;
       const list = result.get(i.meetingId) ?? [];

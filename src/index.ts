@@ -57,8 +57,16 @@ const plugin: PluginDefinition = {
     const tz = () => (ctx.plugin.config.TIMEZONE as string) || DEFAULT_TZ;
     const org = new OrgService(ctx, () => (ctx.plugin.config.DEFAULT_COUNTRY as string) || 'CR');
     const holidays = new HolidayService(ctx);
-    const meetings = new MeetingService(ctx, (userId, payload) =>
-      presence.broadcastToUser(userId, payload));
+    const meetings = new MeetingService(
+      ctx,
+      (userId, payload) => presence.broadcastToUser(userId, payload),
+      (userId) => presence.updateStatus(userId, 'AVAILABLE').then(() => undefined),
+    );
+    // Cierra el ciclo presence ↔ meetings sin dependencia circular en el
+    // constructor: checkIn/checkOut ahora liberan reuniones automáticamente,
+    // y con eso el cron de inactividad y el webhook de Bitrix (que solo
+    // llaman checkIn/checkOut) heredan el release sin tocarlos. Ver Fix #1.
+    presence.setMeetingReleaser((userId) => meetings.releaseUser(userId));
     // Instanciado después de absences/holidays/org: los recibe en el constructor.
     const snapshot = new SnapshotService(ctx, absences, holidays, org, bitrix, undefined, tz);
 
@@ -141,24 +149,14 @@ const plugin: PluginDefinition = {
       }
 
       // ── Salir de la reunión anterior si había una ──
-      // Dos casos distintos y los dos hacen falta.
-      //
-      // 1. El host cambia de estado: se cancelan sus invitaciones y los que
-      //    habían aceptado vuelven a AVAILABLE.
-      const returning = await meetings.cancelMeetingsHostedBy(userId);
-      for (const participantId of returning) {
-        await presence.updateStatus(participantId, 'AVAILABLE');
-      }
-
-      // 2. Un INVITADO que había aceptado cambia de estado por su cuenta. Sin
-      //    esto su fila de MeetingInvite queda en ACCEPTED, y como el snapshot
-      //    arma `meetingWith` leyendo justamente las filas ACCEPTED, la tarjeta
-      //    del host seguiría diciendo "Con Beto" después de que Beto se fue.
-      const before = await ctx.prisma.presenceStatus.findUnique({ where: { userId } });
-      const previousMeetingId = (before as any)?.meetingId ?? null;
-      if (previousMeetingId) {
-        await meetings.leave(userId, previousMeetingId);
-      }
+      // Dos casos distintos y los dos hacen falta: si el usuario hospedaba
+      // una reunión, se cancela y quien la había aceptado vuelve a AVAILABLE;
+      // si el usuario era el invitado que había aceptado, esa fila se cierra
+      // para que `meetingWith` del host deje de listarlo. La misma cadena
+      // corre también en checkIn/checkOut (heredada por cron y webhook de
+      // Bitrix) y en el handler de aceptar invitación — ver
+      // MeetingService.releaseUser.
+      await meetings.releaseUser(userId);
 
       let meetingId: string | null = null;
       if (status === 'IN_MEETING_INTERNAL' && participantIds.length) {
@@ -348,6 +346,18 @@ const plugin: PluginDefinition = {
         }
 
         if (action === 'accept') {
+          // Libera cualquier reunión propia previa antes de instalar el
+          // nuevo estado: si quien acepta hospedaba una, sus invitados
+          // vuelven a AVAILABLE; si venía de otra invitación aceptada, esa
+          // fila se cancela. Sin esto, un host que acepta una invitación
+          // ajena deja varados para siempre a los que había invitado (el
+          // caso concreto: B hospeda M1 con C aceptado, B acepta una
+          // invitación a M2, y C se queda en IN_MEETING_INTERNAL sin
+          // reunión real). `respond()` ya dejó ESTA invitación en ACCEPTED
+          // arriba, así que se excluye por id — si no, releaseUser la
+          // cancelaría a sí misma.
+          await meetings.releaseUser(userId, req.params.id);
+
           // Hereda la justificación y el meetingId del host.
           const hostPresence = await ctx.prisma.presenceStatus.findUnique({
             where: { userId: result.hostId },

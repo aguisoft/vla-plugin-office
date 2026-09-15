@@ -30,6 +30,18 @@ export interface PresenceRecord {
 export class PresenceService {
   constructor(private readonly ctx: PluginContext) {}
 
+  // Inyectado tras construir MeetingService en index.ts (que a su vez depende
+  // de este servicio para broadcastToUser — un setter rompe el ciclo que un
+  // parámetro de constructor no podría). Sin este hook, checkIn/checkOut
+  // limpian la fila de PresenceStatus del usuario pero nunca cancelan las
+  // reuniones que hospeda ni la invitación que había aceptado, dejando a
+  // otros varados en IN_MEETING_INTERNAL — ver Fix #1 de la ola final.
+  private releaseFromMeetings: ((userId: string) => Promise<void>) | null = null;
+
+  setMeetingReleaser(fn: (userId: string) => Promise<void>): void {
+    this.releaseFromMeetings = fn;
+  }
+
   private manualOverrideKey(userId: string) { return `manual-override:${userId}`; }
 
   async setManualOverride(userId: string): Promise<void> {
@@ -46,6 +58,7 @@ export class PresenceService {
   }
 
   async checkIn(userId: string, source: CheckSource = 'WEB'): Promise<PresenceRecord> {
+    if (this.releaseFromMeetings) await this.releaseFromMeetings(userId);
     const now = new Date();
 
     const presence = await this.ctx.prisma.presenceStatus.upsert({
@@ -76,6 +89,7 @@ export class PresenceService {
   }
 
   async checkOut(userId: string, source: CheckSource = 'WEB'): Promise<void> {
+    if (this.releaseFromMeetings) await this.releaseFromMeetings(userId);
     const now = new Date();
 
     await this.ctx.prisma.presenceStatus.upsert({
