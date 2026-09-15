@@ -53,13 +53,14 @@ const plugin: PluginDefinition = {
     const presence = new PresenceService(ctx);
     const layout   = new LayoutService(ctx);
     const bitrix   = new BitrixService(ctx);
-    const snapshot = new SnapshotService(ctx, bitrix);
     const absences = new AbsenceService(ctx);
     const tz = () => (ctx.plugin.config.TIMEZONE as string) || DEFAULT_TZ;
     const org = new OrgService(ctx, () => (ctx.plugin.config.DEFAULT_COUNTRY as string) || 'CR');
     const holidays = new HolidayService(ctx);
     const meetings = new MeetingService(ctx, (userId, payload) =>
       presence.broadcastToUser(userId, payload));
+    // Instanciado después de absences/holidays/org: los recibe en el constructor.
+    const snapshot = new SnapshotService(ctx, absences, holidays, org, bitrix, undefined, tz);
 
     // Sync Bitrix photos + timeman on startup — delayed 5s to let hydrateConfig complete first
     setTimeout(async () => {
@@ -367,8 +368,12 @@ const plugin: PluginDefinition = {
 
     // ── Snapshot (users + presence + avatars + bitrix photos) ─────────────────
 
-    ctx.router.get('/snapshot', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (_req, res) => {
-      res.json(await snapshot.getAll());
+    ctx.router.get('/snapshot', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+      const snap = await snapshot.getAll({
+        userId: (req as any).user.sub,
+        hasManage: can(req, PERMS.MANAGE),
+      });
+      res.json(snap);
     });
 
     // ── Photo proxy (avoids browser CDN/CORS issues with Bitrix URLs) ──────────
