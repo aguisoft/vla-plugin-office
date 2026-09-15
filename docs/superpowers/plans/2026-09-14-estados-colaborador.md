@@ -3891,8 +3891,8 @@ Este es el paso que más importa de la tarea. Con el usuario de la Task 12, que 
 curl -s -X POST localhost:3001/api/v1/p/office/absences \
   -b $J -H 'Content-Type: application/json' \
   -d "{\"userId\":\"$UID\",\"type\":\"INCAPACIDAD\",
-       \"startAt\":\"$(date -u -d 'today 06:00' +%Y-%m-%dT%H:%M:%SZ)\",
-       \"endAt\":\"$(date -u -d 'tomorrow 05:59' +%Y-%m-%dT%H:%M:%SZ)\",
+       \"startAt\":\"$(date -u -d "$(date +%Y-%m-%d) 06:00" +%Y-%m-%dT%H:%M:%SZ)\",
+       \"endAt\":\"$(date -u -d "$(date -d tomorrow +%Y-%m-%d) 05:59" +%Y-%m-%dT%H:%M:%SZ)\",
        \"justification\":\"Boleta CCSS 4477-2026\"}"
 
 # Como admin (tiene office.manage): la ve
@@ -4027,6 +4027,12 @@ Expected: PASS.
 - [ ] **Step 5: Probar la regresión que importa**
 
 Esta es la prueba que valida toda la fase: un usuario con vacaciones activas y timeman cerrado tiene que sobrevivir al cron.
+
+**Ojo con `date -u -d 'today ...'`.** La bandera `-u` hace que GNU date
+interprete `'today'` contra la fecha **UTC**, no la local. Corriendo despues de las
+18:00 hora local (UTC-6), `'today'` ya es el dia siguiente en UTC y el comando arma
+la ventana equivocada sin avisar. Calcula la fecha local por separado
+(`$(date +%Y-%m-%d)`, sin `-u`) y pasasela al `-u -d`.
 
 ```bash
 # 1. Registrar vacaciones que cubran hoy para $UID
