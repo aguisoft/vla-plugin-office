@@ -468,6 +468,20 @@ const plugin: PluginDefinition = {
 
     // ── Organigrama (jefe directo, país) ───────────────────────────────────────
 
+    // Diagnóstico de SOLO LECTURA: mide si vale la pena inferir el país del
+    // teléfono cuando PERSONAL_COUNTRY viene vacío. No escribe nada y no expone
+    // ni un número: solo formas, prefijos y conteos.
+    //
+    // Es GET a propósito, para que no pueda confundirse con una acción. Y va
+    // con office.manage porque agrega datos de toda la organización.
+    //
+    // VA ANTES de '/org/:userId': Express resuelve por orden de registro, así
+    // que la ruta paramétrica se traga cualquier literal declarado después y
+    // devuelve el override de un usuario llamado "country-coverage".
+    ctx.router.get('/org/country-coverage', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (_req, res) => {
+      res.json(await bitrix.countryCoverageReport());
+    });
+
     ctx.router.get('/org/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
       const { userId } = req.params;
       res.json({
@@ -491,16 +505,6 @@ const plugin: PluginDefinition = {
     // { synced: 0, heads: 0, withCountry: 0 } y queda logueado como warning.
     ctx.router.post('/org/sync', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (_req, res) => {
       res.json(await bitrix.syncOrgStructure());
-    });
-
-    // Diagnóstico de SOLO LECTURA: mide si vale la pena inferir el país del
-    // teléfono cuando PERSONAL_COUNTRY viene vacío. No escribe nada y no expone
-    // ni un número: solo formas, prefijos y conteos.
-    //
-    // Es GET a propósito, para que no pueda confundirse con una acción. Y va
-    // con office.manage porque agrega datos de toda la organización.
-    ctx.router.get('/org/country-coverage', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (_req, res) => {
-      res.json(await bitrix.countryCoverageReport());
     });
 
     // ── Layout ────────────────────────────────────────────────────────────────
