@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { listMovableHolidays } from '../api';
 import { MIN_JUSTIFICATION } from '../statusConfig';
-import { fmtDate, monthName } from '../format';
+import { fmtDateOnly, monthName } from '../format';
 import { Shell, DateField, Actions, missingLabel } from './modalParts';
 import type { Holiday } from '../types';
 
@@ -58,7 +58,7 @@ export function HolidayOverrideModal({ onClose, onConfirm }: {
       >
         <option value="">Elegí el feriado…</option>
         {holidays?.map(h => (
-          <option key={h.id} value={h.id}>{h.name} — {fmtDate(h.date)}</option>
+          <option key={h.id} value={h.id}>{h.name} — {fmtDateOnly(h.date)}</option>
         ))}
       </select>
 

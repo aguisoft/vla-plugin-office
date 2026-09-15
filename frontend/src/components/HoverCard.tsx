@@ -1,7 +1,7 @@
 import { createPortal } from 'react-dom';
 import { AvatarSVG } from './AvatarSVG';
 import { cfgOf } from '../statusConfig';
-import { fmtTime } from '../format';
+import { fmtTime, absenceReturnDate } from '../format';
 import type { UserSnapshot } from '../types';
 
 function timeAgo(iso: string): string {
@@ -129,10 +129,13 @@ export function HoverCard({ user, zoneName, anchorRect }: HoverCardProps) {
             </p>
           )}
 
-          {/* Cuándo vuelve, en ausencias con rango. */}
+          {/* Cuándo vuelve, en ausencias con rango. absenceEndsAt es el
+              ÚLTIMO día que todavía está afuera (fin de día inclusivo), así
+              que "vuelve el" es ese día + 1 -- no el día crudo del instante,
+              que es lo que muestra "hasta" en ParticipantPicker/App.tsx. */}
           {user.absenceEndsAt && (
             <p className="mt-1 text-[10px] text-gray-400">
-              Vuelve el {new Date(user.absenceEndsAt).toLocaleDateString('es', { day: 'numeric', month: 'long' })}
+              Vuelve el {absenceReturnDate(user.absenceEndsAt).toLocaleDateString('es', { day: 'numeric', month: 'long' })}
             </p>
           )}
 

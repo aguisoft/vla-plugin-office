@@ -24,7 +24,7 @@ import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
 import type { ResolvedStatus, PayloadKind } from './statusConfig';
 import { setStatus, createAbsence, listInvites, respondInvite, setHolidayOverride, ApiError } from './api';
 import type { StatusPayload, StatusError } from './api';
-import { fmtDate, fmtTime } from './format';
+import { fmtDate, fmtDateOnly, fmtTime, absenceLastDay } from './format';
 
 export const TILE = 20;
 
@@ -212,9 +212,19 @@ export default function App() {
       const schedule = isPermiso
         ? `el ${fmtDate(body.startAt)} de ${fmtTime(body.startAt)} a ${fmtTime(body.endAt)}`
         : `del ${fmtDate(body.startAt)} al ${fmtDate(body.endAt)}`;
+      // Concordancia del participio con el tipo: "Permiso" es masculino
+      // singular, "Vacaciones" femenino PLURAL, "Incapacidad" femenino
+      // singular. El ternario isPermiso ? x : y solo distinguía dos casos y
+      // le pegaba el mismo femenino singular a VACACIONES -- "Vacaciones
+      // registrada" en vez de "registradas".
+      const agree = (masc: string) => {
+        if (isPermiso) return masc;
+        const fem = `${masc.slice(0, -1)}a`;
+        return body.type === 'VACACIONES' ? `${fem}s` : fem;
+      };
       setNotice(startsLater
-        ? `${label} ${isPermiso ? 'registrado' : 'registrada'} ${schedule}`
-        : `${label} ${isPermiso ? 'aplicado' : 'aplicada'}`);
+        ? `${label} ${agree('registrado')} ${schedule}`
+        : `${label} ${agree('aplicado')}`);
     } catch (e) {
       const detail = e instanceof ApiError ? (e.detail as StatusError | undefined) : undefined;
       setError(detail?.errors?.[0]?.message ?? detail?.message ?? 'No se pudo registrar la ausencia');
@@ -229,7 +239,10 @@ export default function App() {
     try {
       await setHolidayOverride(holidayId, { newDate, justification });
       await loadData();
-      setNotice(`Feriado movido al ${fmtDate(newDate)}`);
+      // newDate es el "YYYY-MM-DD" crudo del <input type="date"> de
+      // HolidayOverrideModal, sin hora ni zona -- fmtDate lo leería como
+      // medianoche UTC y nombraría el día anterior en Costa Rica.
+      setNotice(`Feriado movido al ${fmtDateOnly(newDate)}`);
     } catch (e) {
       // Mismo patrón que applyAbsence: el 400 de mes-distinto ya lo frena el
       // DateField (min/max), así que lo que llega acá suele ser un choque de
@@ -456,7 +469,7 @@ export default function App() {
                 <span>{cfgOf(p.reason).icon}</span>
                 <span className="font-medium">{p.name}</span>
                 <span className={cfgOf(p.reason).text}>
-                  {cfgOf(p.reason).label}{p.until && ` hasta ${fmtDate(p.until)}`}
+                  {cfgOf(p.reason).label}{p.until && ` hasta ${absenceLastDay(p.until)}`}
                 </span>
               </li>
             ))}

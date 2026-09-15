@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { MIN_JUSTIFICATION, cfgOf } from '../statusConfig';
 import { Shell, Actions, missingLabel } from './modalParts';
-import { fmtDate } from '../format';
+import { absenceLastDay } from '../format';
 import type { UserSnapshot } from '../types';
 
 /**
@@ -61,7 +61,7 @@ export function ParticipantPicker({ users, currentUserId, onClose, onConfirm }: 
               {blocked && (
                 <span className={`ml-auto ${cfg.text}`}>
                   {cfg.icon} {cfg.label}
-                  {u.absenceEndsAt && ` hasta ${fmtDate(u.absenceEndsAt)}`}
+                  {u.absenceEndsAt && ` hasta ${absenceLastDay(u.absenceEndsAt)}`}
                 </span>
               )}
             </label>

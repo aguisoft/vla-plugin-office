@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { listHolidays, createHoliday, deleteHoliday, ApiError } from '../api';
 import type { StatusError } from '../api';
-import { fmtDate } from '../format';
+import { fmtDateOnly } from '../format';
 import { DateField } from './modalParts';
 import type { Holiday } from '../types';
 
@@ -154,7 +154,7 @@ export function HolidayAdminPanel({ onClose, embedded }: { onClose: () => void; 
           {holidays.map(h => (
             <li key={h.id} className="flex items-center justify-between rounded-xl px-2.5 py-2 text-xs hover:bg-gray-50">
               <div className="min-w-0">
-                <span className="font-semibold text-gray-700">{fmtDate(h.date)}</span>
+                <span className="font-semibold text-gray-700">{fmtDateOnly(h.date)}</span>
                 <span className="ml-2 text-gray-400">{h.country}</span>
                 <p className="truncate text-gray-500">{h.name}</p>
               </div>
