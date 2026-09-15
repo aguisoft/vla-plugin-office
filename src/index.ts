@@ -493,6 +493,16 @@ const plugin: PluginDefinition = {
       res.json(await bitrix.syncOrgStructure());
     });
 
+    // Diagnóstico de SOLO LECTURA: mide si vale la pena inferir el país del
+    // teléfono cuando PERSONAL_COUNTRY viene vacío. No escribe nada y no expone
+    // ni un número: solo formas, prefijos y conteos.
+    //
+    // Es GET a propósito, para que no pueda confundirse con una acción. Y va
+    // con office.manage porque agrega datos de toda la organización.
+    ctx.router.get('/org/country-coverage', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (_req, res) => {
+      res.json(await bitrix.countryCoverageReport());
+    });
+
     // ── Layout ────────────────────────────────────────────────────────────────
 
     ctx.router.get('/layout', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (_req, res) => {

@@ -1,4 +1,5 @@
 import type { PluginContext } from '@vla/plugin-sdk';
+import { countryFromPhone, phoneShape, prefixOf } from '../lib/phone-country';
 
 export interface BitrixUser {
   ID: string;
@@ -8,7 +9,46 @@ export interface BitrixUser {
   PERSONAL_PHOTO?: string;
   UF_DEPARTMENT?: number[];
   PERSONAL_COUNTRY?: string | number;
+  /** Campos de teléfono, solo para el diagnóstico de cobertura de país. */
+  PERSONAL_MOBILE?: string;
+  PERSONAL_PHONE?: string;
+  WORK_PHONE?: string;
   ACTIVE: boolean;
+}
+
+/**
+ * Diagnóstico de solo lectura: qué tan bien se puede resolver el país de cada
+ * colaborador con los datos que Bitrix tiene hoy.
+ *
+ * Existe para convertir en dato una decisión que hoy es conjetura: si conviene
+ * inferir el país del teléfono cuando `PERSONAL_COUNTRY` viene vacío. No escribe
+ * nada y **no expone números de teléfono** — solo formas, prefijos y conteos.
+ */
+export interface CountryCoverageReport {
+  /** Usuarios activos que Bitrix devuelve. */
+  bitrixActiveUsers: number;
+  /** De esos, cuántos tienen un usuario VLA con el mismo correo. */
+  mappedToVlaUsers: number;
+  /** Cuántos traen `PERSONAL_COUNTRY` con algún valor. */
+  withPersonalCountry: number;
+  /** Valores crudos de `PERSONAL_COUNTRY` vistos, con su conteo. Sirve para
+   *  construir el mapa ID→ISO de verdad en vez de adivinarlo. */
+  personalCountryRawValues: Record<string, number>;
+  /** De esos valores, cuáles NO están en el mapa actual: hoy caen al default. */
+  unmappedCountryIds: string[];
+  /** Por campo de teléfono, la forma de lo que hay. Decide cuál campo usar. */
+  phoneFields: Record<string, Record<string, number>>;
+  /** Distribución de prefijos reconocidos, sumando los tres campos. */
+  prefixDistribution: Record<string, number>;
+  /** Cómo se resolvería el país de cada usuario mapeado, hoy y con la
+   *  inferencia por teléfono. La diferencia entre ambos es lo que la
+   *  inferencia realmente aportaría. */
+  resolutionToday: Record<string, number>;
+  resolutionWithPhoneFallback: Record<string, number>;
+  /** Usuarios cuyo país inferido del teléfono CONTRADICE su `PERSONAL_COUNTRY`.
+   *  Son los casos donde la inferencia habría estado mal si se hubiera usado
+   *  como dato en vez de como respaldo. */
+  phoneContradictsExplicit: number;
 }
 
 export interface BitrixDepartment {
@@ -62,7 +102,8 @@ export class BitrixService {
     return this.ctx.bitrix!.callAll<BitrixUser>('user.get', {
       FILTER: { ACTIVE: true },
       SELECT: ['ID', 'NAME', 'LAST_NAME', 'EMAIL', 'PERSONAL_PHOTO',
-               'UF_DEPARTMENT', 'PERSONAL_COUNTRY'],
+               'UF_DEPARTMENT', 'PERSONAL_COUNTRY',
+               'PERSONAL_MOBILE', 'PERSONAL_PHONE', 'WORK_PHONE'],
     });
   }
 
@@ -125,6 +166,118 @@ export class BitrixService {
   }
 
   // ── Org structure sync (departamento, jefe directo, país) ──────────────────
+
+  /**
+   * Mide qué tan resoluble es el país de cada colaborador con los datos actuales.
+   * **Solo lectura**: no escribe en `BitrixUserMapping` ni en ninguna otra tabla.
+   *
+   * No devuelve ni un número de teléfono. Los teléfonos son datos personales de
+   * empleados y este endpoint existe para decidir un diseño, no para exportarlos:
+   * reporta formas (`international`/`local`/`empty`), prefijos de país, y conteos.
+   */
+  async countryCoverageReport(): Promise<CountryCoverageReport> {
+    const empty: CountryCoverageReport = {
+      bitrixActiveUsers: 0, mappedToVlaUsers: 0, withPersonalCountry: 0,
+      personalCountryRawValues: {}, unmappedCountryIds: [],
+      phoneFields: {}, prefixDistribution: {},
+      resolutionToday: {}, resolutionWithPhoneFallback: {},
+      phoneContradictsExplicit: 0,
+    };
+    if (!this.isConfigured()) {
+      this.ctx.logger.warn('Diagnóstico de país omitido: Bitrix no configurado');
+      return empty;
+    }
+
+    let bitrixUsers: BitrixUser[];
+    let emailMap: Map<string, string>;
+    try {
+      [bitrixUsers, emailMap] = await Promise.all([
+        this.getBitrixUsers(),
+        this.getVlaEmailMap(),
+      ]);
+    } catch (e) {
+      this.ctx.logger.warn(`Diagnóstico de país: Bitrix inalcanzable: ${e}`);
+      return empty;
+    }
+
+    // Overrides manuales existentes: hoy ganan sobre todo lo demás.
+    const overrides = await this.ctx.prisma.userProfileOverride.findMany();
+    const overriddenCountry = new Map(
+      (overrides as any[]).filter(o => o.country).map(o => [o.userId, o.country as string]),
+    );
+
+    const PHONE_FIELDS = ['PERSONAL_MOBILE', 'PERSONAL_PHONE', 'WORK_PHONE'] as const;
+    const bump = (obj: Record<string, number>, key: string) => { obj[key] = (obj[key] ?? 0) + 1; };
+
+    const r: CountryCoverageReport = {
+      ...empty,
+      personalCountryRawValues: {}, phoneFields: {}, prefixDistribution: {},
+      resolutionToday: {}, resolutionWithPhoneFallback: {},
+    };
+    for (const f of PHONE_FIELDS) r.phoneFields[f] = {};
+
+    r.bitrixActiveUsers = bitrixUsers.length;
+    const unmapped = new Set<string>();
+
+    for (const bu of bitrixUsers) {
+      const vlaUserId = emailMap.get((bu.EMAIL ?? '').toLowerCase());
+
+      // La forma de los teléfonos se mide para TODOS, mapeados o no: sirve para
+      // saber si el campo está poblado en el portal.
+      let phoneCountry: string | null = null;
+      for (const f of PHONE_FIELDS) {
+        const raw = (bu as any)[f] as string | undefined;
+        bump(r.phoneFields[f], phoneShape(raw));
+        const p = prefixOf(raw);
+        if (p) bump(r.prefixDistribution, p);
+        // Prioridad: móvil personal primero — es la mejor señal de dónde vive
+        // alguien. El de trabajo suele ser una línea corporativa y no dice nada.
+        if (!phoneCountry) phoneCountry = countryFromPhone(raw);
+      }
+
+      const rawCountry = bu.PERSONAL_COUNTRY != null ? String(bu.PERSONAL_COUNTRY).trim() : '';
+      if (rawCountry) {
+        r.withPersonalCountry++;
+        bump(r.personalCountryRawValues, rawCountry);
+        if (!BITRIX_COUNTRY_ISO[rawCountry]) unmapped.add(rawCountry);
+      }
+
+      if (!vlaUserId) continue;
+      r.mappedToVlaUsers++;
+
+      const explicitIso = rawCountry ? BITRIX_COUNTRY_ISO[rawCountry] ?? null : null;
+
+      // Cómo se resuelve hoy, y cómo se resolvería con el respaldo por teléfono.
+      // La diferencia entre las dos columnas es lo que la inferencia aportaría.
+      const today =
+        overriddenCountry.has(vlaUserId) ? 'override'
+        : explicitIso                    ? 'bitrix'
+        :                                  'default';
+      bump(r.resolutionToday, today);
+
+      const withFallback =
+        overriddenCountry.has(vlaUserId) ? 'override'
+        : explicitIso                    ? 'bitrix'
+        : phoneCountry                   ? 'phone'
+        :                                  'default';
+      bump(r.resolutionWithPhoneFallback, withFallback);
+
+      // El caso que prueba que el teléfono no es un dato: contradice lo explícito.
+      if (explicitIso && phoneCountry && explicitIso !== phoneCountry) {
+        r.phoneContradictsExplicit++;
+      }
+    }
+
+    r.unmappedCountryIds = [...unmapped].sort();
+
+    this.ctx.logger.log(
+      `Diagnóstico de país: ${r.mappedToVlaUsers}/${r.bitrixActiveUsers} mapeados, ` +
+      `${r.withPersonalCountry} con PERSONAL_COUNTRY, ` +
+      `${r.resolutionWithPhoneFallback.phone ?? 0} se resolverían por teléfono, ` +
+      `${r.phoneContradictsExplicit} contradicciones`,
+    );
+    return r;
+  }
 
   /**
    * Trae departamentos + usuarios de Bitrix y actualiza BitrixUserMapping con
