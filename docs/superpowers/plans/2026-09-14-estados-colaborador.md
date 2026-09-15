@@ -3951,7 +3951,12 @@ En `src/index.ts`, antes de `runTimemanSync`:
       ]);
       const onHoliday = await holidays.effectiveByUserId(now, countryOf, tz());
 
-      return new Set([...active.keys(), ...onHoliday]);
+      // .keys() en los dos: `active` es Map<userId, AbsenceWindow> y `onHoliday`
+      // es Map<userId, justificacion|null>. Esparcir un Map da pares
+      // [clave, valor], no claves, y el Set quedaria lleno de arreglos: el
+      // `absent.has(userId)` de abajo daria siempre false y el blindaje no
+      // blindaria nada, en silencio.
+      return new Set([...active.keys(), ...onHoliday.keys()]);
     }
 ```
 
