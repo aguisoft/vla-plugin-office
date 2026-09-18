@@ -87,11 +87,11 @@ function Mes({ nombre, year, mes, byDate, hoyIso, selectedDate, onPickDate }: {
   }
 
   return (
-    <div className="rounded-2xl border border-gray-100 bg-white p-3 transition-shadow hover:shadow-sm dark:border-gray-800 dark:bg-gray-900">
+    <div className="rounded-2xl border border-gray-100 bg-white p-3 transition-shadow hover:shadow-sm">
       <div className="mb-2 flex items-baseline justify-between">
-        <h4 className="text-xs font-bold text-gray-700 dark:text-gray-200">{nombre}</h4>
+        <h4 className="text-xs font-bold text-gray-700">{nombre}</h4>
         {delMes > 0 && (
-          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-500/20 dark:text-amber-300">
+          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
             {delMes}
           </span>
         )}
@@ -99,7 +99,7 @@ function Mes({ nombre, year, mes, byDate, hoyIso, selectedDate, onPickDate }: {
 
       <div className="grid grid-cols-7 gap-0.5">
         {DIAS.map((d, i) => (
-          <div key={i} className="pb-1 text-center text-[9px] font-semibold uppercase text-gray-300 dark:text-gray-600">
+          <div key={i} className="pb-1 text-center text-[9px] font-semibold uppercase text-gray-300">
             {d}
           </div>
         ))}
@@ -125,12 +125,12 @@ function Mes({ nombre, year, mes, byDate, hoyIso, selectedDate, onPickDate }: {
               className={[
                 'relative aspect-square rounded-md text-[10px] font-medium transition-colors',
                 esFeriado
-                  ? 'bg-amber-300 text-amber-900 hover:bg-amber-400 dark:bg-amber-500/80 dark:text-amber-950'
+                  ? 'bg-amber-300 text-amber-900 hover:bg-amber-400'
                   : finDeSemana
-                    ? 'text-gray-300 hover:bg-gray-100 dark:text-gray-600 dark:hover:bg-gray-800'
-                    : 'text-gray-600 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-gray-800',
-                elegido ? 'ring-2 ring-gray-800 dark:ring-gray-200' : '',
-                esHoy && !esFeriado ? 'font-bold text-gray-900 underline decoration-2 dark:text-white' : '',
+                    ? 'text-gray-300 hover:bg-gray-100'
+                    : 'text-gray-600 hover:bg-gray-100',
+                elegido ? 'ring-2 ring-gray-800' : '',
+                esHoy && !esFeriado ? 'font-bold text-gray-900 underline decoration-2' : '',
               ].join(' ')}
             >
               {dia}
