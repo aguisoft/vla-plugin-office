@@ -482,6 +482,45 @@ const plugin: PluginDefinition = {
       res.json(await bitrix.countryCoverageReport());
     });
 
+    /**
+     * Roster completo para la pantalla de feriados: cada colaborador con su
+     * país resuelto, DE DÓNDE sale ese país, y su jefe directo.
+     *
+     * El `countrySource` es la razón de existir de este endpoint. Hoy los 35
+     * mapeos tienen `country = null`, así que todos caen al default: sin el
+     * origen, RRHH ve 35 personas en "CR" y asume que el dato está cargado.
+     * Con el origen ve "35 × por defecto" y entiende que tiene que marcar las
+     * excepciones.
+     *
+     * Va con office.manage y ANTES de '/org/:userId' — Express resuelve por
+     * orden de registro y la paramétrica se tragaría el literal.
+     */
+    ctx.router.get('/org/roster', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (_req, res) => {
+      const users = await ctx.prisma.user.findMany({
+        where: { isActive: true },
+        select: { id: true, firstName: true, lastName: true, email: true },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      });
+      const ids = (users as any[]).map(u => u.id);
+      const roster = await org.roster(ids);
+
+      res.json({
+        defaultCountry: (ctx.plugin.config.DEFAULT_COUNTRY as string) || 'CR',
+        users: (users as any[]).map(u => {
+          const r = roster.get(u.id);
+          return {
+            userId: u.id,
+            firstName: u.firstName,
+            lastName: u.lastName,
+            email: u.email,
+            country: r?.country ?? null,
+            countrySource: r?.countrySource ?? 'default',
+            managerUserId: r?.managerUserId ?? null,
+          };
+        }),
+      });
+    });
+
     ctx.router.get('/org/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
       const { userId } = req.params;
       res.json({

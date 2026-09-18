@@ -1,4 +1,12 @@
 import type { PluginContext } from '@vla/plugin-sdk';
+import { resolveCountry, resolveManager, type CountrySource } from '../lib/country-source';
+
+export interface RosterEntry {
+  userId: string;
+  country: string;
+  countrySource: CountrySource;
+  managerUserId: string | null;
+}
 
 export class OrgService {
   /**
@@ -90,6 +98,51 @@ export class OrgService {
     const result = new Map<string, string>();
     for (const id of userIds) {
       result.set(id, byOverride.get(id) || byMapping.get(id) || this.defaultCountry());
+    }
+    return result;
+  }
+
+  /**
+   * País y jefe de TODOS los usuarios pedidos, con dos consultas en total.
+   *
+   * `countryByUserId` + `managerOf` por persona costaba 2 consultas por cabeza
+   * (70 para los 35 de producción) y además `countryByUserId` no dice de dónde
+   * salió el valor. La pantalla de feriados necesita el origen: un "CR" que
+   * significa "nadie cargó el dato" no puede verse igual que uno verificado.
+   */
+  async roster(userIds: string[]): Promise<Map<string, RosterEntry>> {
+    const result = new Map<string, RosterEntry>();
+    if (userIds.length === 0) return result;
+
+    const [overrides, mappings] = await Promise.all([
+      this.ctx.prisma.userProfileOverride.findMany({ where: { userId: { in: userIds } } }),
+      // Sin filtro de userId a propósito: el jefe de un departamento puede no
+      // estar en `userIds` (p. ej. si se pide un subconjunto), y sin su fila
+      // headByDept quedaría incompleto y el jefe saldría null.
+      this.ctx.prisma.bitrixUserMapping.findMany(),
+    ]);
+
+    const overrideOf = new Map((overrides as any[]).map(o => [o.userId, o]));
+    const mappingOf  = new Map((mappings as any[]).map(m => [m.userId, m]));
+
+    const headByDept = new Map<string, string>();
+    for (const m of mappings as any[]) {
+      if (m.isDepartmentHead && m.departmentId && !headByDept.has(m.departmentId)) {
+        headByDept.set(m.departmentId, m.userId);
+      }
+    }
+
+    const fallback = this.defaultCountry();
+    for (const id of userIds) {
+      const o = overrideOf.get(id) as any;
+      const m = mappingOf.get(id) as any;
+      const { country, source } = resolveCountry(o?.country, m?.country, fallback);
+      result.set(id, {
+        userId: id,
+        country,
+        countrySource: source,
+        managerUserId: resolveManager(id, o?.managerUserId, m?.departmentId, headByDept),
+      });
     }
     return result;
   }

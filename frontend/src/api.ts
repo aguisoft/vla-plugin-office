@@ -1,4 +1,4 @@
-import type { Absence, Holiday, PendingInvite, UnavailableParticipant } from './types';
+import type { Absence, Holiday, PendingInvite, RosterUser, UnavailableParticipant } from './types';
 
 const BASE = '/api/v1';
 
@@ -126,3 +126,6 @@ export const getOrg = (userId: string) =>
 
 export const setOrg = (userId: string, body: { managerUserId?: string | null; country?: string | null }) =>
   api.put<{ ok: true }>(`${PLUGIN}/org/${userId}`, body);
+
+export const getOrgRoster = () =>
+  api.get<{ defaultCountry: string; users: RosterUser[] }>(`${PLUGIN}/org/roster`);

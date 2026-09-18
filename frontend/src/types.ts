@@ -88,3 +88,18 @@ export interface LayoutData {
   name: string;
   zones: Zone[];
 }
+
+/**
+ * Colaborador con su país resuelto y de dónde sale ese país, tal como lo
+ * devuelve `GET /org/roster`. El `countrySource` es lo que distingue un país
+ * cargado por RRHH de uno que es solo el valor de respaldo del plugin.
+ */
+export interface RosterUser {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  country: string | null;
+  countrySource: 'override' | 'bitrix' | 'default';
+  managerUserId: string | null;
+}

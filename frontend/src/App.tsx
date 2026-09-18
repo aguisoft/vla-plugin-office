@@ -18,7 +18,7 @@ import { ParticipantPicker } from './components/ParticipantPicker';
 import { MeetingInviteModal } from './components/MeetingInviteModal';
 import { HolidayOverrideModal } from './components/HolidayOverrideModal';
 import { MyAbsencesModal } from './components/MyAbsencesModal';
-import { HolidayAdminPanel } from './components/HolidayAdminPanel';
+import { HolidayManager } from './components/HolidayManager';
 import { Shell } from './components/modalParts';
 import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant, PendingInvite } from './types';
 import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
@@ -468,7 +468,7 @@ export default function App() {
         <BitrixSettings onClose={() => setShowBitrixSettings(false)} />
       )}
       {showHolidayAdmin && canManageHolidays && (
-        <HolidayAdminPanel onClose={() => setShowHolidayAdmin(false)} />
+        <HolidayManager onClose={() => setShowHolidayAdmin(false)} />
       )}
       {showAbsences && (
         <MyAbsencesModal onClose={() => setShowAbsences(false)} onChanged={() => void loadData()} />
