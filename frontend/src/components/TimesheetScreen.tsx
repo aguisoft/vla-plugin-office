@@ -5,6 +5,7 @@ import { isoDate } from '../calendar';
 import { fmtDateOnly } from '../format';
 import { PeriodPicker } from './PeriodPicker';
 import type { Period } from './PeriodPicker';
+import { TimesheetBreakdown } from './TimesheetBreakdown';
 
 /**
  * Pantalla de tiempos: cuánto estuvo cada quien en la oficina, por día,
@@ -136,38 +137,69 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
             // Con error ya no hay nada más que mostrar acá -- el banner rojo
             // de arriba es todo el feedback. Ni números ni un vacío que se
             // pueda confundir con "no marcó horas".
-            <div className="rounded-2xl border border-gray-100 p-4">
-              <div className="mb-4 flex items-baseline justify-between gap-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
-                  Tiempo en oficina
-                </p>
-                <p className="text-lg font-bold text-gray-800">{hhmm(data?.office.totalMinutes ?? 0)}</p>
-              </div>
-
-              {sinDatos ? (
-                <p className="py-8 text-center text-xs text-gray-400">
-                  Sin tiempo registrado en este período.
-                </p>
-              ) : (
-                <div className="space-y-2">
-                  {byDay.map(d => (
-                    <div key={d.date} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
-                      <span className="flex-shrink-0 text-[10px] text-gray-500 sm:w-24">
-                        {fmtDateOnly(d.date)}
-                      </span>
-                      <div className="h-2 min-w-0 flex-1 rounded-full bg-gray-100">
-                        <div
-                          className="h-2 rounded-full bg-emerald-400"
-                          style={{ width: `${Math.round((d.minutes / maxMinutes) * 100)}%` }}
-                        />
-                      </div>
-                      <span className="flex-shrink-0 text-[10px] font-medium text-gray-600 sm:w-12 sm:text-right">
-                        {hhmm(d.minutes)}
-                      </span>
-                    </div>
-                  ))}
+            <div className="space-y-4">
+              {/* Aviso de cobertura: durante las primeras semanas casi toda
+                  consulta cae parcial o totalmente antes de `coverageStart`,
+                  y el tiempo en oficina de abajo sí trae números en ese mismo
+                  período -- sin este aviso, un desglose vacío al lado de
+                  horas reales se lee como "no hizo nada". */}
+              {data?.coverageStart && data.from.slice(0, 10) < data.coverageStart && (
+                <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                  <p className="text-[11px] leading-relaxed text-amber-800">
+                    El desglose por estado empezó a registrarse el <strong>{fmtDateOnly(data.coverageStart)}</strong>.
+                    Antes de esa fecha solo hay tiempo en oficina — un desglose vacío acá no significa
+                    que no se trabajó.
+                  </p>
                 </div>
               )}
+
+              <div className="rounded-2xl border border-gray-100 p-4">
+                <div className="mb-4 flex items-baseline justify-between gap-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                    Tiempo en oficina
+                  </p>
+                  <p className="text-lg font-bold text-gray-800">{hhmm(data?.office.totalMinutes ?? 0)}</p>
+                </div>
+
+                {sinDatos ? (
+                  <p className="py-8 text-center text-xs text-gray-400">
+                    Sin tiempo registrado en este período.
+                  </p>
+                ) : (
+                  <div className="space-y-2">
+                    {byDay.map(d => (
+                      <div key={d.date} className="flex flex-col gap-1 sm:flex-row sm:items-center sm:gap-3">
+                        <span className="flex-shrink-0 text-[10px] text-gray-500 sm:w-24">
+                          {fmtDateOnly(d.date)}
+                        </span>
+                        <div className="h-2 min-w-0 flex-1 rounded-full bg-gray-100">
+                          <div
+                            className="h-2 rounded-full bg-emerald-400"
+                            style={{ width: `${Math.round((d.minutes / maxMinutes) * 100)}%` }}
+                          />
+                        </div>
+                        <span className="flex-shrink-0 text-[10px] font-medium text-gray-600 sm:w-12 sm:text-right">
+                          {hhmm(d.minutes)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* El propio componente resuelve el caso `totalMinutes <= 0`
+                  con su mensaje "Sin tiempo conectado" -- no hace falta
+                  duplicar esa condición acá. */}
+              <div className="rounded-2xl border border-gray-100 p-4">
+                <p className="mb-4 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                  Desglose por estado
+                </p>
+                <TimesheetBreakdown
+                  slices={data?.breakdown ?? []}
+                  unaccountedMinutes={data?.unaccountedMinutes ?? 0}
+                  totalMinutes={data?.office.totalMinutes ?? 0}
+                />
+              </div>
             </div>
           )}
         </div>

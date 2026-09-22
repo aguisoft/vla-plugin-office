@@ -110,11 +110,23 @@ export interface OfficeDay {
   minutes: number;
 }
 
+/** Un tramo del desglose por estado: cuántos minutos pasó en ese estado dentro del período. */
+export interface StatusSlice {
+  status: string;
+  minutes: number;
+}
+
 export interface TimesheetOfficeResponse {
   period: 'day' | 'week' | 'month';
   from: string;
   to: string;
   office: { userId: string; totalMinutes: number; byDay: OfficeDay[] };
+  /** Desglose por estado dentro del período. Junto con `unaccountedMinutes` suma `office.totalMinutes`. */
+  breakdown: StatusSlice[];
+  /** Minutos conectados sin estado capturado en el historial -- lo que el desglose no alcanza a explicar. */
+  unaccountedMinutes: number;
+  /** Desde cuándo el backend tiene historial de estados. `null` si todavía no hay ninguno. */
+  coverageStart: string | null;
 }
 
 /**
