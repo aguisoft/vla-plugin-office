@@ -11,7 +11,7 @@ import { TimesheetService } from './services/timesheet.service';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { DEFAULT_TZ } from './lib/local-date';
 import { validateStatusInput, type StatusInput, type OfficeStatus } from './lib/status-rules';
-import { periodBounds, resolveScope, canSee, type Period } from './lib/timesheet';
+import { periodBounds, resolveScope, canSee, reconcile, type Period } from './lib/timesheet';
 
 const PERMS = {
   VIEW:     'office.view',
@@ -623,11 +623,22 @@ const plugin: PluginDefinition = {
       const span = { start: bounds.start, end: bounds.end < now ? bounds.end : now };
 
       const byUser = await timesheet.officeTime([target], span);
+      // Trae el tiempo en oficina y el desglose por estado para construir el
+      // gráfico del dashboard. El reconcile cierra cualquier brecha entre los
+      // slices y el total — si la suma de estados < totalMinutes, el residuo
+      // va a unaccountedMinutes (indica sesiones abiertas o sin classifier).
+      const office = byUser.get(target) ?? { userId: target, totalMinutes: 0, byDay: [] };
+      const crudo = await timesheet.statusBreakdown(target, span);
+      const { slices, unaccountedMinutes } = reconcile(office.totalMinutes, crudo);
+
       res.json({
         period,
         from: bounds.start.toISOString(),
         to: bounds.end.toISOString(),
-        office: byUser.get(target) ?? { userId: target, totalMinutes: 0, byDay: [] },
+        office,
+        breakdown: slices,
+        unaccountedMinutes,
+        coverageStart: await timesheet.coverageStart(),
       });
     });
 
