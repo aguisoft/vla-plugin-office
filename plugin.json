@@ -37,6 +37,15 @@
             "default": 12,
             "min": 1,
             "max": 24
+          },
+          {
+            "key": "WORKDAY_HOURS",
+            "type": "number",
+            "label": "Horas de una jornada completa",
+            "description": "Con esto se convierten a minutos las ausencias de día completo (vacaciones e incapacidad), que no traen hora de inicio ni de fin. El permiso no lo usa: viaja con su hora real. Cambiarlo cambia los minutos equivalentes que ya se muestran en el reporte.",
+            "default": 8,
+            "min": 1,
+            "max": 24
           }
         ]
       }
