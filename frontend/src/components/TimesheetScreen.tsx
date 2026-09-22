@@ -37,6 +37,14 @@ function errorMessage(e: unknown, fallback: string): string {
   return detail?.message ?? fallback;
 }
 
+/**
+ * Un `fetch` abortado rechaza con un `AbortError`. No es un fallo que mostrar:
+ * la cancelación la pidió la propia pantalla al cambiar de persona o período.
+ */
+function esCancelacion(e: unknown): boolean {
+  return e instanceof Error && e.name === 'AbortError';
+}
+
 export function TimesheetScreen({ onClose }: { onClose: () => void }) {
   const [period, setPeriod] = useState<Period>('week');
   const [anchor, setAnchor] = useState(hoy());
@@ -59,15 +67,24 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     if (!userId) return;
+    // Sin cancelar, cambiar de persona con una respuesta en vuelo puede pintar
+    // el tiempo de A bajo el nombre de B.
+    const ctrl = new AbortController();
     setLoading(true);
     setError(null);
-    getOfficeTime(period, anchor, userId)
-      .then(setData)
+    getOfficeTime(period, anchor, userId, ctrl.signal)
+      .then(d => { setData(d); setLoading(false); })
       .catch(e => {
+        // Un AbortError no es un error que mostrar: es una cancelación
+        // esperada. `loading` tampoco se toca -- la llamada que disparó la
+        // cancelación ya lo dejó en `true`, y apagarlo acá haría parpadear
+        // "no se pudo cargar" cada vez que alguien cambia de persona.
+        if (esCancelacion(e)) return;
         setData(null);
         setError(errorMessage(e, 'No se pudo cargar el tiempo en oficina'));
-      })
-      .finally(() => setLoading(false));
+        setLoading(false);
+      });
+    return () => ctrl.abort();
   }, [period, anchor, userId]);
 
   const persona = scope?.users.find(u => u.id === userId);

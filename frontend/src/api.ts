@@ -30,12 +30,18 @@ export class ApiError extends Error {
   }
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+/**
+ * `signal` es opcional y va al final para no tocar ninguna firma existente.
+ * Sirve para cancelar una llamada en vuelo cuando la pantalla ya pidió otra
+ * cosa -- ver `getOfficeTime` y el efecto de `TimesheetScreen`.
+ */
+async function request<T>(method: string, path: string, body?: unknown, signal?: AbortSignal): Promise<T> {
   const res = await fetch(`${BASE}${path}`, {
     method,
     credentials: 'include',
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined,
+    signal,
   });
 
   if (!res.ok) {
@@ -59,7 +65,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 }
 
 export const api = {
-  get:    <T>(path: string)                 => request<T>('GET',    path),
+  get:    <T>(path: string, signal?: AbortSignal) => request<T>('GET', path, undefined, signal),
   post:   <T>(path: string, body?: unknown) => request<T>('POST',   path, body),
   patch:  <T>(path: string, body?: unknown) => request<T>('PATCH',  path, body),
   put:    <T>(path: string, body?: unknown) => request<T>('PUT',    path, body),
@@ -141,9 +147,13 @@ export const getTimesheetScope = () =>
  * Tiempo en oficina recortado por período. `anchor` es un `YYYY-MM-DD` local
  * (ver `PeriodPicker`); el backend resuelve el rango `from`/`to` a partir de
  * ahí. Sin `userId` el backend asume al viewer.
+ *
+ * Acepta `signal` porque cambiar de persona con una respuesta en vuelo puede
+ * pintar el tiempo de A bajo el nombre de B -- una conclusión falsa sobre una
+ * persona, que es justo lo que esta pantalla existe para evitar.
  */
-export const getOfficeTime = (period: string, anchor: string, userId?: string) => {
+export const getOfficeTime = (period: string, anchor: string, userId?: string, signal?: AbortSignal) => {
   const qs = new URLSearchParams({ period, anchor });
   if (userId) qs.set('userId', userId);
-  return api.get<TimesheetOfficeResponse>(`${PLUGIN}/timesheet/office?${qs}`);
+  return api.get<TimesheetOfficeResponse>(`${PLUGIN}/timesheet/office?${qs}`, signal);
 };
