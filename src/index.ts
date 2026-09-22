@@ -661,8 +661,8 @@ const plugin: PluginDefinition = {
       // registrar»: eso atribuye a «el plugin no esta registrando estados» lo
       // que en realidad es un fallo de infraestructura. Por eso el flag, y por
       // eso con `null` no se reconcilia nada.
-      const { slices, unaccountedMinutes } = crudo === null
-        ? { slices: [], unaccountedMinutes: 0 }
+      const { slices, unaccountedMinutes, overflowMinutes } = crudo === null
+        ? { slices: [], unaccountedMinutes: 0, overflowMinutes: 0 }
         : reconcile(office.totalMinutes, crudo);
 
       res.json({
@@ -672,6 +672,10 @@ const plugin: PluginDefinition = {
         office,
         breakdown: slices,
         unaccountedMinutes,
+        // Lo que los tramos suman por encima del tiempo conectado antes del
+        // reescalado. Sin esto, la rama que recorta se veia como
+        // reconciliacion perfecta justo cuando las dos fuentes no cuadran.
+        overflowMinutes,
         breakdownUnavailable: crudo === null,
         coverageStart: await timesheet.coverageStart(),
         // Ausencias del período (PERMISO/VACACIONES/INCAPACIDAD). Fuente

@@ -216,11 +216,25 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
                     </p>
                   </div>
                 ) : (
-                  <TimesheetBreakdown
-                    slices={data?.breakdown ?? []}
-                    unaccountedMinutes={data?.unaccountedMinutes ?? 0}
-                    totalMinutes={data?.office.totalMinutes ?? 0}
-                  />
+                  <>
+                    <TimesheetBreakdown
+                      slices={data?.breakdown ?? []}
+                      unaccountedMinutes={data?.unaccountedMinutes ?? 0}
+                      totalMinutes={data?.office.totalMinutes ?? 0}
+                    />
+                    {/* Los estados sumaban más que el tiempo conectado. El
+                        reescalado del backend cierra el gráfico, pero callarlo
+                        presentaba una inconsistencia entre las dos fuentes
+                        como reconciliación perfecta. */}
+                    {(data?.overflowMinutes ?? 0) > 0 && (
+                      <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                        <p className="text-[11px] leading-relaxed text-amber-800">
+                          Los estados suman <strong>{hhmm(data!.overflowMinutes!)}</strong> más que el tiempo
+                          conectado; se ajustaron proporcionalmente.
+                        </p>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
 

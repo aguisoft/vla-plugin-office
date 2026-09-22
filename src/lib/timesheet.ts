@@ -194,19 +194,31 @@ export function aggregateIntervals(
  * La diferencia se devuelve como `unaccountedMinutes` y se muestra como «sin
  * registrar». Escondida en un redondeo, esa señal —que el registro está
  * perdiendo escrituras— no se vería nunca.
+ *
+ * `overflowMinutes` es la señal simétrica: cuánto suman los tramos por encima
+ * del tiempo conectado. Esa rama solo se alcanza si hay intervalos registrados
+ * fuera de toda sesión —una inconsistencia real entre las dos fuentes—, y
+ * devolver solo `unaccountedMinutes: 0` la presentaba como reconciliación
+ * perfecta. El reescalado está bien; lo que faltaba era decirlo.
  */
 export function reconcile(
   connectedMinutes: number,
   slices: StatusSlice[],
-): { slices: StatusSlice[]; unaccountedMinutes: number } {
+): { slices: StatusSlice[]; unaccountedMinutes: number; overflowMinutes: number } {
   const suma = slices.reduce((a, s) => a + s.minutes, 0);
 
   if (connectedMinutes <= 0) {
-    return { slices: slices.map(s => ({ ...s, minutes: 0 })), unaccountedMinutes: 0 };
+    return {
+      slices: slices.map(s => ({ ...s, minutes: 0 })),
+      unaccountedMinutes: 0,
+      // Sin tiempo conectado no hay contra qué medir el exceso: todo tramo
+      // sobra por definición y un número acá sería ruido, no señal.
+      overflowMinutes: 0,
+    };
   }
 
   if (suma <= connectedMinutes) {
-    return { slices, unaccountedMinutes: connectedMinutes - suma };
+    return { slices, unaccountedMinutes: connectedMinutes - suma, overflowMinutes: 0 };
   }
 
   // Los tramos superan lo conectado: se recortan proporcionalmente. El último
@@ -215,7 +227,7 @@ export function reconcile(
   const ajustados = slices.map(s => ({ ...s, minutes: Math.floor(s.minutes * factor) }));
   const resto = connectedMinutes - ajustados.reduce((a, s) => a + s.minutes, 0);
   if (ajustados.length > 0) ajustados[ajustados.length - 1].minutes += resto;
-  return { slices: ajustados, unaccountedMinutes: 0 };
+  return { slices: ajustados, unaccountedMinutes: 0, overflowMinutes: suma - connectedMinutes };
 }
 
 export interface AbsenceTally {

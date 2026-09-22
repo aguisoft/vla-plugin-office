@@ -264,11 +264,13 @@ describe('reconcile', () => {
   it('la diferencia sale como sin registrar', () => {
     const out = reconcile(480, [{ status: 'FOCUS', minutes: 300 }]);
     expect(out.unaccountedMinutes).toBe(180);
+    expect(out.overflowMinutes).toBe(0);
   });
 
   it('cuando cuadra, sin registrar es cero', () => {
     const out = reconcile(300, [{ status: 'FOCUS', minutes: 300 }]);
     expect(out.unaccountedMinutes).toBe(0);
+    expect(out.overflowMinutes).toBe(0);
   });
 
   it('si los tramos superan el tiempo conectado, se recortan proporcionalmente', () => {
@@ -283,10 +285,23 @@ describe('reconcile', () => {
     expect(out.slices[0].minutes).toBe(75);
   });
 
+  it('el exceso recortado sale como overflow y no como reconciliacion perfecta', () => {
+    // La rama del recorte solo se alcanza si hay intervalos fuera de toda
+    // sesion: una inconsistencia entre las dos fuentes. Devolver solo
+    // unaccountedMinutes: 0 la presentaba como si todo cuadrara.
+    const out = reconcile(100, [
+      { status: 'FOCUS', minutes: 150 },
+      { status: 'AVAILABLE', minutes: 50 },
+    ]);
+    expect(out.overflowMinutes).toBe(100);
+  });
+
   it('tiempo conectado cero deja todo en cero', () => {
     const out = reconcile(0, [{ status: 'FOCUS', minutes: 60 }]);
     expect(out.slices.every(s => s.minutes === 0)).toBe(true);
     expect(out.unaccountedMinutes).toBe(0);
+    // Sin tiempo conectado no hay contra que medir el exceso.
+    expect(out.overflowMinutes).toBe(0);
   });
 });
 

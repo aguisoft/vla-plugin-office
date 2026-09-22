@@ -153,6 +153,12 @@ export interface TimesheetOfficeResponse {
   /** Minutos conectados sin estado capturado en el historial -- lo que el desglose no alcanza a explicar. */
   unaccountedMinutes: number;
   /**
+   * Cuánto sumaban los estados por encima del tiempo conectado antes del
+   * reescalado proporcional. `> 0` es una inconsistencia real entre las dos
+   * fuentes (intervalos registrados fuera de toda sesión), no un redondeo.
+   */
+  overflowMinutes?: number;
+  /**
    * `true` cuando el backend no pudo leer la tabla de intervalos (migración sin
    * aplicar, base caída). Distinto de `breakdown: []`, que significa "no hubo
    * intervalos": sin este flag, un fallo de infraestructura se dibujaría como
