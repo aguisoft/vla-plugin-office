@@ -40,9 +40,14 @@ function errorMessage(e: unknown, fallback: string): string {
 /**
  * Un `fetch` abortado rechaza con un `AbortError`. No es un fallo que mostrar:
  * la cancelación la pidió la propia pantalla al cambiar de persona o período.
+ *
+ * Se mira solo el `name`, sin `instanceof Error`: lo que se lanza es un
+ * `DOMException`, y que herede de `Error` no es universal (Safari viejo). Donde
+ * no hereda, el `instanceof` dejaba pasar la cancelación como fallo y devolvía
+ * el parpadeo de «no se pudo cargar» que este filtro vino a quitar.
  */
 function esCancelacion(e: unknown): boolean {
-  return e instanceof Error && e.name === 'AbortError';
+  return (e as any)?.name === 'AbortError';
 }
 
 export function TimesheetScreen({ onClose }: { onClose: () => void }) {
