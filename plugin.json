@@ -24,6 +24,24 @@
     "read:org",
     "write:org"
   ],
+  "settings": {
+    "sections": [
+      {
+        "title": "Dashboard de tiempos",
+        "fields": [
+          {
+            "key": "MAX_OPEN_SESSION_HOURS",
+            "type": "number",
+            "label": "Cota de una sesión sin marcar salida (horas)",
+            "description": "A quien entra de vacaciones con la sesión abierta nadie se la cierra: los crones saltean a los ausentes a propósito. Sin cota, una semana de ausencia reporta 10.080 minutos en oficina. Solo afecta al reporte de tiempos.",
+            "default": 12,
+            "min": 1,
+            "max": 24
+          }
+        ]
+      }
+    ]
+  },
   "hooks": {
     "listens": ["core.user.created"],
     "emits": [

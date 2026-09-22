@@ -71,7 +71,15 @@ const plugin: PluginDefinition = {
     presence.setMeetingReleaser((userId) => meetings.releaseUser(userId));
     // Instanciado después de absences/holidays/org: los recibe en el constructor.
     const snapshot = new SnapshotService(ctx, absences, holidays, org, bitrix, undefined, tz);
-    const timesheet = new TimesheetService(ctx, tz, absences, () => (ctx.plugin.config.WORKDAY_HOURS as number) || 8);
+    // Las dos últimas son funciones y no valores porque `ctx.plugin.config` se
+    // hidrata después de registrar el plugin: leerlas acá congelaría el default.
+    const timesheet = new TimesheetService(
+      ctx,
+      tz,
+      absences,
+      () => (ctx.plugin.config.WORKDAY_HOURS as number) || 8,
+      () => (ctx.plugin.config.MAX_OPEN_SESSION_HOURS as number) || 12,
+    );
 
     // Sync Bitrix photos + timeman on startup — delayed 5s to let hydrateConfig complete first
     setTimeout(async () => {
@@ -643,7 +651,8 @@ const plugin: PluginDefinition = {
       // gráfico del dashboard. El reconcile cierra cualquier brecha entre los
       // slices y el total — si la suma de estados < totalMinutes, el residuo
       // va a unaccountedMinutes (indica sesiones abiertas o sin classifier).
-      const office = byUser.get(target) ?? { userId: target, totalMinutes: 0, byDay: [] };
+      const office = byUser.get(target)
+        ?? { userId: target, totalMinutes: 0, byDay: [], openSessionCapped: false, openSessionCapHours: 0 };
       const crudo = await timesheet.statusBreakdown(target, span);
 
       // `null` es «no se pudo leer la tabla», distinto de `[]` («no hay

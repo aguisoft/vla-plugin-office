@@ -135,7 +135,19 @@ export interface TimesheetOfficeResponse {
   period: 'day' | 'week' | 'month';
   from: string;
   to: string;
-  office: { userId: string; totalMinutes: number; byDay: OfficeDay[] };
+  office: {
+    userId: string;
+    totalMinutes: number;
+    byDay: OfficeDay[];
+    /**
+     * `true` si alguna sesión sin marcar salida se acotó a `openSessionCapHours`.
+     * Acotar en silencio es tan malo como no acotar: el total cambia y nadie
+     * sabe por qué.
+     */
+    openSessionCapped?: boolean;
+    /** Horas a las que se acotó la sesión abierta. */
+    openSessionCapHours?: number;
+  };
   /** Desglose por estado dentro del período. Junto con `unaccountedMinutes` suma `office.totalMinutes`. */
   breakdown: StatusSlice[];
   /** Minutos conectados sin estado capturado en el historial -- lo que el desglose no alcanza a explicar. */

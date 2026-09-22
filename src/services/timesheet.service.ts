@@ -2,12 +2,16 @@ import type { PluginContext } from '@vla/plugin-sdk';
 import type { AbsenceService } from './absence.service';
 import {
   aggregateSessions, type OfficeAggregate, type Span, aggregateIntervals, type StatusSlice,
-  tallyAbsences, type AbsenceTally,
+  tallyAbsences, type AbsenceTally, capOpenSession,
 } from '../lib/timesheet';
 import { localDateString } from '../lib/local-date';
 
 export interface OfficeTime extends OfficeAggregate {
   userId: string;
+  /** `true` si alguna sesión sin marcar salida se acotó. Acotar en silencio cambia el número sin que nadie sepa por qué. */
+  openSessionCapped: boolean;
+  /** Horas a las que se acota una sesión abierta. Viaja con el flag para que la pantalla pueda decir a cuánto se acotó. */
+  openSessionCapHours: number;
 }
 
 export class TimesheetService {
@@ -16,6 +20,7 @@ export class TimesheetService {
     private readonly tzOf: () => string,
     private readonly absencesSvc: AbsenceService,
     private readonly workdayHoursOf: () => number,
+    private readonly maxOpenSessionHoursOf: () => number,
   ) {}
 
   /**
@@ -24,10 +29,14 @@ export class TimesheetService {
    * Una consulta para todo el grupo, no una por persona. `checkOutAt IS NULL`
    * es la sesión abierta: se cierra contra el fin del período (que el llamador
    * ya acotó a `now` cuando el período incluye el presente), para que consultar
-   * una semana vieja no muestre una sesión corriendo hasta hoy.
+   * una semana vieja no muestre una sesión corriendo hasta hoy, y además se
+   * acota a `MAX_OPEN_SESSION_HOURS` — ver `capOpenSession`: a quien entra de
+   * vacaciones con la sesión abierta nadie se la cierra, y sin cota una semana
+   * de ausencia reporta 10.080 minutos «en oficina».
    */
   async officeTime(userIds: string[], span: Span): Promise<Map<string, OfficeTime>> {
     const result = new Map<string, OfficeTime>();
+    const capHours = this.maxOpenSessionHoursOf();
     if (userIds.length === 0) return result;
 
     const rows = await this.ctx.prisma.checkInRecord.findMany({
@@ -41,8 +50,17 @@ export class TimesheetService {
     });
 
     const byUser = new Map<string, Span[]>();
+    // Cuántas sesiones abiertas quedaron acotadas, por persona: la cota cambia
+    // el total y la pantalla tiene que poder decirlo.
+    const acotadas = new Map<string, number>();
     for (const r of rows as any[]) {
-      const end: Date = r.checkOutAt ?? span.end;
+      let end: Date;
+      if (r.checkOutAt) {
+        end = r.checkOutAt;
+      } else {
+        end = capOpenSession(r.checkInAt, span.end, capHours * 60);
+        if (end < span.end) acotadas.set(r.userId, (acotadas.get(r.userId) ?? 0) + 1);
+      }
       const list = byUser.get(r.userId) ?? [];
       list.push({ start: r.checkInAt, end });
       byUser.set(r.userId, list);
@@ -51,7 +69,12 @@ export class TimesheetService {
     const tz = this.tzOf();
     for (const userId of userIds) {
       const agg = aggregateSessions(byUser.get(userId) ?? [], span, tz);
-      result.set(userId, { userId, ...agg });
+      result.set(userId, {
+        userId,
+        ...agg,
+        openSessionCapped: (acotadas.get(userId) ?? 0) > 0,
+        openSessionCapHours: capHours,
+      });
     }
     return result;
   }

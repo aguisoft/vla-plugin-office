@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { periodBounds, clipSpan, splitByLocalDay, spanMinutes, aggregateSessions, resolveScope, canSee, aggregateIntervals, reconcile, tallyAbsences } from './timesheet';
+import { periodBounds, clipSpan, splitByLocalDay, spanMinutes, aggregateSessions, resolveScope, canSee, aggregateIntervals, reconcile, tallyAbsences, capOpenSession } from './timesheet';
 import { DEFAULT_TZ } from './local-date';
 
 const TZ = DEFAULT_TZ;
@@ -98,6 +98,39 @@ describe('spanMinutes', () => {
 
   it('un span invertido da cero, no negativo', () => {
     expect(spanMinutes({ start: cr('2026-09-22T11:00:00'), end: cr('2026-09-22T09:00:00') })).toBe(0);
+  });
+});
+
+describe('capOpenSession', () => {
+  const CAP = 12 * 60;
+
+  it('una jornada normal no se toca: gana el fin del span', () => {
+    const inicio = cr('2026-09-22T08:00:00');
+    const finSpan = cr('2026-09-22T17:00:00');
+    expect(capOpenSession(inicio, finSpan, CAP).toISOString()).toBe(finSpan.toISOString());
+  });
+
+  it('una sesion de 7 dias se acota a la cota', () => {
+    // El caso de vacaciones: nadie cierra la sesion, el span llega hasta hoy.
+    const inicio = cr('2026-09-14T08:00:00');
+    const finSpan = cr('2026-09-21T17:00:00');
+    expect(capOpenSession(inicio, finSpan, CAP).toISOString())
+      .toBe(cr('2026-09-14T20:00:00').toISOString());
+  });
+
+  it('una sesion que empieza antes del span se acota desde su propio inicio', () => {
+    // La cota se mide desde el check-in real, no desde el borde del periodo:
+    // el resultado puede caer antes del span y el recorte posterior lo descarta.
+    const inicio = cr('2026-09-20T08:00:00');
+    const finSpan = cr('2026-09-27T23:59:59');
+    expect(capOpenSession(inicio, finSpan, CAP).toISOString())
+      .toBe(cr('2026-09-20T20:00:00').toISOString());
+  });
+
+  it('un fin de span anterior a la cota gana sobre la cota', () => {
+    const inicio = cr('2026-09-22T08:00:00');
+    const finSpan = cr('2026-09-22T11:00:00');
+    expect(capOpenSession(inicio, finSpan, CAP).toISOString()).toBe(finSpan.toISOString());
   });
 });
 

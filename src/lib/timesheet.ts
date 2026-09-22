@@ -77,6 +77,19 @@ export function splitByLocalDay(span: Span, tz: string): Array<{ date: string; m
   return out;
 }
 
+/**
+ * Fin efectivo de una sesión sin cierre. Nadie cierra la sesión de quien
+ * entra de vacaciones —los crones saltean a los ausentes a propósito—, así
+ * que sin cota una ausencia de una semana reporta 10.080 minutos «en
+ * oficina», y con unaccountedMinutes en 0, que es lo que lo vuelve
+ * indetectable. Se acota a una jornada plausible: no sabemos cuándo se fue,
+ * y suponer que sigue conectada es la suposición más cara de las dos.
+ */
+export function capOpenSession(startAt: Date, spanEnd: Date, capMinutes: number): Date {
+  const cota = new Date(startAt.getTime() + capMinutes * 60_000);
+  return cota < spanEnd ? cota : spanEnd;
+}
+
 export interface OfficeDay {
   date: string;
   minutes: number;

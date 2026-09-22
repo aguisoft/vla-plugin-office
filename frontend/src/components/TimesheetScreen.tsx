@@ -186,6 +186,16 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
                     ))}
                   </div>
                 )}
+
+                {/* La sesión sin marcar salida se acota en el backend (ver
+                    capOpenSession): a quien entra de vacaciones nadie se la
+                    cierra. Se avisa porque acotar en silencio cambia el número
+                    sin que nadie sepa por qué. */}
+                {data?.office.openSessionCapped && (
+                  <p className="mt-3 text-[10px] text-gray-400">
+                    Una sesión quedó abierta sin marcar salida; se acotó a {data.office.openSessionCapHours} horas.
+                  </p>
+                )}
               </div>
 
               {/* El propio componente resuelve el caso `totalMinutes <= 0`
