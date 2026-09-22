@@ -195,11 +195,23 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
                 <p className="mb-4 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
                   Desglose por estado
                 </p>
-                <TimesheetBreakdown
-                  slices={data?.breakdown ?? []}
-                  unaccountedMinutes={data?.unaccountedMinutes ?? 0}
-                  totalMinutes={data?.office.totalMinutes ?? 0}
-                />
+                {/* No se pudo leer la tabla de intervalos. Se avisa en vez de
+                    dibujar el gráfico: con `breakdown: []` el reconcile manda
+                    todo a "sin registrar" y la pantalla acusaría al plugin (o
+                    a la persona) de un fallo de infraestructura. */}
+                {data?.breakdownUnavailable ? (
+                  <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
+                    <p className="text-[11px] leading-relaxed text-amber-800">
+                      El desglose por estado no está disponible en este momento.
+                    </p>
+                  </div>
+                ) : (
+                  <TimesheetBreakdown
+                    slices={data?.breakdown ?? []}
+                    unaccountedMinutes={data?.unaccountedMinutes ?? 0}
+                    totalMinutes={data?.office.totalMinutes ?? 0}
+                  />
+                )}
               </div>
 
               {/* Ausencias: no salen del desglose de arriba -- no viven en

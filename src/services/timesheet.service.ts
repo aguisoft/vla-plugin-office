@@ -59,25 +59,40 @@ export class TimesheetService {
   /**
    * Intervalos del período. El intervalo abierto se cierra contra el fin del
    * span, que el llamador ya acotó a `now` cuando el período incluye el presente.
+   *
+   * Devuelve `null` cuando la consulta falla —tabla ausente, migración sin
+   * aplicar, base caída—. `null` no es `[]`: `[]` significa «no hay intervalos»
+   * y el llamador lo reconcilia mandando todo a «sin registrar»; `null`
+   * significa «no se pudo leer» y no se puede reconciliar nada contra eso.
+   *
+   * El try/catch no es defensivo por gusto: Express 4 no atrapa rechazos de
+   * promesas en handlers async, así que un 42P01 acá no da 500, mata el
+   * proceso entero del API — el mismo modo de falla que ya obligó al try/catch
+   * de runTimemanSync (ver index.ts).
    */
-  async statusBreakdown(userId: string, span: Span): Promise<StatusSlice[]> {
-    const rows = await this.ctx.query<{ status: string; started_at: string; ended_at: string | null }>(
-      `SELECT status, started_at, ended_at
-         FROM office_status_intervals
-        WHERE user_id = $1
-          AND started_at <= $3
-          AND (ended_at IS NULL OR ended_at >= $2)
-        ORDER BY started_at`,
-      [userId, span.start.toISOString(), span.end.toISOString()],
-    );
+  async statusBreakdown(userId: string, span: Span): Promise<StatusSlice[] | null> {
+    try {
+      const rows = await this.ctx.query<{ status: string; started_at: string; ended_at: string | null }>(
+        `SELECT status, started_at, ended_at
+           FROM office_status_intervals
+          WHERE user_id = $1
+            AND started_at <= $3
+            AND (ended_at IS NULL OR ended_at >= $2)
+          ORDER BY started_at`,
+        [userId, span.start.toISOString(), span.end.toISOString()],
+      );
 
-    const intervals = rows.map(r => ({
-      status: r.status,
-      start: new Date(r.started_at),
-      end: r.ended_at ? new Date(r.ended_at) : span.end,
-    }));
+      const intervals = rows.map(r => ({
+        status: r.status,
+        start: new Date(r.started_at),
+        end: r.ended_at ? new Date(r.ended_at) : span.end,
+      }));
 
-    return aggregateIntervals(intervals, span, this.tzOf());
+      return aggregateIntervals(intervals, span, this.tzOf());
+    } catch (e) {
+      this.ctx.logger.warn(`statusBreakdown: no se pudo leer office_status_intervals: ${e}`);
+      return null;
+    }
   }
 
   /**
@@ -101,12 +116,21 @@ export class TimesheetService {
    * Fecha desde la que hay registro, en `YYYY-MM-DD` local, o `null` si la tabla
    * está vacía. Sale de la tabla y no de una constante para que siga siendo cierta
    * aunque se recree o se purgue.
+   *
+   * Un fallo de la consulta también da `null` —el aviso de cobertura
+   * simplemente no se dibuja— en vez de tumbar el proceso: mismo motivo que en
+   * `statusBreakdown`.
    */
   async coverageStart(): Promise<string | null> {
-    const rows = await this.ctx.query<{ min: string | null }>(
-      'SELECT MIN(started_at)::text AS min FROM office_status_intervals',
-    );
-    const min = rows[0]?.min;
-    return min ? localDateString(new Date(min), this.tzOf()) : null;
+    try {
+      const rows = await this.ctx.query<{ min: string | null }>(
+        'SELECT MIN(started_at)::text AS min FROM office_status_intervals',
+      );
+      const min = rows[0]?.min;
+      return min ? localDateString(new Date(min), this.tzOf()) : null;
+    } catch (e) {
+      this.ctx.logger.warn(`coverageStart: no se pudo leer office_status_intervals: ${e}`);
+      return null;
+    }
   }
 }

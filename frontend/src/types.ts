@@ -140,6 +140,14 @@ export interface TimesheetOfficeResponse {
   breakdown: StatusSlice[];
   /** Minutos conectados sin estado capturado en el historial -- lo que el desglose no alcanza a explicar. */
   unaccountedMinutes: number;
+  /**
+   * `true` cuando el backend no pudo leer la tabla de intervalos (migración sin
+   * aplicar, base caída). Distinto de `breakdown: []`, que significa "no hubo
+   * intervalos": sin este flag, un fallo de infraestructura se dibujaría como
+   * un gráfico 100% "sin registrar", o sea como si la persona no hubiera hecho
+   * nada.
+   */
+  breakdownUnavailable?: boolean;
   /** Desde cuándo el backend tiene historial de estados. `null` si todavía no hay ninguno. */
   coverageStart: string | null;
   /** Ausencias del período. Los feriados NO están incluidos -- ver TimesheetScreen. */

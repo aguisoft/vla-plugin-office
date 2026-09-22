@@ -645,7 +645,16 @@ const plugin: PluginDefinition = {
       // va a unaccountedMinutes (indica sesiones abiertas o sin classifier).
       const office = byUser.get(target) ?? { userId: target, totalMinutes: 0, byDay: [] };
       const crudo = await timesheet.statusBreakdown(target, span);
-      const { slices, unaccountedMinutes } = reconcile(office.totalMinutes, crudo);
+
+      // `null` es «no se pudo leer la tabla», distinto de `[]` («no hay
+      // intervalos»). Con `[]` el reconcile mandaria todo el tiempo a
+      // unaccountedMinutes y la pantalla dibujaria un grafico 100% «sin
+      // registrar»: eso atribuye a «el plugin no esta registrando estados» lo
+      // que en realidad es un fallo de infraestructura. Por eso el flag, y por
+      // eso con `null` no se reconcilia nada.
+      const { slices, unaccountedMinutes } = crudo === null
+        ? { slices: [], unaccountedMinutes: 0 }
+        : reconcile(office.totalMinutes, crudo);
 
       res.json({
         period,
@@ -654,6 +663,7 @@ const plugin: PluginDefinition = {
         office,
         breakdown: slices,
         unaccountedMinutes,
+        breakdownUnavailable: crudo === null,
         coverageStart: await timesheet.coverageStart(),
         // Ausencias del período (PERMISO/VACACIONES/INCAPACIDAD). Fuente
         // aparte de `breakdown`: no viven en PresenceStatus, así que no salen
