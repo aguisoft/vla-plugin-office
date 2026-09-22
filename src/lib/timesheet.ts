@@ -75,3 +75,38 @@ export function splitByLocalDay(span: Span, tz: string): Array<{ date: string; m
   }
   return out;
 }
+
+export interface OfficeDay {
+  date: string;
+  minutes: number;
+}
+
+export interface OfficeAggregate {
+  totalMinutes: number;
+  byDay: OfficeDay[];
+}
+
+/**
+ * Suma sesiones dentro de un período, partidas por día local.
+ *
+ * Recibe spans ya resueltos (la sesión abierta la cierra el llamador contra
+ * `min(now, fin del período)`), así que acá no hay noción de "abierta": eso
+ * mantiene la función pura y hace que el caso raro se pruebe en un solo lugar.
+ */
+export function aggregateSessions(sessions: Span[], within: Span, tz: string): OfficeAggregate {
+  const byDate = new Map<string, number>();
+
+  for (const s of sessions) {
+    const clipped = clipSpan(s, within);
+    if (!clipped) continue;
+    for (const { date, minutes } of splitByLocalDay(clipped, tz)) {
+      byDate.set(date, (byDate.get(date) ?? 0) + minutes);
+    }
+  }
+
+  const byDay = [...byDate.entries()]
+    .map(([date, minutes]) => ({ date, minutes }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  return { totalMinutes: byDay.reduce((acc, d) => acc + d.minutes, 0), byDay };
+}

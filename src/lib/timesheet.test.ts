@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { periodBounds, clipSpan, splitByLocalDay, spanMinutes } from './timesheet';
+import { periodBounds, clipSpan, splitByLocalDay, spanMinutes, aggregateSessions } from './timesheet';
 import { DEFAULT_TZ } from './local-date';
 
 const TZ = DEFAULT_TZ;
@@ -98,5 +98,59 @@ describe('spanMinutes', () => {
 
   it('un span invertido da cero, no negativo', () => {
     expect(spanMinutes({ start: cr('2026-09-22T11:00:00'), end: cr('2026-09-22T09:00:00') })).toBe(0);
+  });
+});
+
+describe('aggregateSessions', () => {
+  const within = { start: cr('2026-09-21T00:00:00'), end: cr('2026-09-27T23:59:59') };
+
+  it('suma sesiones cerradas por dia', () => {
+    const out = aggregateSessions([
+      { start: cr('2026-09-21T08:00:00'), end: cr('2026-09-21T12:00:00') },
+      { start: cr('2026-09-21T13:00:00'), end: cr('2026-09-21T17:00:00') },
+      { start: cr('2026-09-22T08:00:00'), end: cr('2026-09-22T16:00:00') },
+    ], within, TZ);
+    expect(out.totalMinutes).toBe(480 + 480);
+    expect(out.byDay).toEqual([
+      { date: '2026-09-21', minutes: 480 },
+      { date: '2026-09-22', minutes: 480 },
+    ]);
+  });
+
+  it('recorta una sesion que empieza antes del periodo', () => {
+    const out = aggregateSessions(
+      [{ start: cr('2026-09-20T22:00:00'), end: cr('2026-09-21T02:00:00') }],
+      within, TZ,
+    );
+    expect(out.totalMinutes).toBe(120);
+    expect(out.byDay).toEqual([{ date: '2026-09-21', minutes: 120 }]);
+  });
+
+  it('descarta sesiones enteramente fuera del periodo', () => {
+    const out = aggregateSessions(
+      [{ start: cr('2026-09-10T08:00:00'), end: cr('2026-09-10T17:00:00') }],
+      within, TZ,
+    );
+    expect(out.totalMinutes).toBe(0);
+    expect(out.byDay).toEqual([]);
+  });
+
+  it('una sesion que cruza medianoche aporta a los dos dias', () => {
+    const out = aggregateSessions(
+      [{ start: cr('2026-09-22T22:00:00'), end: cr('2026-09-23T02:00:00') }],
+      within, TZ,
+    );
+    expect(out.byDay).toEqual([
+      { date: '2026-09-22', minutes: 120 },
+      { date: '2026-09-23', minutes: 120 },
+    ]);
+  });
+
+  it('los dias salen ordenados aunque las sesiones lleguen desordenadas', () => {
+    const out = aggregateSessions([
+      { start: cr('2026-09-23T08:00:00'), end: cr('2026-09-23T09:00:00') },
+      { start: cr('2026-09-21T08:00:00'), end: cr('2026-09-21T09:00:00') },
+    ], within, TZ);
+    expect(out.byDay.map(d => d.date)).toEqual(['2026-09-21', '2026-09-23']);
   });
 });
