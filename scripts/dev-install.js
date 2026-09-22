@@ -47,6 +47,22 @@ fs.copyFileSync(path.join(pluginDir, 'plugin.json'), path.join(targetDir, 'plugi
 // archivos sueltos como cuando el plugin era solo index.ts.
 fs.cpSync(distSrc, path.join(targetDir, 'dist'), { recursive: true });
 
+// migrations/: sin esto el core local nunca las veía y había que aplicarlas a
+// mano con psql — que es justo lo que enmascaró durante siete tareas que el
+// empaquetado tampoco las llevaba. Se cuenta lo copiado para que el hueco se
+// note en la salida en vez de quedar en silencio.
+const migrationsSrc = path.join(pluginDir, 'migrations');
+const sqlFiles = fs.existsSync(migrationsSrc)
+  ? fs.readdirSync(migrationsSrc).filter(f => f.endsWith('.sql'))
+  : [];
+
+if (sqlFiles.length > 0) {
+  fs.cpSync(migrationsSrc, path.join(targetDir, 'migrations'), { recursive: true });
+  console.log(`\n✓ ${sqlFiles.length} migraciones incluidas (migrations/*.sql)`);
+} else {
+  console.log('\nℹ  Sin migraciones (migrations/ vacío o inexistente), no se copia el directorio.');
+}
+
 console.log(`\n✓ Plugin "${manifest.name}" instalado en:`);
 console.log(`  ${targetDir}\n`);
 console.log('  Reinicia el servidor del core para cargar el plugin:');

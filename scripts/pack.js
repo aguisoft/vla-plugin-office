@@ -6,6 +6,7 @@
  *   plugin.json          — manifest
  *   dist/                — backend compilado (tsc)
  *   ui/                  — frontend compilado (vite build), opcional
+ *   migrations/          — SQL de esquema del plugin, opcional
  *
  * Uso:  node scripts/pack.js
  *       npm run release   (compila backend + frontend + empaqueta)
@@ -46,16 +47,35 @@ if (hasFrontend) {
   console.log('ℹ  Sin frontend (frontend/dist/ no encontrado), se empaqueta solo el backend.');
 }
 
-// ── 4. Crear el zip ───────────────────────────────────────────────────────────
+// ── 4. Contar migraciones ─────────────────────────────────────────────────────
+// Sin este bloque el directorio quedaba fuera del zip y las migraciones nunca
+// llegaban al servidor: el core no avisa cuando falta (devuelve [] en silencio),
+// así que el hueco solo se veía si alguien las aplicaba a mano con psql. Se
+// cuentan y se imprimen para que la próxima vez se note en la salida.
+const migrationsDir = path.join(root, 'migrations');
+const sqlFiles = fs.existsSync(migrationsDir)
+  ? fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql'))
+  : [];
+const hasMigrations = sqlFiles.length > 0;
+
+if (hasMigrations) {
+  console.log(`✓ ${sqlFiles.length} migraciones incluidas (migrations/*.sql)`);
+} else {
+  console.log('ℹ  Sin migraciones (migrations/ vacío o inexistente), no se empaqueta el directorio.');
+}
+
+// ── 5. Crear el zip ───────────────────────────────────────────────────────────
 const zipName = `${manifest.name}-${manifest.version}.vla.zip`;
 const zipPath = path.join(root, zipName);
 
 if (fs.existsSync(zipPath)) fs.unlinkSync(zipPath);
 
-const filesToZip = hasFrontend ? 'plugin.json dist/ ui/' : 'plugin.json dist/';
+const filesToZip = ['plugin.json', 'dist/'];
+if (hasFrontend) filesToZip.push('ui/');
+if (hasMigrations) filesToZip.push('migrations/');
 
 try {
-  execSync(`cd "${root}" && zip -r "${zipName}" ${filesToZip}`, { stdio: 'pipe' });
+  execSync(`cd "${root}" && zip -r "${zipName}" ${filesToZip.join(' ')}`, { stdio: 'pipe' });
 } catch {
   try {
     const AdmZip = require('adm-zip');
@@ -63,6 +83,9 @@ try {
     zip.addLocalFile(manifestPath);
     zip.addLocalFolder(path.join(root, 'dist'), 'dist');
     if (hasFrontend) zip.addLocalFolder(uiDir, 'ui');
+    // El fallback tampoco las llevaba: un zip armado por esta rama salía sin
+    // migraciones aunque la de arriba sí las hubiera puesto.
+    if (hasMigrations) zip.addLocalFolder(migrationsDir, 'migrations');
     zip.writeZip(zipPath);
   } catch {
     console.error('ERROR: No se pudo crear el zip. Instala "zip" o "adm-zip".');
@@ -70,12 +93,12 @@ try {
   }
 }
 
-// ── 5. Limpiar ui/ temporal ───────────────────────────────────────────────────
+// ── 6. Limpiar ui/ temporal ───────────────────────────────────────────────────
 if (hasFrontend && fs.existsSync(uiDir)) {
   fs.rmSync(uiDir, { recursive: true });
 }
 
-// ── 6. Resumen ────────────────────────────────────────────────────────────────
+// ── 7. Resumen ────────────────────────────────────────────────────────────────
 const stats = fs.statSync(zipPath);
 const kb = (stats.size / 1024).toFixed(1);
 
