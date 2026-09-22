@@ -108,6 +108,29 @@ describe('TimesheetService.officeTime — la cota es solo para la sesión abiert
     expect(u1.openSessionCapped).toBe(true);
   });
 
+  it('una sesión abierta VIEJA no marca la nota en un período que no toca', async () => {
+    // Ana entró el viernes 18 a las 08:00 y nunca marcó salida; el jefe mira el
+    // lunes 21. La fila sale igual en la consulta (no se puede acotar el
+    // checkInAt por abajo: una sesión anterior al período puede seguir dentro),
+    // pero la cota la cierra el viernes a las 20:00 y no aporta ni un minuto al
+    // lunes. La nota «se acotó a 12 horas» al lado de «Sin tiempo registrado en
+    // este período» hacía pensar que las horas de Ana se habían recortado, y no
+    // hubo nada que recortar acá.
+    const { ctx } = makeCtx({
+      rows: [{
+        userId: 'u1',
+        checkInAt: cr('2026-09-18T08:00:00'),
+        checkOutAt: null,
+      }],
+    });
+
+    const out = await makeService(ctx, 12).officeTime(['u1'], lunes);
+    const u1 = out.get('u1')!;
+
+    expect(u1.totalMinutes).toBe(0);
+    expect(u1.openSessionCapped).toBe(false);
+  });
+
   it('propaga las horas de la cota configurada, no un 12 escrito a mano', async () => {
     // La pantalla dice «se acotó a N horas»: si el número viajara fijo, cambiar
     // MAX_OPEN_SESSION_HOURS mentiría en la nota al pie sin tocar el total.

@@ -2,7 +2,7 @@ import type { PluginContext } from '@vla/plugin-sdk';
 import type { AbsenceService } from './absence.service';
 import {
   aggregateSessions, type OfficeAggregate, type Span, aggregateIntervals, type StatusSlice,
-  tallyAbsences, type AbsenceTally, capOpenSession,
+  tallyAbsences, type AbsenceTally, capOpenSession, clipSpan,
 } from '../lib/timesheet';
 import { localDateString } from '../lib/local-date';
 
@@ -59,7 +59,19 @@ export class TimesheetService {
         end = r.checkOutAt;
       } else {
         end = capOpenSession(r.checkInAt, span.end, capHours * 60);
-        if (end < span.end) acotadas.set(r.userId, (acotadas.get(r.userId) ?? 0) + 1);
+        // Se cuenta solo si el tramo YA ACOTADO toca el período consultado. La
+        // consulta no acota por abajo el `checkInAt` de las filas abiertas —no
+        // puede: una sesión que empezó antes del período puede seguir dentro—,
+        // así que la de Ana, que entró el viernes 18 a las 08:00 y nunca salió,
+        // también sale en la consulta del lunes 21. Ahí la cota cae el viernes a
+        // las 20:00, `clipSpan` descarta el tramo y el total da 0; sin este
+        // chequeo la pantalla mostraba «Una sesión quedó abierta sin marcar
+        // salida; se acotó a 12 horas» pegado a «Sin tiempo registrado en este
+        // período». El total no cambia: lo que se va es la nota donde no acotó
+        // nada del período que se está mirando.
+        if (end < span.end && clipSpan({ start: r.checkInAt, end }, span)) {
+          acotadas.set(r.userId, (acotadas.get(r.userId) ?? 0) + 1);
+        }
       }
       const list = byUser.get(r.userId) ?? [];
       list.push({ start: r.checkInAt, end });
