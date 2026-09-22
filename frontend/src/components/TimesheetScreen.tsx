@@ -75,7 +75,11 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
 
   const byDay = data?.office.byDay ?? [];
   const maxMinutes = Math.max(1, ...byDay.map(d => d.minutes));
-  const sinDatos = !loading && (data?.office.totalMinutes ?? 0) === 0;
+  // `data` queda en null tanto si todavía no llegó la respuesta como si la
+  // última llamada falló (403 fuera de alcance, etc.) -- sin `!error` acá,
+  // un error se leía como "0m / sin tiempo registrado", que es la lectura
+  // falsa que la spec quería evitar con el 403 en primer lugar.
+  const sinDatos = !loading && !error && (data?.office.totalMinutes ?? 0) === 0;
 
   return (
     <div className="h-full overflow-y-auto p-3 md:p-6">
@@ -128,7 +132,10 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">
           {loading ? (
             <p className="py-12 text-center text-xs text-gray-400">Cargando…</p>
-          ) : (
+          ) : error ? null : (
+            // Con error ya no hay nada más que mostrar acá -- el banner rojo
+            // de arriba es todo el feedback. Ni números ni un vacío que se
+            // pueda confundir con "no marcó horas".
             <div className="rounded-2xl border border-gray-100 p-4">
               <div className="mb-4 flex items-baseline justify-between gap-2">
                 <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
