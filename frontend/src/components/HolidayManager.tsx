@@ -176,6 +176,33 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
     }
   }
 
+  /**
+   * Fija (o suelta) el jefe directo de una persona.
+   *
+   * Descarta el cambio si el valor ya es el vigente. Un `<select>` puede
+   * emitir `change` sin que nadie eligiera nada — al perder el foco con un
+   * valor sin confirmar, o al reordenarse la lista bajo el cursor — y sin
+   * este corte esa emisión escribe el jefe de la fila que quedó en esa
+   * posición. Comparar contra el jefe actual hace la operación idempotente:
+   * un evento que no cambia nada no manda nada.
+   */
+  async function handleSetManager(userId: string, managerUserId: string | null) {
+    const actual = roster?.find(u => u.userId === userId);
+    if (!actual) return;
+    if ((actual.managerUserId ?? null) === managerUserId) return;
+
+    setSavingUser(userId);
+    setError(null);
+    try {
+      await setOrg(userId, { managerUserId });
+      await reloadRoster();
+    } catch (e) {
+      setError(errorMessage(e, 'No se pudo guardar el jefe'));
+    } finally {
+      setSavingUser(null);
+    }
+  }
+
   const porMes = useMemo(() => {
     const m = new Map<number, Holiday[]>();
     for (const h of delPais) {
@@ -451,6 +478,7 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
               defaultCountry={defaultCountry}
               savingUser={savingUser}
               onSetCountry={handleSetCountry}
+              onSetManager={handleSetManager}
             />
           )}
         </div>
@@ -465,12 +493,13 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
  * el mundo queda en el país por defecto y los feriados de un país le caen a
  * gente de otro.
  */
-function PersonasTab({ roster, country, defaultCountry, savingUser, onSetCountry }: {
+function PersonasTab({ roster, country, defaultCountry, savingUser, onSetCountry, onSetManager }: {
   roster: RosterUser[] | null;
   country: string;
   defaultCountry: string;
   savingUser: string | null;
   onSetCountry: (userId: string, iso: string | null) => void;
+  onSetManager: (userId: string, managerUserId: string | null) => void;
 }) {
   const [soloDefault, setSoloDefault] = useState(false);
   const [verTodos, setVerTodos] = useState(false);
@@ -569,6 +598,19 @@ function PersonasTab({ roster, country, defaultCountry, savingUser, onSetCountry
                 <option value="">Sin fijar ({defaultCountry})</option>
                 {COUNTRIES.map(c => (
                   <option key={c.iso} value={c.iso}>{c.flag} {c.name}</option>
+                ))}
+              </select>
+
+              <select
+                value={u.managerUserId ?? ''}
+                disabled={savingUser === u.userId}
+                onChange={e => onSetManager(u.userId, e.target.value || null)}
+                aria-label={`Jefe de ${u.firstName} ${u.lastName}`}
+                className="flex-shrink-0 rounded-xl border border-gray-200 bg-white px-2 py-1 text-[11px] focus:border-gray-400 focus:outline-none disabled:opacity-50"
+              >
+                <option value="">Sin jefe</option>
+                {(roster ?? []).filter(o => o.userId !== u.userId).map(o => (
+                  <option key={o.userId} value={o.userId}>{o.firstName} {o.lastName}</option>
                 ))}
               </select>
             </li>
