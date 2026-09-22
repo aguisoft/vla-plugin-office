@@ -1040,6 +1040,18 @@ private async recordTransition(
     // Una sola sentencia: el CTE cierra y el INSERT abre, atómicamente.
     // Empieza con WITH y lleva RETURNING para que `ctx.query` la ejecute por la
     // vía que devuelve filas.
+    //
+    // El INSERT lee de `cerrado` a propósito. Con `VALUES (...)` los dos
+    // sub-statements son hermanos independientes, Postgres no garantiza que el
+    // UPDATE corra primero, y el chequeo de unicidad del índice parcial ve el
+    // intervalo todavía abierto: falla con 23505 de forma determinística.
+    // Verificado contra Postgres 16 el 2026-09-22.
+    //
+    // Y es `FROM (SELECT count(*) FROM cerrado)` y no `FROM cerrado`: con este
+    // último, la PRIMERA transición de cada persona -- cuando no hay intervalo
+    // previo que cerrar -- no insertaría nada, porque `cerrado` devuelve cero
+    // filas. `count(*)` sobre un conjunto vacío devuelve una fila, así que el
+    // INSERT siempre ocurre.
     await this.ctx.query(
       `WITH cerrado AS (
          UPDATE office_status_intervals
@@ -1048,7 +1060,8 @@ private async recordTransition(
         RETURNING id
        )
        INSERT INTO office_status_intervals (user_id, status, started_at, justification, source)
-       VALUES ($1, $3, $2, $4, $5)
+       SELECT $1, $3, $2, $4, $5
+         FROM (SELECT count(*) FROM cerrado) AS forzar_orden
        RETURNING id`,
       [userId, at.toISOString(), status, justification, source],
     );
