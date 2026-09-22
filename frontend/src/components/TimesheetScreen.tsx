@@ -279,8 +279,18 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
                     {(data?.overflowMinutes ?? 0) > 0 && (
                       <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
                         <p className="text-[11px] leading-relaxed text-amber-800">
-                          Los estados suman <strong>{hhmm(data!.overflowMinutes!)}</strong> más que el tiempo
-                          conectado; se ajustaron proporcionalmente.
+                          {(data?.office.totalMinutes ?? 0) > 0 ? (
+                            <>
+                              Los estados suman <strong>{hhmm(data!.overflowMinutes!)}</strong> más que el
+                              tiempo conectado; se ajustaron proporcionalmente.
+                            </>
+                          ) : (
+                            <>
+                              Hay <strong>{hhmm(data!.overflowMinutes!)}</strong> de estados registrados sin
+                              ninguna sesión de oficina que los respalde. El desglose queda en cero porque el
+                              tiempo conectado es la fuente del total — pero el registro existe.
+                            </>
+                          )}
                         </p>
                       </div>
                     )}
