@@ -78,9 +78,53 @@ const plugin: PluginDefinition = {
       ctx,
       tz,
       absences,
-      () => (ctx.plugin.config.WORKDAY_HOURS as number) || 8,
-      () => (ctx.plugin.config.MAX_OPEN_SESSION_HOURS as number) || 12,
+      horasConfig('WORKDAY_HOURS', 8),
+      horasConfig('MAX_OPEN_SESSION_HOURS', 12),
     );
+
+    // ── Helper: configuración en horas ────────────────────────────────────────
+    /**
+     * Lector perezoso de una configuración expresada en horas, acotada a
+     * [1, 24]; fuera de ese rango vale el respaldo.
+     *
+     * No hay quién valide el rango antes: `validateConfig` del core solo mira el
+     * TIPO, y solo si el plugin declara un esquema de `settings` — el bloque que
+     * traía `min`/`max` se quitó porque tapaba la configuración de Bitrix en el
+     * panel admin, así que hoy cualquier número entra sin revisar.
+     *
+     * Y un valor absurdo no se nota: con `MAX_OPEN_SESSION_HOURS: -5`,
+     * `capOpenSession` devuelve un fin anterior al inicio, `clipSpan` descarta
+     * el tramo y toda sesión abierta aporta 0 minutos mientras la nota al pie
+     * asegura que «se acotó a −5 horas». El cálculo roto en silencio y la
+     * explicación mintiendo.
+     *
+     * El aviso sale una sola vez: el getter corre en cada petición y un warning
+     * por request es ruido que nadie termina de leer.
+     */
+    function horasConfig(clave: 'WORKDAY_HOURS' | 'MAX_OPEN_SESSION_HOURS', respaldo: number): () => number {
+      let avisado = false;
+      return () => {
+        const crudo = ctx.plugin.config[clave];
+        if (typeof crudo === 'number' && Number.isFinite(crudo) && crudo >= 1 && crudo <= 24) {
+          return crudo;
+        }
+        // Sin configurar no hay nada que avisar: el respaldo es el caso normal,
+        // no un descarte. Solo se avisa cuando había un valor y se ignoró.
+        if (crudo !== undefined && crudo !== null && crudo !== '' && !avisado) {
+          avisado = true;
+          // `JSON.stringify` colapsa NaN e Infinity en «null» y perdería justo
+          // el valor que hay que ver; se reserva para strings y objetos, donde
+          // las comillas son lo que distingue "10" de 10.
+          const recibido = typeof crudo === 'string' || typeof crudo === 'object'
+            ? JSON.stringify(crudo)
+            : String(crudo);
+          ctx.logger.warn(
+            `${clave} fuera de rango (recibido: ${recibido}); se usa el respaldo de ${respaldo} horas. Válido: un número entre 1 y 24.`,
+          );
+        }
+        return respaldo;
+      };
+    }
 
     // ── Helper: rutas async que no tumban el proceso ──────────────────────────
     /**
