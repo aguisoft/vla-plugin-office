@@ -42,6 +42,16 @@ export function resolveCountry(
   return { country: fallback.trim().toUpperCase(), source: 'default' };
 }
 
+export type ManagerSource =
+  | 'override'  // RRHH lo fijó a mano en UserProfileOverride
+  | 'bitrix'    // vino de la jerarquía de departamentos de Bitrix
+  | 'none';     // no hay jefe
+
+export interface ResolvedManager {
+  managerUserId: string | null;
+  source: ManagerSource;
+}
+
 /**
  * Jefe directo a partir de datos ya cargados en memoria, para no hacer dos
  * consultas por persona al armar el roster completo.
@@ -55,9 +65,16 @@ export function resolveManager(
   overrideManagerId: string | null | undefined,
   myDeptId: string | null | undefined,
   headByDept: Map<string, string>,
-): string | null {
-  if (overrideManagerId && overrideManagerId !== userId) return overrideManagerId;
-  if (!myDeptId) return null;
+): ResolvedManager {
+  if (overrideManagerId && overrideManagerId !== userId) {
+    return { managerUserId: overrideManagerId, source: 'override' };
+  }
+  if (!myDeptId) {
+    return { managerUserId: null, source: 'none' };
+  }
   const head = headByDept.get(myDeptId) ?? null;
-  return head && head !== userId ? head : null;
+  if (head && head !== userId) {
+    return { managerUserId: head, source: 'bitrix' };
+  }
+  return { managerUserId: null, source: 'none' };
 }

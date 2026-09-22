@@ -183,13 +183,16 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
    * emitir `change` sin que nadie eligiera nada — al perder el foco con un
    * valor sin confirmar, o al reordenarse la lista bajo el cursor — y sin
    * este corte esa emisión escribe el jefe de la fila que quedó en esa
-   * posición. Comparar contra el jefe actual hace la operación idempotente:
-   * un evento que no cambia nada no manda nada.
+   * posición. Comparar contra el override actual hace la operación idempotente:
+   * un evento que no cambia nada no manda nada. Al igual que país, solo el
+   * override puede modificarse desde acá; Bitrix gana cuando el override está
+   * vacío.
    */
   async function handleSetManager(userId: string, managerUserId: string | null) {
     const actual = roster?.find(u => u.userId === userId);
     if (!actual) return;
-    if ((actual.managerUserId ?? null) === managerUserId) return;
+    const vigente = actual.managerSource === 'override' ? (actual.managerUserId ?? null) : null;
+    if (vigente === managerUserId) return;
 
     setSavingUser(userId);
     setError(null);
@@ -525,6 +528,12 @@ function PersonasTab({ roster, country, defaultCountry, savingUser, onSetCountry
     default:  { texto: 'por defecto',     clase: 'bg-amber-100 text-amber-700' },
   };
 
+  const ORIGEN_JEFE: Record<RosterUser['managerSource'], { texto: string; clase: string }> = {
+    override: { texto: 'fijado por RRHH', clase: 'bg-green-100 text-green-700' },
+    bitrix:   { texto: 'desde Bitrix',    clase: 'bg-blue-100 text-blue-700' },
+    none:     { texto: 'sin jefe',        clase: 'bg-amber-100 text-amber-700' },
+  };
+
   return (
     <div>
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -602,26 +611,30 @@ function PersonasTab({ roster, country, defaultCountry, savingUser, onSetCountry
               </select>
 
               <select
-                value={u.managerUserId ?? ''}
+                value={u.managerSource === 'override' ? (u.managerUserId ?? '') : ''}
                 disabled={savingUser === u.userId}
                 onChange={e => onSetManager(u.userId, e.target.value || null)}
                 aria-label={`Jefe de ${u.firstName} ${u.lastName}`}
                 className="flex-shrink-0 rounded-xl border border-gray-200 bg-white px-2 py-1 text-[11px] focus:border-gray-400 focus:outline-none disabled:opacity-50"
               >
-                <option value="">Sin jefe</option>
+                <option value="">Sin fijar</option>
                 {(roster ?? []).filter(o => o.userId !== u.userId).map(o => (
                   <option key={o.userId} value={o.userId}>{o.firstName} {o.lastName}</option>
                 ))}
               </select>
+
+              <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${ORIGEN_JEFE[u.managerSource].clase}`}>
+                {ORIGEN_JEFE[u.managerSource].texto}
+              </span>
             </li>
           ))}
         </ul>
       )}
 
       <p className="mt-4 text-[10px] leading-relaxed text-gray-400">
-        «Sin fijar» deja que el país salga de Bitrix, y si Bitrix no lo trae, del valor
-        por defecto ({defaultCountry}). Fijarlo acá gana sobre las dos cosas y es lo que
-        hay que usar para las excepciones.
+        «Sin fijar» en país deja que salga de Bitrix, y si Bitrix no lo trae, del valor por defecto ({defaultCountry}).
+        Lo mismo con el jefe: «sin fijar» lo resuelve desde Bitrix o sin jefe. Fijar cualquiera de los dos acá gana
+        sobre lo automático y es lo que hay que usar para las excepciones.
       </p>
     </div>
   );

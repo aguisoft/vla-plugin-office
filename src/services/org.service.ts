@@ -1,11 +1,12 @@
 import type { PluginContext } from '@vla/plugin-sdk';
-import { resolveCountry, resolveManager, type CountrySource } from '../lib/country-source';
+import { resolveCountry, resolveManager, type CountrySource, type ManagerSource } from '../lib/country-source';
 
 export interface RosterEntry {
   userId: string;
   country: string;
   countrySource: CountrySource;
   managerUserId: string | null;
+  managerSource: ManagerSource;
 }
 
 export class OrgService {
@@ -137,11 +138,13 @@ export class OrgService {
       const o = overrideOf.get(id) as any;
       const m = mappingOf.get(id) as any;
       const { country, source } = resolveCountry(o?.country, m?.country, fallback);
+      const { managerUserId, source: managerSource } = resolveManager(id, o?.managerUserId, m?.departmentId, headByDept);
       result.set(id, {
         userId: id,
         country,
         countrySource: source,
-        managerUserId: resolveManager(id, o?.managerUserId, m?.departmentId, headByDept),
+        managerUserId,
+        managerSource,
       });
     }
     return result;

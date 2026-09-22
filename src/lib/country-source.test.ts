@@ -51,26 +51,44 @@ describe('resolveManager', () => {
   const heads = new Map([['21', 'jefe-a'], ['22', 'jefe-b']]);
 
   it('el override gana sobre el jefe del departamento', () => {
-    expect(resolveManager('u1', 'otro-jefe', '21', heads)).toBe('otro-jefe');
+    expect(resolveManager('u1', 'otro-jefe', '21', heads)).toEqual({
+      managerUserId: 'otro-jefe',
+      source: 'override',
+    });
   });
 
   it('sin override, toma el jefe del departamento', () => {
-    expect(resolveManager('u1', null, '21', heads)).toBe('jefe-a');
+    expect(resolveManager('u1', null, '21', heads)).toEqual({
+      managerUserId: 'jefe-a',
+      source: 'bitrix',
+    });
   });
 
-  it('sin departamento devuelve null', () => {
-    expect(resolveManager('u1', null, null, heads)).toBeNull();
+  it('sin departamento devuelve null sin jefe', () => {
+    expect(resolveManager('u1', null, null, heads)).toEqual({
+      managerUserId: null,
+      source: 'none',
+    });
   });
 
   it('departamento sin jefe registrado devuelve null', () => {
-    expect(resolveManager('u1', null, '99', heads)).toBeNull();
+    expect(resolveManager('u1', null, '99', heads)).toEqual({
+      managerUserId: null,
+      source: 'none',
+    });
   });
 
   it('nadie es su propio jefe por la via del departamento', () => {
-    expect(resolveManager('jefe-a', null, '21', heads)).toBeNull();
+    expect(resolveManager('jefe-a', null, '21', heads)).toEqual({
+      managerUserId: null,
+      source: 'none',
+    });
   });
 
   it('nadie es su propio jefe por la via del override', () => {
-    expect(resolveManager('u1', 'u1', '21', heads)).toBe('jefe-a');
+    expect(resolveManager('u1', 'u1', '21', heads)).toEqual({
+      managerUserId: 'jefe-a',
+      source: 'bitrix',
+    });
   });
 });

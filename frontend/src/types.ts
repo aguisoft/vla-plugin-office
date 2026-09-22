@@ -90,9 +90,10 @@ export interface LayoutData {
 }
 
 /**
- * Colaborador con su país resuelto y de dónde sale ese país, tal como lo
- * devuelve `GET /org/roster`. El `countrySource` es lo que distingue un país
- * cargado por RRHH de uno que es solo el valor de respaldo del plugin.
+ * Colaborador con su país y jefe resueltos, y de dónde salen esos datos, tal
+ * como lo devuelve `GET /org/roster`. El `countrySource` y `managerSource`
+ * distinguen un dato cargado por RRHH de uno que es automático (Bitrix) o de
+ * respaldo del plugin.
  */
 export interface RosterUser {
   userId: string;
@@ -102,6 +103,7 @@ export interface RosterUser {
   country: string | null;
   countrySource: 'override' | 'bitrix' | 'default';
   managerUserId: string | null;
+  managerSource: 'override' | 'bitrix' | 'none';
 }
 
 /** Un día del recorte de tiempo en oficina, tal como lo entrega `GET /timesheet/office`. */

@@ -519,6 +519,7 @@ const plugin: PluginDefinition = {
             country: r?.country ?? null,
             countrySource: r?.countrySource ?? 'default',
             managerUserId: r?.managerUserId ?? null,
+            managerSource: r?.managerSource ?? 'none',
           };
         }),
       });
@@ -535,10 +536,25 @@ const plugin: PluginDefinition = {
 
     ctx.router.put('/org/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (req, res) => {
       const { managerUserId, country } = req.body as { managerUserId?: string | null; country?: string | null };
-      if (managerUserId === req.params.userId) {
+      const userId = req.params.userId;
+
+      // Nadie puede ser su propio jefe
+      if (managerUserId === userId) {
         return res.status(400).json({ message: 'Nadie puede ser su propio jefe' });
       }
-      await org.setOverride(req.params.userId, { managerUserId, country });
+
+      // Ciclo de dos personas: si el jefe propuesto ya tiene a este usuario
+      // como su jefe, se formaría un ciclo A→B→A
+      if (managerUserId) {
+        const proposedManagersManager = await org.managerOf(managerUserId);
+        if (proposedManagersManager === userId) {
+          return res.status(400).json({
+            message: 'Eso crearía un ciclo: el jefe propuesto ya tiene a esta persona como su jefe',
+          });
+        }
+      }
+
+      await org.setOverride(userId, { managerUserId, country });
       res.json({ ok: true });
     });
 
