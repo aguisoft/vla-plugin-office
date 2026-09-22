@@ -1,3 +1,4 @@
+import type { Request, Response } from 'express';
 import type { PluginDefinition } from '@vla/plugin-sdk';
 import { PresenceService } from './services/presence.service';
 import { LayoutService } from './services/layout.service';
@@ -80,6 +81,39 @@ const plugin: PluginDefinition = {
       () => (ctx.plugin.config.WORKDAY_HOURS as number) || 8,
       () => (ctx.plugin.config.MAX_OPEN_SESSION_HOURS as number) || 12,
     );
+
+    // ── Helper: rutas async que no tumban el proceso ──────────────────────────
+    /**
+     * Envuelve un handler async para que un rechazo termine en un 500 y no en
+     * un API muerto.
+     *
+     * Express 4 no reenvía los rechazos de promesas al middleware de error: el
+     * que el core registra por plugin nunca los ve. Y como el API no tiene
+     * `process.on('unhandledRejection')`, un `await` que rechaza —Postgres
+     * caído, pool agotado, tabla ausente— no rompe la petición: rompe el
+     * proceso entero, y con él la oficina de todos. Es el mismo modo de falla
+     * que ya obligó al try/catch de `runTimemanSync` más abajo en este archivo,
+     * ahí verificado en vivo (un POST a /timeman/sync mató el servidor).
+     *
+     * DEUDA: las otras ~36 rutas del plugin arrastran el mismo agujero desde la
+     * Entrega 1; cerrarlo es envolver cada handler con `asyncRoute(...)`, un
+     * cambio de una línea por ruta.
+     */
+    function asyncRoute(handler: (req: Request, res: Response) => Promise<unknown>) {
+      return async (req: Request, res: Response): Promise<void> => {
+        try {
+          await handler(req, res);
+        } catch (e) {
+          ctx.logger.error(`${req.method} ${req.originalUrl}: ${e}`);
+          // El handler puede haber respondido antes de fallar (un 403 y después
+          // un await que revienta): un segundo envío lanzaría
+          // ERR_HTTP_HEADERS_SENT y dejaría el rechazo suelto otra vez.
+          if (!res.headersSent) {
+            res.status(500).json({ message: 'No se pudo cargar la información. Intentá de nuevo en un momento.' });
+          }
+        }
+      };
+    }
 
     // Sync Bitrix photos + timeman on startup — delayed 5s to let hydrateConfig complete first
     setTimeout(async () => {
@@ -614,7 +648,7 @@ const plugin: PluginDefinition = {
      * vacío se lee como "no hizo nada" e induce una conclusión falsa sobre una
      * persona.
      */
-    ctx.router.get('/timesheet/office', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+    ctx.router.get('/timesheet/office', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const viewerId = (req as any).user?.sub;
       if (!viewerId) return res.status(401).json({ message: 'Unauthorized' });
 
@@ -684,10 +718,10 @@ const plugin: PluginDefinition = {
         // ver el comentario de tallyAbsences en lib/timesheet.ts.
         absences: await timesheet.absences(target, span),
       });
-    });
+    }));
 
     /** A quién puede consultar el viewer. Alimenta el selector de persona. */
-    ctx.router.get('/timesheet/scope', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+    ctx.router.get('/timesheet/scope', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const viewerId = (req as any).user?.sub;
       if (!viewerId) return res.status(401).json({ message: 'Unauthorized' });
 
@@ -702,7 +736,7 @@ const plugin: PluginDefinition = {
       });
 
       res.json({ viewerId, isAdmin, users });
-    });
+    }));
 
     // ── Hooks ─────────────────────────────────────────────────────────────────
 
