@@ -200,6 +200,9 @@ export function aggregateIntervals(
  * fuera de toda sesión —una inconsistencia real entre las dos fuentes—, y
  * devolver solo `unaccountedMinutes: 0` la presentaba como reconciliación
  * perfecta. El reescalado está bien; lo que faltaba era decirlo.
+ *
+ * Sin tiempo conectado el exceso es la suma entera: es el caso más ruidoso de
+ * los dos, no el más silencioso.
  */
 export function reconcile(
   connectedMinutes: number,
@@ -211,9 +214,15 @@ export function reconcile(
     return {
       slices: slices.map(s => ({ ...s, minutes: 0 })),
       unaccountedMinutes: 0,
-      // Sin tiempo conectado no hay contra qué medir el exceso: todo tramo
-      // sobra por definición y un número acá sería ruido, no señal.
-      overflowMinutes: 0,
+      // Todo tramo sobra por definición, y por eso el exceso es la suma
+      // entera: alguien con intervalos de estado pero sin `CheckInRecord` que
+      // los respalde (nunca abrió check-in, registro purgado, período entre
+      // sesiones) tiene horas que el sistema sí conoce. Devolver 0 acá pintaba
+      // un cero completo —«0m», «Sin tiempo registrado», «Sin tiempo
+      // conectado»— sobre datos que existen. Los tramos siguen en 0:
+      // `CheckInRecord` es la autoridad y eso no cambia; lo que se reporta es
+      // el exceso.
+      overflowMinutes: suma,
     };
   }
 

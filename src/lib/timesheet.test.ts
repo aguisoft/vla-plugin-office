@@ -296,12 +296,22 @@ describe('reconcile', () => {
     expect(out.overflowMinutes).toBe(100);
   });
 
-  it('tiempo conectado cero deja todo en cero', () => {
-    const out = reconcile(0, [{ status: 'FOCUS', minutes: 60 }]);
+  it('sin tiempo conectado los tramos van a cero, pero el exceso se reporta entero', () => {
+    const out = reconcile(0, [
+      { status: 'FOCUS', minutes: 180 },
+      { status: 'AVAILABLE', minutes: 120 },
+    ]);
+    // Los tramos siguen en cero: `CheckInRecord` es la autoridad sobre el
+    // tiempo conectado y eso no cambia.
     expect(out.slices.every(s => s.minutes === 0)).toBe(true);
     expect(out.unaccountedMinutes).toBe(0);
-    // Sin tiempo conectado no hay contra que medir el exceso.
-    expect(out.overflowMinutes).toBe(0);
+    // Antes esta rama devolvía 0 y era el vacío que la spec prohíbe: alguien
+    // con intervalos de estado pero sin CheckInRecord que los respalde (nunca
+    // abrió check-in, registro purgado, período entre sesiones) salía en
+    // pantalla como «0m» + «Sin tiempo registrado» + «Sin tiempo conectado»,
+    // un cero completo sobre una persona de la que el sistema sí tiene cinco
+    // horas de estado. 300 es el único número que delata que ese dato existe.
+    expect(out.overflowMinutes).toBe(300);
   });
 });
 

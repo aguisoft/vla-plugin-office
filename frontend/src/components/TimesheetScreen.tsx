@@ -252,7 +252,15 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
                     {/* Los estados sumaban más que el tiempo conectado. El
                         reescalado del backend cierra el gráfico, pero callarlo
                         presentaba una inconsistencia entre las dos fuentes
-                        como reconciliación perfecta. */}
+                        como reconciliación perfecta.
+
+                        Va FUERA de `TimesheetBreakdown` a propósito: con el
+                        tiempo conectado en 0 ese componente se reemplaza por
+                        «Sin tiempo conectado» y el aviso quedaría escondido
+                        justo en el caso que más lo necesita — intervalos de
+                        estado sin `CheckInRecord` que los respalde, donde este
+                        número es la única señal de que el dato existe. No lo
+                        metas adentro. */}
                     {(data?.overflowMinutes ?? 0) > 0 && (
                       <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5">
                         <p className="text-[11px] leading-relaxed text-amber-800">
