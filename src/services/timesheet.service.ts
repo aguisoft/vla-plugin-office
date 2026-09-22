@@ -1,6 +1,9 @@
 import type { PluginContext } from '@vla/plugin-sdk';
 import type { AbsenceService } from './absence.service';
-import { aggregateSessions, type OfficeAggregate, type Span, aggregateIntervals, type StatusSlice } from '../lib/timesheet';
+import {
+  aggregateSessions, type OfficeAggregate, type Span, aggregateIntervals, type StatusSlice,
+  tallyAbsences, type AbsenceTally,
+} from '../lib/timesheet';
 import { localDateString } from '../lib/local-date';
 
 export interface OfficeTime extends OfficeAggregate {
@@ -11,10 +14,8 @@ export class TimesheetService {
   constructor(
     private readonly ctx: PluginContext,
     private readonly tzOf: () => string,
-    // Consumido por cálculo de ausencias en tarea posterior
-    private readonly absencesSvc: AbsenceService, // eslint-disable-line @typescript-eslint/no-unused-vars
-    // Consumido por normalización de horas en tarea posterior
-    private readonly workdayHoursOf: () => number, // eslint-disable-line @typescript-eslint/no-unused-vars
+    private readonly absencesSvc: AbsenceService,
+    private readonly workdayHoursOf: () => number,
   ) {}
 
   /**
@@ -77,6 +78,23 @@ export class TimesheetService {
     }));
 
     return aggregateIntervals(intervals, span, this.tzOf());
+  }
+
+  /**
+   * Ausencias del período, agrupadas por tipo, en días y minutos equivalentes.
+   *
+   * Las ausencias no viven en `PresenceStatus` -- el snapshot las calcula al
+   * vuelo -- así que `statusBreakdown` nunca las va a ver: hace falta pedirlas
+   * aparte a `AbsenceService` y agregarlas con `tallyAbsences`.
+   */
+  async absences(userId: string, span: Span): Promise<AbsenceTally[]> {
+    const rows = await this.absencesSvc.listForUserDetailed(userId, span.start, span.end);
+    return tallyAbsences(
+      rows.map(r => ({ type: r.type, startAt: r.startAt, endAt: r.endAt })),
+      span,
+      this.workdayHoursOf(),
+      this.tzOf(),
+    );
   }
 
   /**

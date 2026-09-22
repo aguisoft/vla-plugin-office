@@ -1,4 +1,5 @@
 import { localDayStart, localDayEnd, localDateString, zonedTimeToUtc } from './local-date';
+import { FULL_DAY_TYPES } from './absence-validation';
 
 export type Period = 'day' | 'week' | 'month';
 
@@ -202,4 +203,63 @@ export function reconcile(
   const resto = connectedMinutes - ajustados.reduce((a, s) => a + s.minutes, 0);
   if (ajustados.length > 0) ajustados[ajustados.length - 1].minutes += resto;
   return { slices: ajustados, unaccountedMinutes: 0 };
+}
+
+export interface AbsenceTally {
+  type: string;
+  /** Días completos que toca, solo para las de día completo. PERMISO siempre da 0. */
+  days: number;
+  minutes: number;
+}
+
+/**
+ * Ausencias del período, agrupadas por tipo, en días y en minutos equivalentes.
+ *
+ * Las ausencias no viven en `PresenceStatus` -- el snapshot las calcula al
+ * vuelo, no las persiste como intervalo -- así que no aparecen en
+ * `aggregateIntervals` y necesitan traerse de su propia fuente
+ * (`AbsenceService`) y agregarse acá.
+ *
+ * VACACIONES/INCAPACIDAD (`FULL_DAY_TYPES`, la misma clasificación que ya usa
+ * `absence-bounds.ts` para anclar sus fechas) no tienen duración medible: son
+ * un rango de días completo sin hora de inicio/fin real, así que se
+ * convierten a minutos con una jornada fija configurable (`workdayHours`).
+ * PERMISO es la excepción -- viaja con hora de inicio y fin dentro del mismo
+ * día, así que aporta su duración real. Contar un permiso de dos horas como
+ * un día entero inflaría el reporte de quien solo pidió un rato para un
+ * trámite.
+ *
+ * Los feriados quedan fuera a propósito: `holidays.effectiveByUserId`
+ * resuelve un instante puntual, no un rango, y sumarlos día por día sería una
+ * consulta por día del período. Es trabajo propio que no bloquea esta tarea
+ * -- la pantalla avisa la omisión en vez de esconderla.
+ */
+export function tallyAbsences(
+  records: Array<{ type: string; startAt: Date; endAt: Date }>,
+  within: Span,
+  workdayHours: number,
+  tz: string,
+): AbsenceTally[] {
+  const porTipo = new Map<string, { days: number; minutes: number }>();
+
+  for (const r of records) {
+    const clipped = clipSpan({ start: r.startAt, end: r.endAt }, within);
+    if (!clipped) continue;
+
+    const acc = porTipo.get(r.type) ?? { days: 0, minutes: 0 };
+    if (FULL_DAY_TYPES.has(r.type as any)) {
+      // Se cuentan los días locales que toca, no los minutos del clip: un
+      // rango de vacaciones no tiene "horas trabajadas" que medir por sí solo.
+      const dias = splitByLocalDay(clipped, tz).length;
+      acc.days += dias;
+      acc.minutes += dias * workdayHours * 60;
+    } else {
+      acc.minutes += spanMinutes(clipped);
+    }
+    porTipo.set(r.type, acc);
+  }
+
+  return [...porTipo.entries()]
+    .map(([type, v]) => ({ type, ...v }))
+    .sort((a, b) => b.minutes - a.minutes || a.type.localeCompare(b.type));
 }

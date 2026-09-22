@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { periodBounds, clipSpan, splitByLocalDay, spanMinutes, aggregateSessions, resolveScope, canSee, aggregateIntervals, reconcile } from './timesheet';
+import { periodBounds, clipSpan, splitByLocalDay, spanMinutes, aggregateSessions, resolveScope, canSee, aggregateIntervals, reconcile, tallyAbsences } from './timesheet';
 import { DEFAULT_TZ } from './local-date';
 
 const TZ = DEFAULT_TZ;
@@ -254,5 +254,65 @@ describe('reconcile', () => {
     const out = reconcile(0, [{ status: 'FOCUS', minutes: 60 }]);
     expect(out.slices.every(s => s.minutes === 0)).toBe(true);
     expect(out.unaccountedMinutes).toBe(0);
+  });
+});
+
+describe('tallyAbsences', () => {
+  const semana = { start: cr('2026-09-21T00:00:00'), end: cr('2026-09-27T23:59:59') };
+
+  it('VACACIONES de 3 dias da 3 dias y 24 horas con jornada de 8', () => {
+    const out = tallyAbsences([
+      { type: 'VACACIONES', startAt: cr('2026-09-21T00:00:00'), endAt: cr('2026-09-23T23:59:59') },
+    ], semana, 8, TZ);
+    expect(out).toEqual([{ type: 'VACACIONES', days: 3, minutes: 3 * 8 * 60 }]);
+  });
+
+  it('PERMISO usa su duracion real, no la jornada completa', () => {
+    // Un permiso de 2 horas no puede contar como un dia entero.
+    const out = tallyAbsences([
+      { type: 'PERMISO', startAt: cr('2026-09-22T14:00:00'), endAt: cr('2026-09-22T16:00:00') },
+    ], semana, 8, TZ);
+    expect(out).toEqual([{ type: 'PERMISO', days: 0, minutes: 120 }]);
+  });
+
+  it('recorta una ausencia que empieza antes del periodo', () => {
+    const out = tallyAbsences([
+      { type: 'INCAPACIDAD', startAt: cr('2026-09-19T00:00:00'), endAt: cr('2026-09-22T23:59:59') },
+    ], semana, 8, TZ);
+    expect(out[0].days).toBe(2); // solo lunes 21 y martes 22
+  });
+
+  it('descarta ausencias enteramente fuera del periodo', () => {
+    const out = tallyAbsences([
+      { type: 'VACACIONES', startAt: cr('2026-08-01T00:00:00'), endAt: cr('2026-08-05T23:59:59') },
+    ], semana, 8, TZ);
+    expect(out).toEqual([]);
+  });
+
+  it('agrupa varias del mismo tipo', () => {
+    const out = tallyAbsences([
+      { type: 'PERMISO', startAt: cr('2026-09-21T09:00:00'), endAt: cr('2026-09-21T10:00:00') },
+      { type: 'PERMISO', startAt: cr('2026-09-23T09:00:00'), endAt: cr('2026-09-23T11:00:00') },
+    ], semana, 8, TZ);
+    expect(out).toEqual([{ type: 'PERMISO', days: 0, minutes: 180 }]);
+  });
+
+  it('una jornada distinta cambia las horas pero no los dias', () => {
+    const out = tallyAbsences([
+      { type: 'VACACIONES', startAt: cr('2026-09-21T00:00:00'), endAt: cr('2026-09-22T23:59:59') },
+    ], semana, 6, TZ);
+    expect(out).toEqual([{ type: 'VACACIONES', days: 2, minutes: 2 * 6 * 60 }]);
+  });
+
+  it('dos tipos distintos en el mismo periodo dan dos entradas', () => {
+    const out = tallyAbsences([
+      { type: 'VACACIONES', startAt: cr('2026-09-21T00:00:00'), endAt: cr('2026-09-21T23:59:59') },
+      { type: 'PERMISO', startAt: cr('2026-09-22T09:00:00'), endAt: cr('2026-09-22T10:00:00') },
+    ], semana, 8, TZ);
+    expect(out.map(t => t.type)).toEqual(['VACACIONES', 'PERMISO']);
+  });
+
+  it('sin ausencias devuelve lista vacia', () => {
+    expect(tallyAbsences([], semana, 8, TZ)).toEqual([]);
   });
 });

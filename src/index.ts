@@ -639,6 +639,11 @@ const plugin: PluginDefinition = {
         breakdown: slices,
         unaccountedMinutes,
         coverageStart: await timesheet.coverageStart(),
+        // Ausencias del período (PERMISO/VACACIONES/INCAPACIDAD). Fuente
+        // aparte de `breakdown`: no viven en PresenceStatus, así que no salen
+        // del desglose por estado. Los feriados quedan fuera a propósito --
+        // ver el comentario de tallyAbsences en lib/timesheet.ts.
+        absences: await timesheet.absences(target, span),
       });
     });
 

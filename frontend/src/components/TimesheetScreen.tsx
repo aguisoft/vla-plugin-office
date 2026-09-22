@@ -6,6 +6,7 @@ import { fmtDateOnly } from '../format';
 import { PeriodPicker } from './PeriodPicker';
 import type { Period } from './PeriodPicker';
 import { TimesheetBreakdown } from './TimesheetBreakdown';
+import { cfgOf } from '../statusConfig';
 
 /**
  * Pantalla de tiempos: cuánto estuvo cada quien en la oficina, por día,
@@ -200,6 +201,47 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
                   totalMinutes={data?.office.totalMinutes ?? 0}
                 />
               </div>
+
+              {/* Ausencias: no salen del desglose de arriba -- no viven en
+                  PresenceStatus, el snapshot las calcula al vuelo, así que el
+                  backend las trae de su propia fuente (AbsenceService). Sin
+                  ninguna en el período, la tarjeta no se renderiza: no hay
+                  nada que reportar. */}
+              {(data?.absences.length ?? 0) > 0 && (
+                <div className="rounded-2xl border border-gray-100 p-4">
+                  <p className="mb-4 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                    Ausencias
+                  </p>
+                  <ul className="space-y-2">
+                    {data!.absences.map(a => {
+                      const cfg = cfgOf(a.type);
+                      // Las de día completo (VACACIONES/INCAPACIDAD) muestran
+                      // días y horas equivalentes; PERMISO viaja con hora real,
+                      // así que solo tiene sentido mostrar su duración -- un
+                      // permiso de 2h no es "0 días".
+                      const detalle = a.days > 0
+                        ? `${a.days} día${a.days === 1 ? '' : 's'} · ${hhmm(a.minutes)}`
+                        : hhmm(a.minutes);
+                      return (
+                        <li key={a.type} className="flex items-center gap-2 text-xs">
+                          <span className="text-sm">{cfg.icon}</span>
+                          <span className="flex-1 text-gray-600">{cfg.label}</span>
+                          <span className="flex-shrink-0 font-medium tabular-nums text-gray-700">
+                            {detalle}
+                          </span>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                  {/* Los feriados no se calculan en esta versión (ver comentario
+                      de tallyAbsences en lib/timesheet.ts): effectiveByUserId
+                      resuelve un instante, no un rango. Se avisa acá para que la
+                      omisión se vea y no se lea como "no tuvo feriados". */}
+                  <p className="mt-3 text-[10px] text-gray-400">
+                    Los feriados no están incluidos en este total.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>

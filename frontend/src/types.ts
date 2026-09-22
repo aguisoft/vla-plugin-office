@@ -116,6 +116,19 @@ export interface StatusSlice {
   minutes: number;
 }
 
+/**
+ * Ausencias del período agrupadas por tipo, tal como las devuelve
+ * `GET /timesheet/office`. No salen de `breakdown`: las ausencias no viven en
+ * `PresenceStatus` (el snapshot las calcula al vuelo), así que necesitan su
+ * propio campo en la respuesta.
+ */
+export interface AbsenceTally {
+  type: string;
+  /** Días completos que toca, solo para las de día completo (VACACIONES/INCAPACIDAD). PERMISO siempre da 0. */
+  days: number;
+  minutes: number;
+}
+
 export interface TimesheetOfficeResponse {
   period: 'day' | 'week' | 'month';
   from: string;
@@ -127,6 +140,8 @@ export interface TimesheetOfficeResponse {
   unaccountedMinutes: number;
   /** Desde cuándo el backend tiene historial de estados. `null` si todavía no hay ninguno. */
   coverageStart: string | null;
+  /** Ausencias del período. Los feriados NO están incluidos -- ver TimesheetScreen. */
+  absences: AbsenceTally[];
 }
 
 /**
