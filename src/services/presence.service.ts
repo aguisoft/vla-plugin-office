@@ -42,6 +42,75 @@ export class PresenceService {
     this.releaseFromMeetings = fn;
   }
 
+  /**
+   * Registra el cambio de estado en el historial.
+   *
+   * Cerrar el intervalo abierto e insertar el nuevo van en UNA sentencia con CTE:
+   * cada llamada a `ctx.query` abre su propia transacción, así que dos llamadas
+   * separadas podrían dejar a alguien sin intervalo abierto si falla la segunda.
+   *
+   * Si el intervalo abierto ya tiene ese mismo estado, solo se actualiza la
+   * justificación. Reescribir el motivo de un Concentrado no debe cortar el
+   * tiempo acumulado.
+   *
+   * NUNCA lanza: un fallo acá no puede impedir que alguien cambie su estado. El
+   * costo aceptado es que un fallo deja el historial divergido en silencio, y eso
+   * se detecta en el reporte como "sin registrar" creciendo.
+   */
+  private async recordTransition(
+    userId: string,
+    status: string,
+    at: Date,
+    justification: string | null,
+    source: CheckSource,
+  ): Promise<void> {
+    try {
+      const abierto = await this.ctx.query<{ status: string }>(
+        'SELECT status FROM office_status_intervals WHERE user_id = $1 AND ended_at IS NULL LIMIT 1',
+        [userId],
+      );
+
+      if (abierto.length > 0 && abierto[0].status === status) {
+        await this.ctx.query(
+          'UPDATE office_status_intervals SET justification = $2 WHERE user_id = $1 AND ended_at IS NULL',
+          [userId, justification],
+        );
+        return;
+      }
+
+      // Una sola sentencia: el CTE cierra y el INSERT abre, atómicamente.
+      // Empieza con WITH y lleva RETURNING para que `ctx.query` la ejecute por la
+      // vía que devuelve filas.
+      //
+      // El INSERT lee de `(SELECT count(*) FROM cerrado)` en vez de un VALUES
+      // suelto a propósito: verificado en local (PG 16) que sin esa lectura,
+      // Postgres NO garantiza que el UPDATE de `cerrado` sea visible para el
+      // chequeo de unicidad del INSERT dentro de la misma sentencia — el índice
+      // único parcial (user_id) WHERE ended_at IS NULL revienta con 23505
+      // "already exists" aun cuando el UPDATE sí cerró la fila abierta. Es el
+      // comportamiento documentado de Postgres para CTEs de escritura hermanas
+      // sin relación productor/consumidor ("no pueden verse los efectos entre
+      // sí"). El count(*) siempre devuelve una fila (0 o 1), así que fuerza la
+      // dependencia de datos sin filtrar el INSERT cuando no había nada que
+      // cerrar (primer check-in de alguien).
+      await this.ctx.query(
+        `WITH cerrado AS (
+           UPDATE office_status_intervals
+              SET ended_at = $2
+            WHERE user_id = $1 AND ended_at IS NULL
+          RETURNING id
+         )
+         INSERT INTO office_status_intervals (user_id, status, started_at, justification, source)
+         SELECT $1, $3, $2, $4, $5
+           FROM (SELECT count(*) FROM cerrado) AS forzar_orden
+         RETURNING id`,
+        [userId, at.toISOString(), status, justification, source],
+      );
+    } catch (e) {
+      this.ctx.logger.warn(`No se pudo registrar la transición de ${userId} a ${status}: ${e}`);
+    }
+  }
+
   private manualOverrideKey(userId: string) { return `manual-override:${userId}`; }
 
   async setManualOverride(userId: string): Promise<void> {
@@ -84,6 +153,7 @@ export class PresenceService {
     await this.ctx.redis.setJson(`presence:${userId}`, record, PRESENCE_CACHE_TTL);
     await this.ctx.hooks.doAction('office.user.checked_in', { userId, source });
     this.broadcast({ type: 'user:joined', userId });
+    await this.recordTransition(userId, 'AVAILABLE', now, null, source);
 
     return record;
   }
@@ -127,6 +197,7 @@ export class PresenceService {
     await this.ctx.redis.del(`presence:${userId}`);
     await this.ctx.hooks.doAction('office.user.checked_out', { userId });
     this.broadcast({ type: 'user:left', userId });
+    await this.recordTransition(userId, 'OFFLINE', now, null, source);
   }
 
   async updateStatus(
@@ -154,6 +225,7 @@ export class PresenceService {
     await this.ctx.redis.setJson(`presence:${userId}`, record, PRESENCE_CACHE_TTL);
     await this.ctx.hooks.doAction('office.user.status_changed', { userId, status });
     this.broadcast({ type: 'user:status', userId, status });
+    await this.recordTransition(userId, status, now, extra.justification ?? null, 'WEB');
 
     return record;
   }
