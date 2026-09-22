@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { periodBounds, clipSpan, splitByLocalDay, spanMinutes, aggregateSessions } from './timesheet';
+import { periodBounds, clipSpan, splitByLocalDay, spanMinutes, aggregateSessions, resolveScope, canSee } from './timesheet';
 import { DEFAULT_TZ } from './local-date';
 
 const TZ = DEFAULT_TZ;
@@ -152,5 +152,40 @@ describe('aggregateSessions', () => {
       { start: cr('2026-09-21T08:00:00'), end: cr('2026-09-21T09:00:00') },
     ], within, TZ);
     expect(out.byDay.map(d => d.date)).toEqual(['2026-09-21', '2026-09-23']);
+  });
+});
+
+describe('resolveScope', () => {
+  const managed = new Set(['b', 'c']);
+
+  it('uno mismo esta incluido', () => {
+    expect(resolveScope('a', managed, false).has('a')).toBe(true);
+  });
+
+  it('un jefe ve a sus directos', () => {
+    const s = resolveScope('a', managed, false);
+    expect([...s].sort()).toEqual(['a', 'b', 'c']);
+  });
+
+  it('quien no tiene gente a cargo solo se ve a si mismo', () => {
+    expect([...resolveScope('z', new Set(), false)]).toEqual(['z']);
+  });
+
+  it('ADMIN devuelve null, que significa "sin restriccion"', () => {
+    expect(resolveScope('a', managed, true)).toBeNull();
+  });
+});
+
+describe('canSee', () => {
+  it('ADMIN ve a cualquiera', () => {
+    expect(canSee(null, 'quien-sea')).toBe(true);
+  });
+
+  it('fuera del conjunto es false', () => {
+    expect(canSee(new Set(['a', 'b']), 'z')).toBe(false);
+  });
+
+  it('dentro del conjunto es true', () => {
+    expect(canSee(new Set(['a', 'b']), 'b')).toBe(true);
   });
 });

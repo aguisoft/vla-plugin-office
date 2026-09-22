@@ -110,3 +110,26 @@ export function aggregateSessions(sessions: Span[], within: Span, tz: string): O
 
   return { totalMinutes: byDay.reduce((acc, d) => acc + d.minutes, 0), byDay };
 }
+
+/**
+ * Conjunto de personas que el viewer puede consultar, o `null` si no tiene
+ * restricción (ADMIN).
+ *
+ * `null` y no "todos los ids" a propósito: el endpoint no siempre tiene la
+ * lista completa a mano, y un `null` explícito obliga al llamador a decidir qué
+ * significa, en vez de comparar contra un conjunto que podría estar incompleto
+ * y negar acceso por accidente.
+ */
+export function resolveScope(
+  viewerId: string,
+  managedUserIds: Set<string>,
+  isAdmin: boolean,
+): Set<string> | null {
+  if (isAdmin) return null;
+  return new Set<string>([viewerId, ...managedUserIds]);
+}
+
+/** `scope === null` (ADMIN) ve a cualquiera; si no, solo a quien está adentro. */
+export function canSee(scope: Set<string> | null, userId: string): boolean {
+  return scope === null || scope.has(userId);
+}

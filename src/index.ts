@@ -7,9 +7,11 @@ import { AbsenceService } from './services/absence.service';
 import { OrgService } from './services/org.service';
 import { HolidayService } from './services/holiday.service';
 import { MeetingService } from './services/meeting.service';
+import { TimesheetService } from './services/timesheet.service';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { DEFAULT_TZ } from './lib/local-date';
 import { validateStatusInput, type StatusInput, type OfficeStatus } from './lib/status-rules';
+import { periodBounds, resolveScope, canSee, type Period } from './lib/timesheet';
 
 const PERMS = {
   VIEW:     'office.view',
@@ -69,6 +71,7 @@ const plugin: PluginDefinition = {
     presence.setMeetingReleaser((userId) => meetings.releaseUser(userId));
     // Instanciado después de absences/holidays/org: los recibe en el constructor.
     const snapshot = new SnapshotService(ctx, absences, holidays, org, bitrix, undefined, tz);
+    const timesheet = new TimesheetService(ctx, tz, absences, () => (ctx.plugin.config.WORKDAY_HOURS as number) || 8);
 
     // Sync Bitrix photos + timeman on startup — delayed 5s to let hydrateConfig complete first
     setTimeout(async () => {
@@ -575,6 +578,75 @@ const plugin: PluginDefinition = {
       const { zoneId, x, y } = req.body as { zoneId: string; x: number; y: number };
       await layout.moveUser(userId, zoneId, x, y);
       res.json({ ok: true });
+    });
+
+    // ── Dashboard de tiempos ────────────────────────────────────────────────────
+
+    /**
+     * Tiempo en oficina del período. El alcance lo resuelve el servidor: uno mismo
+     * más los directos, o todo si es ADMIN.
+     *
+     * Pedir a alguien fuera del alcance devuelve 403 y no un resultado vacío: un
+     * vacío se lee como "no hizo nada" e induce una conclusión falsa sobre una
+     * persona.
+     */
+    ctx.router.get('/timesheet/office', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+      const viewerId = (req as any).user?.sub;
+      if (!viewerId) return res.status(401).json({ message: 'Unauthorized' });
+
+      const period = (req.query.period as Period) || 'week';
+      if (!['day', 'week', 'month'].includes(period)) {
+        return res.status(400).json({ message: 'period debe ser day, week o month' });
+      }
+
+      const anchorRaw = req.query.anchor as string | undefined;
+      // Mediodía UTC a propósito: así el mismo YYYY-MM-DD cae en el mismo día
+      // local en UTC-6, sin depender de a qué hora corre el servidor.
+      const anchor = anchorRaw ? new Date(`${anchorRaw}T12:00:00Z`) : new Date();
+      if (Number.isNaN(anchor.getTime())) {
+        return res.status(400).json({ message: 'anchor inválido, se espera YYYY-MM-DD' });
+      }
+
+      const isAdmin = (req as any).user?.role === 'ADMIN';
+      const scope = resolveScope(viewerId, await org.managedUserIds(viewerId), isAdmin);
+
+      const target = (req.query.userId as string) || viewerId;
+      if (!canSee(scope, target)) {
+        return res.status(403).json({ message: 'No tenés acceso al tiempo de esa persona' });
+      }
+
+      const bounds = periodBounds(anchor, period, tz());
+      // El fin efectivo nunca pasa del presente: un período que incluye hoy no debe
+      // contar horas que todavía no ocurrieron (el servicio cierra la sesión abierta
+      // contra este fin de span).
+      const now = new Date();
+      const span = { start: bounds.start, end: bounds.end < now ? bounds.end : now };
+
+      const byUser = await timesheet.officeTime([target], span);
+      res.json({
+        period,
+        from: bounds.start.toISOString(),
+        to: bounds.end.toISOString(),
+        office: byUser.get(target) ?? { userId: target, totalMinutes: 0, byDay: [] },
+      });
+    });
+
+    /** A quién puede consultar el viewer. Alimenta el selector de persona. */
+    ctx.router.get('/timesheet/scope', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+      const viewerId = (req as any).user?.sub;
+      if (!viewerId) return res.status(401).json({ message: 'Unauthorized' });
+
+      const isAdmin = (req as any).user?.role === 'ADMIN';
+      const scope = resolveScope(viewerId, await org.managedUserIds(viewerId), isAdmin);
+
+      const where = scope === null ? { isActive: true } : { isActive: true, id: { in: [...scope] } };
+      const users = await ctx.prisma.user.findMany({
+        where,
+        select: { id: true, firstName: true, lastName: true, email: true },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      });
+
+      res.json({ viewerId, isAdmin, users });
     });
 
     // ── Hooks ─────────────────────────────────────────────────────────────────
