@@ -1,6 +1,7 @@
 import type { PluginContext } from '@vla/plugin-sdk';
 import type { AbsenceService } from './absence.service';
-import { aggregateSessions, type OfficeAggregate, type Span } from '../lib/timesheet';
+import { aggregateSessions, type OfficeAggregate, type Span, aggregateIntervals, type StatusSlice } from '../lib/timesheet';
+import { localDateString } from '../lib/local-date';
 
 export interface OfficeTime extends OfficeAggregate {
   userId: string;
@@ -52,5 +53,42 @@ export class TimesheetService {
       result.set(userId, { userId, ...agg });
     }
     return result;
+  }
+
+  /**
+   * Intervalos del período. El intervalo abierto se cierra contra el fin del
+   * span, que el llamador ya acotó a `now` cuando el período incluye el presente.
+   */
+  async statusBreakdown(userId: string, span: Span): Promise<StatusSlice[]> {
+    const rows = await this.ctx.query<{ status: string; started_at: string; ended_at: string | null }>(
+      `SELECT status, started_at, ended_at
+         FROM office_status_intervals
+        WHERE user_id = $1
+          AND started_at <= $3
+          AND (ended_at IS NULL OR ended_at >= $2)
+        ORDER BY started_at`,
+      [userId, span.start.toISOString(), span.end.toISOString()],
+    );
+
+    const intervals = rows.map(r => ({
+      status: r.status,
+      start: new Date(r.started_at),
+      end: r.ended_at ? new Date(r.ended_at) : span.end,
+    }));
+
+    return aggregateIntervals(intervals, span, this.tzOf());
+  }
+
+  /**
+   * Fecha desde la que hay registro, en `YYYY-MM-DD` local, o `null` si la tabla
+   * está vacía. Sale de la tabla y no de una constante para que siga siendo cierta
+   * aunque se recree o se purgue.
+   */
+  async coverageStart(): Promise<string | null> {
+    const rows = await this.ctx.query<{ min: string | null }>(
+      'SELECT MIN(started_at)::text AS min FROM office_status_intervals',
+    );
+    const min = rows[0]?.min;
+    return min ? localDateString(new Date(min), this.tzOf()) : null;
   }
 }

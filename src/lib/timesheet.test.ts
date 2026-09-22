@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { periodBounds, clipSpan, splitByLocalDay, spanMinutes, aggregateSessions, resolveScope, canSee } from './timesheet';
+import { periodBounds, clipSpan, splitByLocalDay, spanMinutes, aggregateSessions, resolveScope, canSee, aggregateIntervals, reconcile } from './timesheet';
 import { DEFAULT_TZ } from './local-date';
 
 const TZ = DEFAULT_TZ;
@@ -187,5 +187,72 @@ describe('canSee', () => {
 
   it('dentro del conjunto es true', () => {
     expect(canSee(new Set(['a', 'b']), 'b')).toBe(true);
+  });
+});
+
+describe('aggregateIntervals', () => {
+  const within = { start: cr('2026-09-22T00:00:00'), end: cr('2026-09-22T23:59:59') };
+
+  it('suma por estado y descarta OFFLINE', () => {
+    const out = aggregateIntervals([
+      { status: 'AVAILABLE', start: cr('2026-09-22T08:00:00'), end: cr('2026-09-22T10:00:00') },
+      { status: 'FOCUS',     start: cr('2026-09-22T10:00:00'), end: cr('2026-09-22T12:00:00') },
+      { status: 'AVAILABLE', start: cr('2026-09-22T13:00:00'), end: cr('2026-09-22T14:00:00') },
+      { status: 'OFFLINE',   start: cr('2026-09-22T18:00:00'), end: cr('2026-09-22T23:00:00') },
+    ], within, TZ);
+    expect(out).toEqual([
+      { status: 'AVAILABLE', minutes: 180 },
+      { status: 'FOCUS', minutes: 120 },
+    ]);
+  });
+
+  it('recorta contra el periodo', () => {
+    const out = aggregateIntervals(
+      [{ status: 'FOCUS', start: cr('2026-09-21T22:00:00'), end: cr('2026-09-22T02:00:00') }],
+      within, TZ,
+    );
+    expect(out).toEqual([{ status: 'FOCUS', minutes: 120 }]);
+  });
+
+  it('ordena de mayor a menor', () => {
+    const out = aggregateIntervals([
+      { status: 'BRB',   start: cr('2026-09-22T08:00:00'), end: cr('2026-09-22T08:30:00') },
+      { status: 'FOCUS', start: cr('2026-09-22T09:00:00'), end: cr('2026-09-22T12:00:00') },
+    ], within, TZ);
+    expect(out.map(s => s.status)).toEqual(['FOCUS', 'BRB']);
+  });
+
+  it('sin intervalos devuelve lista vacia', () => {
+    expect(aggregateIntervals([], within, TZ)).toEqual([]);
+  });
+});
+
+describe('reconcile', () => {
+  it('la diferencia sale como sin registrar', () => {
+    const out = reconcile(480, [{ status: 'FOCUS', minutes: 300 }]);
+    expect(out.unaccountedMinutes).toBe(180);
+  });
+
+  it('cuando cuadra, sin registrar es cero', () => {
+    const out = reconcile(300, [{ status: 'FOCUS', minutes: 300 }]);
+    expect(out.unaccountedMinutes).toBe(0);
+  });
+
+  it('si los tramos superan el tiempo conectado, se recortan proporcionalmente', () => {
+    // Puede pasar si alguien quedo con estado activo fuera de una sesion de
+    // oficina. Mostrar mas tiempo en estados que conectado seria absurdo.
+    const out = reconcile(100, [
+      { status: 'FOCUS', minutes: 150 },
+      { status: 'AVAILABLE', minutes: 50 },
+    ]);
+    expect(out.unaccountedMinutes).toBe(0);
+    expect(out.slices.reduce((a, s) => a + s.minutes, 0)).toBe(100);
+    expect(out.slices[0].minutes).toBe(75);
+  });
+
+  it('tiempo conectado cero deja todo en cero', () => {
+    const out = reconcile(0, [{ status: 'FOCUS', minutes: 60 }]);
+    expect(out.slices.every(s => s.minutes === 0)).toBe(true);
+    expect(out.unaccountedMinutes).toBe(0);
   });
 });

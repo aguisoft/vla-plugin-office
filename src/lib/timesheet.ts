@@ -133,3 +133,73 @@ export function resolveScope(
 export function canSee(scope: Set<string> | null, userId: string): boolean {
   return scope === null || scope.has(userId);
 }
+
+export interface StatusSlice {
+  status: string;
+  minutes: number;
+}
+
+/** Estados que no entran en el desglose ni en la base del porcentaje. */
+const EXCLUIDOS = new Set(['OFFLINE']);
+
+/**
+ * Minutos por estado dentro del período.
+ *
+ * OFFLINE queda fuera: un fin de semana son 62 horas en ese estado y se come
+ * todo el gráfico, dejando los porcentajes sin significado.
+ */
+export function aggregateIntervals(
+  intervals: Array<Span & { status: string }>,
+  within: Span,
+  tz: string,
+): StatusSlice[] {
+  const porEstado = new Map<string, number>();
+
+  for (const iv of intervals) {
+    if (EXCLUIDOS.has(iv.status)) continue;
+    const clipped = clipSpan({ start: iv.start, end: iv.end }, within);
+    if (!clipped) continue;
+    // Se parte por día y se vuelve a sumar: el recorte por día es lo que hace
+    // que un intervalo que cruza medianoche no se cuente de más en la vista
+    // diaria, y usar la misma función acá mantiene los dos totales coherentes.
+    const minutes = splitByLocalDay(clipped, tz).reduce((a, x) => a + x.minutes, 0);
+    if (minutes > 0) porEstado.set(iv.status, (porEstado.get(iv.status) ?? 0) + minutes);
+  }
+
+  return [...porEstado.entries()]
+    .map(([status, minutes]) => ({ status, minutes }))
+    .sort((a, b) => b.minutes - a.minutes || a.status.localeCompare(b.status));
+}
+
+/**
+ * Ajusta el desglose contra el tiempo conectado real de `CheckInRecord`.
+ *
+ * `CheckInRecord` es la autoridad: es el dato que existe desde abril y el que la
+ * gente reconoce como su jornada. El desglose es una subdivisión suya.
+ *
+ * La diferencia se devuelve como `unaccountedMinutes` y se muestra como «sin
+ * registrar». Escondida en un redondeo, esa señal —que el registro está
+ * perdiendo escrituras— no se vería nunca.
+ */
+export function reconcile(
+  connectedMinutes: number,
+  slices: StatusSlice[],
+): { slices: StatusSlice[]; unaccountedMinutes: number } {
+  const suma = slices.reduce((a, s) => a + s.minutes, 0);
+
+  if (connectedMinutes <= 0) {
+    return { slices: slices.map(s => ({ ...s, minutes: 0 })), unaccountedMinutes: 0 };
+  }
+
+  if (suma <= connectedMinutes) {
+    return { slices, unaccountedMinutes: connectedMinutes - suma };
+  }
+
+  // Los tramos superan lo conectado: se recortan proporcionalmente. El último
+  // absorbe el resto del redondeo para que la suma cierre exacta.
+  const factor = connectedMinutes / suma;
+  const ajustados = slices.map(s => ({ ...s, minutes: Math.floor(s.minutes * factor) }));
+  const resto = connectedMinutes - ajustados.reduce((a, s) => a + s.minutes, 0);
+  if (ajustados.length > 0) ajustados[ajustados.length - 1].minutes += resto;
+  return { slices: ajustados, unaccountedMinutes: 0 };
+}
