@@ -75,21 +75,26 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
     // Sin cancelar, cambiar de persona con una respuesta en vuelo puede pintar
     // el tiempo de A bajo el nombre de B.
     const ctrl = new AbortController();
+    // `vivo` cubre lo que el `abort()` ya no alcanza: si la respuesta se
+    // resolvió justo antes de la limpieza, el `.then` quedó encolado y
+    // abortar no lo cancela -- escribiría los datos de A cuando la pantalla
+    // ya está mostrando a B.
+    let vivo = true;
     setLoading(true);
     setError(null);
     getOfficeTime(period, anchor, userId, ctrl.signal)
-      .then(d => { setData(d); setLoading(false); })
+      .then(d => { if (!vivo) return; setData(d); setLoading(false); })
       .catch(e => {
         // Un AbortError no es un error que mostrar: es una cancelación
         // esperada. `loading` tampoco se toca -- la llamada que disparó la
         // cancelación ya lo dejó en `true`, y apagarlo acá haría parpadear
         // "no se pudo cargar" cada vez que alguien cambia de persona.
-        if (esCancelacion(e)) return;
+        if (!vivo || esCancelacion(e)) return;
         setData(null);
         setError(errorMessage(e, 'No se pudo cargar el tiempo en oficina'));
         setLoading(false);
       });
-    return () => ctrl.abort();
+    return () => { vivo = false; ctrl.abort(); };
   }, [period, anchor, userId]);
 
   const persona = scope?.users.find(u => u.id === userId);
@@ -135,7 +140,12 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
           ) : (
             <select
               value={userId ?? ''}
-              onChange={e => setUserId(e.target.value)}
+              // `setLoading(true)` acá y no solo en el efecto: el efecto corre
+              // DESPUÉS del pintado, así que al cambiar de persona con datos ya
+              // cargados React alcanza a pintar un frame con el nombre de B y
+              // los números de A. El AbortController no cubre ese camino --
+              // no hay ninguna petición en vuelo que cancelar.
+              onChange={e => { setLoading(true); setUserId(e.target.value); }}
               aria-label="Persona"
               className="rounded-xl border border-gray-200 bg-white px-2 py-1 text-xs focus:border-gray-400 focus:outline-none"
             >
