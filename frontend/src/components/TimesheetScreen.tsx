@@ -213,6 +213,16 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
                     Una sesión quedó abierta sin marcar salida; se acotó a {data.office.openSessionCapHours} horas.
                   </p>
                 )}
+
+                {/* Los feriados no se calculan en esta versión (ver comentario
+                    de tallyAbsences en lib/timesheet.ts): effectiveByUserId
+                    resuelve un instante, no un rango. El aviso vive acá y no en
+                    la tarjeta de Ausencias porque los feriados son universales
+                    y las ausencias escasas: allá se escondía justo en el caso
+                    mayoritario, y lo que califica es este total. */}
+                <p className="mt-3 text-[10px] text-gray-400">
+                  Los feriados no se descuentan de este total: un período con feriado muestra menos horas.
+                </p>
               </div>
 
               {/* El propio componente resuelve el caso `totalMinutes <= 0`
@@ -286,13 +296,6 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
                       );
                     })}
                   </ul>
-                  {/* Los feriados no se calculan en esta versión (ver comentario
-                      de tallyAbsences en lib/timesheet.ts): effectiveByUserId
-                      resuelve un instante, no un rango. Se avisa acá para que la
-                      omisión se vea y no se lea como "no tuvo feriados". */}
-                  <p className="mt-3 text-[10px] text-gray-400">
-                    Los feriados no están incluidos en este total.
-                  </p>
                 </div>
               )}
             </div>
