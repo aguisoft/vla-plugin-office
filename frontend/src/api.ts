@@ -1,4 +1,7 @@
-import type { Absence, Holiday, PendingInvite, RosterUser, UnavailableParticipant } from './types';
+import type {
+  Absence, Holiday, PendingInvite, RosterUser, UnavailableParticipant,
+  TimesheetOfficeResponse, TimesheetScope,
+} from './types';
 
 const BASE = '/api/v1';
 
@@ -129,3 +132,18 @@ export const setOrg = (userId: string, body: { managerUserId?: string | null; co
 
 export const getOrgRoster = () =>
   api.get<{ defaultCountry: string; users: RosterUser[] }>(`${PLUGIN}/org/roster`);
+
+/** A quién puede consultar el viewer en la pantalla de Tiempos: a sí mismo y a su gente a cargo. */
+export const getTimesheetScope = () =>
+  api.get<TimesheetScope>(`${PLUGIN}/timesheet/scope`);
+
+/**
+ * Tiempo en oficina recortado por período. `anchor` es un `YYYY-MM-DD` local
+ * (ver `PeriodPicker`); el backend resuelve el rango `from`/`to` a partir de
+ * ahí. Sin `userId` el backend asume al viewer.
+ */
+export const getOfficeTime = (period: string, anchor: string, userId?: string) => {
+  const qs = new URLSearchParams({ period, anchor });
+  if (userId) qs.set('userId', userId);
+  return api.get<TimesheetOfficeResponse>(`${PLUGIN}/timesheet/office?${qs}`);
+};

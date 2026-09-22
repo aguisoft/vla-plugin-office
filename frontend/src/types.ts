@@ -103,3 +103,27 @@ export interface RosterUser {
   countrySource: 'override' | 'bitrix' | 'default';
   managerUserId: string | null;
 }
+
+/** Un día del recorte de tiempo en oficina, tal como lo entrega `GET /timesheet/office`. */
+export interface OfficeDay {
+  date: string;
+  minutes: number;
+}
+
+export interface TimesheetOfficeResponse {
+  period: 'day' | 'week' | 'month';
+  from: string;
+  to: string;
+  office: { userId: string; totalMinutes: number; byDay: OfficeDay[] };
+}
+
+/**
+ * A quién puede consultar el viewer: a sí mismo siempre, y a su gente a cargo
+ * si tiene reportes directos. `isAdmin` no se usa hoy en la UI -- lo trae el
+ * backend por si una vista futura necesita distinguir el bypass total.
+ */
+export interface TimesheetScope {
+  viewerId: string;
+  isAdmin: boolean;
+  users: Array<{ id: string; firstName: string; lastName: string; email: string }>;
+}

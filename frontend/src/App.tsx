@@ -19,6 +19,7 @@ import { MeetingInviteModal } from './components/MeetingInviteModal';
 import { HolidayOverrideModal } from './components/HolidayOverrideModal';
 import { MyAbsencesModal } from './components/MyAbsencesModal';
 import { HolidayManager } from './components/HolidayManager';
+import { TimesheetScreen } from './components/TimesheetScreen';
 import { Shell } from './components/modalParts';
 import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant, PendingInvite } from './types';
 import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
@@ -33,6 +34,23 @@ type PendingPick = { status: ResolvedStatus; kind: PayloadKind } | null;
 
 export default function App() {
   const configMode = new URLSearchParams(window.location.search).get('config') === 'true';
+
+  // Vista dentro de la SPA de Office: 'tiempos' reemplaza al mapa (no es un
+  // modal, ver TimesheetScreen). Se lee del query param al montar para que
+  // /dashboard/office?view=tiempos abra directo ahí -- eso reemplaza a la
+  // "ruta propia en el menú" que pedía la spec original, no alcanzable
+  // porque un plugin declara una sola `route`.
+  const [view, setView] = useState<'oficina' | 'tiempos'>(
+    new URLSearchParams(window.location.search).get('view') === 'tiempos' ? 'tiempos' : 'oficina',
+  );
+  const irA = (v: 'oficina' | 'tiempos') => {
+    setView(v);
+    const url = new URL(window.location.href);
+    if (v === 'tiempos') url.searchParams.set('view', 'tiempos');
+    else url.searchParams.delete('view');
+    window.history.replaceState({}, '', url);
+  };
+
   const [currentUser, setCurrentUser]     = useState<{ id: string; role: string; permissions: string[] } | null>(null);
   const [layout, setLayout]               = useState<LayoutData | null>(null);
   const [users, setUsers]                 = useState<UserSnapshot[]>([]);
@@ -425,6 +443,17 @@ export default function App() {
         </button>
       )}
 
+      {/* Sin gating por office.manage: es un reporte de lo propio, cualquiera
+          lo puede ver (y quien tenga gente a cargo, también lo suyo). */}
+      <button onClick={() => irA('tiempos')}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] text-gray-500 hover:bg-gray-100 transition-colors"
+        title="Tiempos">
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+        </svg>
+        Tiempos
+      </button>
+
       {myUser && (
         <button onClick={() => setShowAvatarModal(true)}
           className="flex items-center gap-2 px-2 py-1 rounded-xl hover:bg-gray-100 transition-colors group"
@@ -509,6 +538,11 @@ export default function App() {
       )}
 
       <PluginShell title="Oficina Virtual" subtitle={officeSubtitle} headerActions={officeActions} user={officeUser}>
+        {/* Reemplaza al mapa, no se superpone: es una vista que se consulta,
+            no un diálogo. Vive dentro del mismo PluginShell. */}
+        {view === 'tiempos' ? (
+          <TimesheetScreen onClose={() => irA('oficina')} />
+        ) : (
         <div className="h-full flex flex-col">
           <div className="flex-1 flex overflow-hidden">
             {/* Grid */}
@@ -638,6 +672,7 @@ export default function App() {
             onOpenAvatar={() => setShowAvatarModal(true)}
           />
         </div>
+        )}
       </PluginShell>
     </>
   );
