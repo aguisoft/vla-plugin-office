@@ -78,7 +78,22 @@ const plugin: PluginDefinition = {
     // org va ANTES que bitrix: el sync del organigrama le pasa el catálogo de
     // departamentos para que los nombres queden guardados. OrgService no depende
     // de BitrixService, así que el orden se puede invertir sin ciclo.
-    const org = new OrgService(ctx, () => (ctx.plugin.config.DEFAULT_COUNTRY as string) || 'CR');
+    const org = new OrgService(
+      ctx,
+      () => (ctx.plugin.config.DEFAULT_COUNTRY as string) || 'CR',
+      // Zonas del layout activo, para sugerir dónde se sienta cada persona.
+      // Degrada a lista vacía: sin layout no hay sugerencia, pero el país, el
+      // departamento y el jefe se siguen resolviendo igual.
+      async () => {
+        try {
+          const activo = await layout.getActive();
+          return (activo?.zones ?? []).map(z => ({ id: z.id, name: z.name }));
+        } catch (e) {
+          ctx.logger.warn(`No se pudieron leer las zonas del layout: ${e}`);
+          return [];
+        }
+      },
+    );
     const bitrix   = new BitrixService(ctx, deps => org.upsertDepartments(deps));
     const holidays = new HolidayService(ctx);
     const meetings = new MeetingService(
@@ -625,8 +640,11 @@ const plugin: PluginDefinition = {
       const ids = (users as any[]).map(u => u.id);
       const roster = await org.roster(ids);
 
+      const zonasDelMapa = (await layout.getActive())?.zones ?? [];
+
       res.json({
         defaultCountry: (ctx.plugin.config.DEFAULT_COUNTRY as string) || 'CR',
+        zones: zonasDelMapa.map(z => ({ id: z.id, name: z.name })),
         users: (users as any[]).map(u => {
           const r = roster.get(u.id);
           return {
@@ -641,6 +659,9 @@ const plugin: PluginDefinition = {
             departmentId: r?.departmentId ?? null,
             departmentName: r?.departmentName ?? null,
             departmentSource: r?.departmentSource ?? 'none',
+            zoneId: r?.zoneId ?? null,
+            zoneName: r?.zoneName ?? null,
+            zoneSource: r?.zoneSource ?? 'none',
           };
         }),
       });
@@ -656,8 +677,9 @@ const plugin: PluginDefinition = {
     });
 
     ctx.router.put('/org/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {
-      const { managerUserId, country, departmentId } = req.body as {
-        managerUserId?: string | null; country?: string | null; departmentId?: string | null;
+      const { managerUserId, country, departmentId, zoneId } = req.body as {
+        managerUserId?: string | null; country?: string | null;
+        departmentId?: string | null; zoneId?: string | null;
       };
       const userId = req.params.userId;
 
@@ -701,6 +723,20 @@ const plugin: PluginDefinition = {
             message: 'Eso crearía un ciclo: el jefe de ese departamento ya depende de esta persona',
           });
         }
+      }
+
+      // La zona del mapa vive en PresenceStatus, no en UserProfileOverride, así
+      // que también se escribe aparte. Se valida contra el layout activo: una
+      // zona inexistente deja el avatar sin dibujar y nadie lo relaciona con
+      // este guardado.
+      if (zoneId !== undefined) {
+        if (zoneId !== null) {
+          const zonas = (await layout.getActive())?.zones ?? [];
+          if (!zonas.some(z => z.id === zoneId)) {
+            return res.status(400).json({ message: 'Esa zona no existe en el mapa activo' });
+          }
+        }
+        await org.setZone(userId, zoneId);
       }
 
       if (managerUserId !== undefined || country !== undefined) {

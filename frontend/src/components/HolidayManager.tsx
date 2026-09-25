@@ -7,7 +7,7 @@ import { COUNTRIES, countryOf } from '../countries';
 import { monthOf, dayOf } from '../calendar';
 import { fmtDateOnly } from '../format';
 import { HolidayCalendar } from './HolidayCalendar';
-import type { Department, Holiday, RosterUser } from '../types';
+import type { Department, Holiday, MapZone, RosterUser } from '../types';
 
 /**
  * Pantalla de feriados: RRHH carga el calendario por país y marca a quién le
@@ -45,6 +45,7 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
   const [holidays, setHolidays] = useState<Holiday[] | null>(null);
   const [roster, setRoster] = useState<RosterUser[] | null>(null);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [zones, setZones] = useState<MapZone[]>([]);
   const [defaultCountry, setDefaultCountry] = useState('CR');
   const [error, setError] = useState<string | null>(null);
 
@@ -72,6 +73,7 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
     try {
       const r = await getOrgRoster();
       setRoster(r.users);
+      setZones(r.zones ?? []);
       setDefaultCountry(r.defaultCountry);
     } catch (e) {
       setRoster([]);
@@ -242,6 +244,29 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
       await Promise.all([reloadRoster(), reloadDepartments()]);
     } catch (e) {
       setError(errorMessage(e, 'No se pudo guardar el departamento'));
+    } finally {
+      setSavingUser(null);
+    }
+  }
+
+  /**
+   * Fija (o suelta) la zona del mapa. Mismo corte de idempotencia que los otros
+   * tres. Solo la zona FIJADA se puede cambiar desde acá: una sugerida se
+   * confirma eligiendo la misma opción, que la vuelve fijada.
+   */
+  async function handleSetZone(userId: string, zoneId: string | null) {
+    const actual = roster?.find(u => u.userId === userId);
+    if (!actual) return;
+    const vigente = actual.zoneSource === 'fijada' ? (actual.zoneId ?? null) : null;
+    if (vigente === zoneId) return;
+
+    setSavingUser(userId);
+    setError(null);
+    try {
+      await setOrg(userId, { zoneId });
+      await reloadRoster();
+    } catch (e) {
+      setError(errorMessage(e, 'No se pudo guardar la zona del mapa'));
     } finally {
       setSavingUser(null);
     }
@@ -519,12 +544,14 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
             <PersonasTab
               roster={roster}
               departments={departments}
+              zones={zones}
               country={country}
               defaultCountry={defaultCountry}
               savingUser={savingUser}
               onSetCountry={handleSetCountry}
               onSetManager={handleSetManager}
               onSetDepartment={handleSetDepartment}
+              onSetZone={handleSetZone}
             />
           )}
         </div>
@@ -540,13 +567,17 @@ const SELECT_CLS =
   'focus:border-gray-400 focus:outline-none disabled:opacity-50';
 
 /** Cómo se ve cada origen. Los tres campos usan la misma escala de color. */
-const CHIP: Record<'override' | 'bitrix' | 'vacio', string> = {
+const CHIP: Record<'override' | 'bitrix' | 'sugerida' | 'vacio', string> = {
   override: 'bg-green-100 text-green-700',
   bitrix:   'bg-blue-100 text-blue-700',
+  // Distinto del azul de Bitrix a propósito: una zona sugerida la dedujo el
+  // sistema por parecido de nombre y nadie la confirmó. Si se viera igual que
+  // un dato verificado, las que calzaron mal no se buscarían nunca.
+  sugerida: 'bg-violet-100 text-violet-700',
   vacio:    'bg-amber-100 text-amber-700',
 };
 
-function OrigenChip({ tipo, texto }: { tipo: 'override' | 'bitrix' | 'vacio'; texto: string }) {
+function OrigenChip({ tipo, texto }: { tipo: 'override' | 'bitrix' | 'sugerida' | 'vacio'; texto: string }) {
   return (
     <span className={`mt-1 inline-block rounded-full px-1.5 py-0.5 text-[9px] font-medium ${CHIP[tipo]}`}>
       {texto}
@@ -555,13 +586,15 @@ function OrigenChip({ tipo, texto }: { tipo: 'override' | 'bitrix' | 'vacio'; te
 }
 
 /** Qué falta por resolver. Generaliza el viejo «Solo sin verificar». */
-type Pendiente = 'todos' | 'pais' | 'departamento' | 'jefe' | 'fijados';
+type Pendiente = 'todos' | 'pais' | 'departamento' | 'jefe' | 'zona' | 'zonaSugerida' | 'fijados';
 
 const PENDIENTES: Array<{ value: Pendiente; label: string }> = [
   { value: 'todos',        label: 'Todo el estado del dato' },
   { value: 'pais',         label: 'País sin verificar' },
   { value: 'departamento', label: 'Sin departamento' },
   { value: 'jefe',         label: 'Sin jefe' },
+  { value: 'zona',         label: 'Sin zona en el mapa' },
+  { value: 'zonaSugerida', label: 'Zona sugerida sin confirmar' },
   { value: 'fijados',      label: 'Fijados por RRHH' },
 ];
 
@@ -576,17 +609,19 @@ const PENDIENTES: Array<{ value: Pendiente; label: string }> = [
  * la única parte de la interfaz que nombra las columnas.
  */
 function PersonasTab({
-  roster, departments, country, defaultCountry, savingUser,
-  onSetCountry, onSetManager, onSetDepartment,
+  roster, departments, zones, country, defaultCountry, savingUser,
+  onSetCountry, onSetManager, onSetDepartment, onSetZone,
 }: {
   roster: RosterUser[] | null;
   departments: Department[];
+  zones: MapZone[];
   country: string;
   defaultCountry: string;
   savingUser: string | null;
   onSetCountry: (userId: string, iso: string | null) => void;
   onSetManager: (userId: string, managerUserId: string | null) => void;
   onSetDepartment: (userId: string, departmentId: string | null) => void;
+  onSetZone: (userId: string, zoneId: string | null) => void;
 }) {
   const [verTodos, setVerTodos] = useState(false);
   const [busqueda, setBusqueda] = useState('');
@@ -638,8 +673,11 @@ function PersonasTab({
     if (pendiente === 'pais')         base = base.filter(u => u.countrySource === 'default');
     if (pendiente === 'departamento') base = base.filter(u => u.departmentSource === 'none');
     if (pendiente === 'jefe')         base = base.filter(u => u.managerSource === 'none');
+    if (pendiente === 'zona')         base = base.filter(u => u.zoneSource === 'none');
+    if (pendiente === 'zonaSugerida') base = base.filter(u => u.zoneSource === 'sugerida');
     if (pendiente === 'fijados')      base = base.filter(u =>
-      u.countrySource === 'override' || u.departmentSource === 'override' || u.managerSource === 'override');
+      u.countrySource === 'override' || u.departmentSource === 'override' ||
+      u.managerSource === 'override' || u.zoneSource === 'fijada');
 
     return base;
   }, [roster, aqui, mostrarTodos, busqueda, filtroDept, filtroJefe, pendiente]);
@@ -742,10 +780,10 @@ function PersonasTab({
         // La tabla tiene su propio scroll horizontal: en un teléfono las cuatro
         // columnas no entran, y sin esto la página entera se desplaza de lado.
         <div className="-mx-1 overflow-x-auto px-1">
-          <table className="w-full min-w-[640px] border-collapse">
+          <table className="w-full min-w-[820px] border-collapse">
             <thead>
               <tr className="border-b border-gray-200">
-                {['Persona', 'País', 'Departamento', 'Jefe directo'].map(h => (
+                {['Persona', 'País', 'Departamento', 'Jefe directo', 'Zona del mapa'].map(h => (
                   <th
                     key={h}
                     scope="col"
@@ -822,6 +860,27 @@ function PersonasTab({
                     {u.managerSource === 'bitrix'   && <OrigenChip tipo="bitrix" texto={nombreDe(u.managerUserId) ?? 'desde Bitrix'} />}
                     {u.managerSource === 'none'     && <OrigenChip tipo="vacio"  texto="sin jefe" />}
                   </td>
+
+                  <td className="w-[22%] px-2 py-2">
+                    <select
+                      value={u.zoneId ?? ''}
+                      disabled={savingUser === u.userId}
+                      onChange={e => onSetZone(u.userId, e.target.value || null)}
+                      aria-label={`Zona del mapa de ${u.firstName} ${u.lastName}`}
+                      className={SELECT_CLS}
+                    >
+                      <option value="">Sin zona</option>
+                      {zones.map(z => (
+                        <option key={z.id} value={z.id}>{z.name}</option>
+                      ))}
+                    </select>
+                    {u.zoneSource === 'fijada'   && <OrigenChip tipo="override" texto="fijada por RRHH" />}
+                    {/* La sugerida ya mueve el avatar en el mapa; el chip existe
+                        para que se vea que la dedujo el sistema por parecido de
+                        nombre y que conviene revisarla. */}
+                    {u.zoneSource === 'sugerida' && <OrigenChip tipo="sugerida" texto="sugerida por el depto." />}
+                    {u.zoneSource === 'none'     && <OrigenChip tipo="vacio"    texto="no aparece en el mapa" />}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -835,6 +894,11 @@ function PersonasTab({
         de los tres acá gana sobre lo automático y es lo que hay que usar para las excepciones.
         Corregir el <strong>departamento</strong> también cambia el jefe: pasa a ser quien dirija el
         departamento nuevo, salvo que se le haya fijado uno a mano.
+        <br />
+        La <strong>zona del mapa</strong> es independiente del departamento — alguien de Finanzas puede
+        sentarse en Cobros. Cuando nadie la fijó, se sugiere la que calza por nombre con el departamento
+        y el avatar ya se dibuja ahí; elegirla en la lista la deja fijada. «Sin zona» significa que esa
+        persona no aparece en el mapa.
       </p>
     </div>
   );

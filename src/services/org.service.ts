@@ -3,6 +3,7 @@ import {
   resolveCountry, resolveManager, resolveDepartment,
   type CountrySource, type ManagerSource, type DepartmentSource,
 } from '../lib/country-source';
+import { resolveZone, type ZoneRef, type ZoneSource } from '../lib/zone-match';
 
 export interface RosterEntry {
   userId: string;
@@ -13,6 +14,10 @@ export interface RosterEntry {
   departmentId: string | null;
   departmentName: string | null;
   departmentSource: DepartmentSource;
+  /** Zona del mapa donde se dibuja el avatar. Independiente del departamento. */
+  zoneId: string | null;
+  zoneName: string | null;
+  zoneSource: ZoneSource;
 }
 
 export interface Department {
@@ -47,9 +52,16 @@ export class OrgService {
    * hidrata desde la base DESPUÉS de registrar el plugin: si se leyera en el
    * constructor, siempre daría el valor de respaldo.
    */
+  /**
+   * `zonesOf` entrega las zonas del layout activo. Es una función y no una
+   * lista porque el layout puede cambiar mientras el plugin corre, y porque
+   * OrgService no debe depender de LayoutService para algo que solo necesita
+   * leer.
+   */
   constructor(
     private readonly ctx: PluginContext,
     private readonly defaultCountry: () => string,
+    private readonly zonesOf: () => Promise<ZoneRef[]> = async () => [],
   ) {}
 
   /**
@@ -218,7 +230,7 @@ export class OrgService {
     const result = new Map<string, RosterEntry>();
     if (userIds.length === 0) return result;
 
-    const [overrides, mappings, snap, names] = await Promise.all([
+    const [overrides, mappings, snap, names, zones, zonaFijada] = await Promise.all([
       this.ctx.prisma.userProfileOverride.findMany({ where: { userId: { in: userIds } } }),
       this.ctx.prisma.bitrixUserMapping.findMany({ where: { userId: { in: userIds } } }),
       // El snapshot lee TODOS los mapeos sin filtrar a propósito: el jefe de un
@@ -226,10 +238,17 @@ export class OrgService {
       // quedaría incompleto y el jefe saldría null.
       this.snapshot(),
       this.departmentNames(),
+      this.zonesOf(),
+      this.ctx.prisma.presenceStatus.findMany({
+        where: { userId: { in: userIds } },
+        select: { userId: true, defaultZoneId: true },
+      }),
     ]);
 
     const overrideOf = new Map((overrides as any[]).map(o => [o.userId, o]));
     const mappingOf  = new Map((mappings as any[]).map(m => [m.userId, m]));
+    const zonaOf     = new Map((zonaFijada as any[]).map(p => [p.userId, p.defaultZoneId as string | null]));
+    const zoneNameOf = new Map(zones.map(z => [z.id, z.name]));
 
     const fallback = this.defaultCountry();
     for (const id of userIds) {
@@ -241,6 +260,9 @@ export class OrgService {
       const { managerUserId, source: managerSource } =
         resolveManager(id, o?.managerUserId, departmentId, snap.headByDept);
 
+      const departmentName = departmentId ? (names.get(departmentId) ?? departmentId) : null;
+      const { zoneId, source: zoneSource } = resolveZone(zonaOf.get(id), departmentName, zones);
+
       result.set(id, {
         userId: id,
         country,
@@ -250,8 +272,11 @@ export class OrgService {
         departmentId,
         // Sin nombre se cae al ID: sigue siendo identificable y delata que el
         // catálogo no se sincronizó, en vez de mostrar un hueco.
-        departmentName: departmentId ? (names.get(departmentId) ?? departmentId) : null,
+        departmentName,
         departmentSource: snap.deptSourceOf.get(id) ?? 'none',
+        zoneId,
+        zoneName: zoneId ? (zoneNameOf.get(zoneId) ?? zoneId) : null,
+        zoneSource,
       });
     }
     return result;
@@ -308,6 +333,40 @@ export class OrgService {
        ON CONFLICT (user_id) DO UPDATE SET department_id = $2, updated_at = now()`,
       [userId, departmentId],
     );
+  }
+
+  /**
+   * Fija o limpia la zona del mapa donde se dibuja el avatar.
+   *
+   * Escribe `PresenceStatus.defaultZoneId` y no `currentZoneId`: el segundo es
+   * la posición temporal de quien se mueve durante el día y lo pisa cualquier
+   * `POST /layout/move`. Hasta esta versión nada en la aplicación escribía
+   * `defaultZoneId` — las asignaciones que había en producción se cargaron a
+   * mano por SQL — así que no había forma de mover a nadie desde la interfaz.
+   *
+   * `null` limpia la zona fijada y devuelve a la persona a la sugerencia por
+   * nombre de departamento, que es el mismo contrato que el resto de overrides.
+   */
+  async setZone(userId: string, zoneId: string | null): Promise<void> {
+    await this.ctx.prisma.presenceStatus.upsert({
+      where: { userId },
+      create: { userId, isCheckedIn: false, status: 'OFFLINE', defaultZoneId: zoneId },
+      update: { defaultZoneId: zoneId },
+    });
+  }
+
+  /**
+   * Zona efectiva de cada persona, para el mapa. Incluye la sugerida: sin eso,
+   * asignar un departamento seguiría sin mover a nadie hasta que alguien
+   * guardara persona por persona en la pantalla de RRHH.
+   */
+  async zoneByUserId(userIds: string[]): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>();
+    if (userIds.length === 0) return result;
+
+    const roster = await this.roster(userIds);
+    for (const id of userIds) result.set(id, roster.get(id)?.zoneId ?? null);
+    return result;
   }
 
   /** Guarda los nombres que trae `department.get`. Lo llama el sync de Bitrix. */

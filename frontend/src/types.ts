@@ -108,6 +108,17 @@ export interface RosterUser {
   /** Nombre del catálogo; cae al ID si el sync todavía no lo trajo. */
   departmentName: string | null;
   departmentSource: 'override' | 'bitrix' | 'none';
+  /** Zona del mapa donde se dibuja el avatar. Independiente del departamento. */
+  zoneId: string | null;
+  zoneName: string | null;
+  /** 'sugerida' = calzó por nombre con el departamento, nadie la confirmó. */
+  zoneSource: 'fijada' | 'sugerida' | 'none';
+}
+
+/** Una zona del mapa de la oficina, tal como la entrega `GET /org/roster`. */
+export interface MapZone {
+  id: string;
+  name: string;
 }
 
 /** Un departamento del organigrama, tal como lo entrega `GET /org/departments`. */

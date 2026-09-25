@@ -1,5 +1,5 @@
 import type {
-  Absence, Department, Holiday, PendingInvite, RosterUser, UnavailableParticipant,
+  Absence, Department, Holiday, MapZone, PendingInvite, RosterUser, UnavailableParticipant,
   TimesheetOfficeResponse, TimesheetScope,
 } from './types';
 
@@ -140,14 +140,17 @@ export const getOrg = (userId: string) =>
  */
 export const setOrg = (
   userId: string,
-  body: { managerUserId?: string | null; country?: string | null; departmentId?: string | null },
+  body: {
+    managerUserId?: string | null; country?: string | null;
+    departmentId?: string | null; zoneId?: string | null;
+  },
 ) => api.put<{ ok: true }>(`${PLUGIN}/org/${userId}`, body);
 
 export const listDepartments = () =>
   api.get<{ departments: Department[] }>(`${PLUGIN}/org/departments`);
 
 export const getOrgRoster = () =>
-  api.get<{ defaultCountry: string; users: RosterUser[] }>(`${PLUGIN}/org/roster`);
+  api.get<{ defaultCountry: string; zones: MapZone[]; users: RosterUser[] }>(`${PLUGIN}/org/roster`);
 
 /** A quién puede consultar el viewer en la pantalla de Tiempos: a sí mismo y a su gente a cargo. */
 export const getTimesheetScope = () =>

@@ -98,6 +98,17 @@ export class SnapshotService {
       ? await this.bitrix.getAllPhotoUrls(userIds)
       : new Map<string, string>();
 
+    // Zona efectiva del mapa: la fijada a mano, y si no hay, la que sugiere el
+    // nombre del departamento. Sin esto, corregir el departamento de alguien no
+    // lo movía en el mapa y el cambio parecía no haber surtido efecto.
+    // Degrada a las zonas ya guardadas si falla: el mapa se dibuja igual.
+    let zoneOf = new Map<string, string | null>();
+    try {
+      zoneOf = await this.org.zoneByUserId(userIds);
+    } catch (e) {
+      this.ctx.logger.warn(`No se pudo resolver la zona del mapa: ${e}`);
+    }
+
     // Participantes de las reuniones internas que están abiertas.
     const meetingIds = [...new Set(
       (presences as any[]).map(p => p.meetingId).filter(Boolean),
@@ -144,7 +155,8 @@ export class SnapshotService {
           ? participantsByMeeting.get(p.meetingId)?.filter(m => m.userId !== u.id)
           : undefined,
         currentZoneId: p?.currentZoneId ?? undefined,
-        defaultZoneId: p?.defaultZoneId ?? undefined,
+        // La resuelta, no la cruda: incluye la sugerida por departamento.
+        defaultZoneId: zoneOf.get(u.id) ?? p?.defaultZoneId ?? undefined,
         positionX: p?.positionX ?? undefined,
         positionY: p?.positionY ?? undefined,
         lastActivityAt: (p?.lastActivityAt ?? now).toISOString(),
