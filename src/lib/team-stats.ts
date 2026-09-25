@@ -1,4 +1,4 @@
-import { clipSpan, splitByLocalDay, type Span } from './timesheet';
+import { clipSpan, splitByLocalDay, type Period, type Span } from './timesheet';
 import { localDateString } from './local-date';
 
 export interface SesionCruda { start: Date; end: Date }
@@ -83,4 +83,54 @@ export function diasHabiles(within: Span, tz: string): string[] {
     fecha = localDateString(cursor, tz);
   }
   return out;
+}
+
+/** Cuántos períodos anteriores entran en la norma, por tipo de período. */
+export const PERIODOS_NORMA: Record<Period, number> = { day: 20, week: 8, month: 6 };
+
+export interface Norma { promedioMinutos: number; periodosUsados: number }
+
+/**
+ * Promedio de los períodos anteriores, ignorando los que no tuvieron actividad.
+ *
+ * Los ceros se excluyen a propósito: unas vacaciones o una racha sin marcar
+ * arrastrarían la norma hacia abajo y después cualquier semana normal se vería
+ * como un récord. La norma tiene que describir cómo trabaja la persona cuando
+ * trabaja.
+ */
+export function computeNorm(totalesPrevios: number[]): Norma {
+  const conActividad = totalesPrevios.filter(m => m > 0);
+  if (conActividad.length === 0) return { promedioMinutos: 0, periodosUsados: 0 };
+  const suma = conActividad.reduce((a, b) => a + b, 0);
+  return {
+    promedioMinutos: Math.round(suma / conActividad.length),
+    periodosUsados: conActividad.length,
+  };
+}
+
+export type Variacion =
+  | { tipo: 'sin-base' }
+  | { tipo: 'calculada'; pct: number; destacar: boolean };
+
+/** Debajo de esto es fluctuación normal y no se señala. */
+const UMBRAL_DESTACAR = 15;
+
+/** Menos de esto no alcanza para hablar de una norma. */
+const MINIMO_PERIODOS = 3;
+
+/**
+ * Variación del período actual contra la norma de la persona.
+ *
+ * Siempre contra uno mismo y nunca contra el equipo: comparar entre
+ * compañeros premia a quien más horas aguanta, no a quien mejor trabaja.
+ *
+ * `destacar` existe para que la interfaz no ponga una flecha en cada fila. Si
+ * todo se señala, nada se lee.
+ */
+export function variacion(actual: number, norma: Norma): Variacion {
+  if (norma.periodosUsados < MINIMO_PERIODOS || norma.promedioMinutos <= 0) {
+    return { tipo: 'sin-base' };
+  }
+  const pct = Math.round(((actual - norma.promedioMinutos) / norma.promedioMinutos) * 100);
+  return { tipo: 'calculada', pct, destacar: Math.abs(pct) > UMBRAL_DESTACAR };
 }

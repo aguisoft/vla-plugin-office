@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { diasConRegistro, diasHabiles, estadoRegistro } from './team-stats';
+import { computeNorm, diasConRegistro, diasHabiles, estadoRegistro, PERIODOS_NORMA, variacion } from './team-stats';
 
 const TZ = 'America/Costa_Rica';
 const span = { start: new Date('2026-09-21T06:00:00Z'), end: new Date('2026-09-28T05:59:59Z') };
@@ -101,5 +101,55 @@ describe('diasHabiles', () => {
   it('un período de un solo día hábil da ese día', () => {
     const unDia = { start: new Date('2026-09-22T06:00:00Z'), end: new Date('2026-09-23T05:59:59Z') };
     expect(diasHabiles(unDia, TZ)).toEqual(['2026-09-22']);
+  });
+});
+
+describe('computeNorm', () => {
+  it('promedia los períodos con actividad', () => {
+    expect(computeNorm([600, 500, 700])).toEqual({ promedioMinutos: 600, periodosUsados: 3 });
+  });
+
+  it('EXCLUYE los períodos en cero: incluirlos arrastra la norma y todo parece un récord', () => {
+    // Vacaciones o semanas sin marcar. Con los ceros el promedio daría 300 y una
+    // semana normal de 600 se vería como "+100%", que es una alarma falsa.
+    expect(computeNorm([600, 0, 600, 0])).toEqual({ promedioMinutos: 600, periodosUsados: 2 });
+  });
+
+  it('todos en cero da una norma sin base', () => {
+    expect(computeNorm([0, 0, 0])).toEqual({ promedioMinutos: 0, periodosUsados: 0 });
+  });
+
+  it('redondea a minuto entero', () => {
+    expect(computeNorm([100, 101]).promedioMinutos).toBe(101);
+  });
+});
+
+describe('variacion', () => {
+  it('con menos de 3 períodos comparables NO da porcentaje', () => {
+    // Un +300% contra una sola semana previa es ruido que induce a actuar sobre nada.
+    expect(variacion(600, { promedioMinutos: 150, periodosUsados: 2 })).toEqual({ tipo: 'sin-base' });
+  });
+
+  it('con 3 o más calcula el porcentaje', () => {
+    expect(variacion(660, { promedioMinutos: 600, periodosUsados: 3 }))
+      .toEqual({ tipo: 'calculada', pct: 10, destacar: false });
+  });
+
+  it('no destaca una fluctuación de +-15%: destacar todo entrena a ignorar las flechas', () => {
+    expect(variacion(690, { promedioMinutos: 600, periodosUsados: 8 }).tipo).toBe('calculada');
+    expect((variacion(690, { promedioMinutos: 600, periodosUsados: 8 } ) as any).destacar).toBe(false);
+  });
+
+  it('destaca una caída real', () => {
+    expect(variacion(420, { promedioMinutos: 600, periodosUsados: 8 }))
+      .toEqual({ tipo: 'calculada', pct: -30, destacar: true });
+  });
+
+  it('una norma en cero no divide: sin base', () => {
+    expect(variacion(600, { promedioMinutos: 0, periodosUsados: 0 })).toEqual({ tipo: 'sin-base' });
+  });
+
+  it('las ventanas por tipo de período son las de la spec', () => {
+    expect(PERIODOS_NORMA).toEqual({ day: 20, week: 8, month: 6 });
   });
 });
