@@ -216,28 +216,29 @@ export function diasConRegistro(sesiones: SesionCruda[], within: Span, tz: strin
  * RRHH los cargue -- hoy hay 0 en produccion, asi que el denominador es
  * simplemente los habiles. No se inventan: un feriado no cargado no existe.
  */
+// OJO: la primera version de este fragmento tenia un bug y se corrigio en
+// e1963a1. Anclaba el cursor al dia CALENDARIO UTC de `within.start`, asi que
+// cuando la hora UTC del arranque era < 6 —el instante local caia por la tarde
+// del dia anterior en UTC−6— el primer dia habil no se generaba nunca.
+// La version correcta itera sobre FECHAS locales; ver `src/lib/team-stats.ts`.
 export function diasHabiles(within: Span, tz: string): string[] {
+  const ultima = localDateString(within.end, tz);
+  const cursor = new Date(`${localDateString(within.start, tz)}T12:00:00Z`);
   const out: string[] = [];
-  // Se avanza de 12:00 UTC en 12:00 UTC y no de medianoche: a mediodia ningun
-  // desplazamiento de zona horaria cambia el dia local, asi que el mismo
-  // YYYY-MM-DD sale estable en UTC-6 sin depender de la hora del servidor.
-  const cursor = new Date(within.start);
-  cursor.setUTCHours(12, 0, 0, 0);
-  while (cursor <= within.end) {
-    const fecha = localDateString(cursor, tz);
-    // getUTCDay sobre el mediodia del dia local ya representa ese dia.
-    const dow = new Date(`${fecha}T12:00:00Z`).getUTCDay();
-    if (dow >= 1 && dow <= 5 && fecha >= localDateString(within.start, tz)) out.push(fecha);
+  let fecha = localDateString(cursor, tz);
+  while (fecha <= ultima) {
+    if (esDiaHabil(fecha)) out.push(fecha);
     cursor.setUTCDate(cursor.getUTCDate() + 1);
+    fecha = localDateString(cursor, tz);
   }
-  return [...new Set(out)].filter(d => d <= localDateString(within.end, tz));
+  return out;
 }
 ```
 
 - [ ] **Paso 4: Correr y ver que pasan**
 
 Ejecutar: `npx vitest run src/lib/team-stats.test.ts`
-Esperado: PASAN las 11.
+Esperado: PASAN las 10.
 
 - [ ] **Paso 5: Commit**
 
@@ -611,7 +612,18 @@ git commit -m "feat(office): TeamService arma las filas del equipo y las excepci
 - Consume: `TeamService`, `resolveScope`, `canSee`, `asyncRoute`.
 - Produce: `GET /timesheet/team?period&anchor` → `{ period, from, to, viewerId, isAdmin, filas, excepciones }`
 
-- [ ] **Paso 1: Registrar la ruta**
+- [ ] **Paso 1: Instanciar el servicio**
+
+El escaneo previo encontró que ninguna tarea creaba la instancia. Va junto a los
+demás servicios de `register()`, con el mismo patrón de función perezosa que ya
+usan `tz` y `horasConfig` —`ctx.plugin.config` se hidrata después de registrar el
+plugin, así que leerlo en el constructor congelaría el valor de respaldo:
+
+```ts
+const team = new TeamService(ctx, tz, horasConfig('MAX_OPEN_SESSION_HOURS', 12));
+```
+
+- [ ] **Paso 2: Registrar la ruta**
 
 ```ts
 /**
@@ -885,8 +897,11 @@ git commit -m "feat(office): reporte de cumplimiento de toda la organizacion"
 Requisitos:
 
 1. La pestaña **solo se renderiza con `office.manage`**. Oculta, no atenuada: una
-   pestaña que no se puede abrir es ruido. El permiso llega en el snapshot como
-   `hasManage`, que ya existe.
+   pestaña que no se puede abrir es ruido. El permiso sale de
+   `currentUser?.permissions?.includes('office.manage')` en `App.tsx` y se pasa
+   como prop, igual que `canManageHolidays` en `App.tsx:445`. **No** del
+   `hasManage` del snapshot: ese es un parámetro interno de `SnapshotService`
+   para decidir si se ven las justificaciones ajenas, y `App.tsx` no lo lee.
 2. Cada renglón es un contador con su lista desplegable de personas.
 3. Comparativa por departamento: `sinMarcar / total`.
 4. Botón «Exportar CSV» que descarga `GET /timesheet/export?period&anchor`.
