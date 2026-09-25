@@ -26,6 +26,15 @@ describe('estadoRegistro', () => {
     const degenerada = [{ start: new Date('2026-09-22T14:00:00Z'), end: new Date('2026-09-22T14:00:00Z') }];
     expect(estadoRegistro(degenerada, span)).toBe('con-registro');
   });
+
+  it('una sesion que termina EXACTAMENTE en el arranque del periodo es borde, no interseccion: sin-registrar', () => {
+    // Concuerda con clipSpan, del que depende diasConRegistro: un contacto
+    // exacto no cuenta como interseccion. Si estadoRegistro usara bordes
+    // inclusivos aqui, una sesion asi saldria "con-registro" y aportaria cero
+    // dias, contradiciendo a diasConRegistro sobre la misma sesion.
+    const tocaElBorde = [{ start: new Date('2026-09-21T00:00:00Z'), end: span.start }];
+    expect(estadoRegistro(tocaElBorde, span)).toBe('sin-registrar');
+  });
 });
 
 describe('diasConRegistro', () => {
@@ -64,5 +73,33 @@ describe('diasHabiles', () => {
   it('un periodo de un solo sabado da cero', () => {
     const sabado = { start: new Date('2026-09-26T06:00:00Z'), end: new Date('2026-09-27T05:59:59Z') };
     expect(diasHabiles(sabado, TZ)).toEqual([]);
+  });
+
+  it('un arranque no alineado a medianoche local (hora UTC < 6) no pierde el primer dia', () => {
+    // within.start = 2026-09-23T02:00:00Z = martes 22-sep 20:00 hora local.
+    // El dia UTC del instante (23) va un dia adelante del dia local real (22).
+    // Anclar el cursor al dia UTC de within.start en vez de a su dia LOCAL
+    // hacia que este primer dia habil se perdiera sin dejar rastro.
+    const tarde = { start: new Date('2026-09-23T02:00:00Z'), end: new Date('2026-09-23T20:00:00Z') };
+    expect(diasHabiles(tarde, TZ)).toEqual(['2026-09-22', '2026-09-23']);
+  });
+
+  it('cruza fin de mes: los dias habiles de setiembre y octubre', () => {
+    const cruzaMes = { start: new Date('2026-09-28T06:00:00Z'), end: new Date('2026-10-03T05:59:59Z') };
+    expect(diasHabiles(cruzaMes, TZ)).toEqual([
+      '2026-09-28', '2026-09-29', '2026-09-30', '2026-10-01', '2026-10-02',
+    ]);
+  });
+
+  it('cruza fin de anio: los dias habiles de diciembre y enero', () => {
+    // 2026-12-30 miercoles a 2027-01-02 sabado (local). El sabado 2-ene queda
+    // afuera; no hay feriados cargados, asi que 1-ene cuenta como habil.
+    const cruzaAnio = { start: new Date('2026-12-30T06:00:00Z'), end: new Date('2027-01-03T05:59:59Z') };
+    expect(diasHabiles(cruzaAnio, TZ)).toEqual(['2026-12-30', '2026-12-31', '2027-01-01']);
+  });
+
+  it('un periodo de un solo dia habil da ese dia', () => {
+    const unDia = { start: new Date('2026-09-22T06:00:00Z'), end: new Date('2026-09-23T05:59:59Z') };
+    expect(diasHabiles(unDia, TZ)).toEqual(['2026-09-22']);
   });
 });
