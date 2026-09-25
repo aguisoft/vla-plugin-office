@@ -39,7 +39,12 @@ const plugin: PluginDefinition = {
       ...map,
       [PERMS.VIEW]:    { label: 'Ver oficina virtual',      group: 'Oficina Virtual', plugin: ctx.plugin.name },
       [PERMS.CHECKIN]: { label: 'Hacer check-in/check-out', group: 'Oficina Virtual', plugin: ctx.plugin.name },
-      [PERMS.MANAGE]:  { label: 'Administrar layouts',      group: 'Oficina Virtual', plugin: ctx.plugin.name },
+      // "Administrar layouts" era cierto en la v1.0.0, cuando este permiso solo
+      // movía escritorios. Hoy abre feriados, organigrama (país y jefe de cada
+      // persona), las ausencias de todos y las sincronizaciones con Bitrix. Quien
+      // reparte permisos en el panel lee la etiqueta, no el código: una que se
+      // quedó corta hace que se conceda de más sin querer.
+      [PERMS.MANAGE]:  { label: 'Administrar oficina (feriados, organigrama, ausencias)', group: 'Oficina Virtual', plugin: ctx.plugin.name },
     }));
 
     ctx.hooks.registerFilter('core.roles.preset', (roles: any[]) => [
@@ -49,6 +54,19 @@ const plugin: PluginDefinition = {
         description: 'Acceso básico a la oficina virtual con check-in',
         permissions: [PERMS.VIEW, PERMS.CHECKIN],
         color: '#10b981',
+        plugin: ctx.plugin.name,
+      },
+      {
+        // Sin este preset, el único camino a la pantalla de feriados es ser
+        // ADMIN: `office.manage` no venía en ningún rol sugerido, así que
+        // dárselo a RRHH obligaba a armar un rol a mano sabiendo de antemano
+        // qué permiso pedir. Lleva VIEW y CHECKIN además de MANAGE porque el
+        // rol es el conjunto completo de permisos de la persona: quien lo tenga
+        // también necesita usar la oficina como cualquier colaborador.
+        name: 'RRHH Oficina',
+        description: 'Carga feriados, ausencias y el organigrama (país y jefe de cada persona)',
+        permissions: [PERMS.VIEW, PERMS.CHECKIN, PERMS.MANAGE],
+        color: '#8b5cf6',
         plugin: ctx.plugin.name,
       },
     ]);

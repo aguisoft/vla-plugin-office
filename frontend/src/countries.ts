@@ -7,9 +7,13 @@
  * que a nadie le llegó el día libre. Con un selector, el conjunto de países
  * válidos es finito y visible.
  *
- * La lista es la misma de `src/lib/phone-country.ts` (los países donde VLA
- * tiene o podría tener gente) más el default. Si hace falta uno nuevo se
- * agrega acá; no hay motivo para soportar los 195.
+ * La lista son los países donde VLA tiene o podría tener gente. Si hace falta
+ * uno nuevo se agrega acá; no hay motivo para soportar los 195.
+ *
+ * Casi coincide con `src/lib/phone-country.ts`, pero no del todo: Estados
+ * Unidos está acá y no allá. No es un olvido — el +1 cubre EE.UU., Canadá y
+ * buena parte del Caribe, así que no se puede inferir el país desde el
+ * teléfono. Elegirlo a mano sí es un dato; adivinarlo desde un +1 no.
  */
 
 export interface Country {
@@ -27,6 +31,7 @@ export const COUNTRIES: Country[] = [
   { iso: 'HN', name: 'Honduras',    flag: '🇭🇳' },
   { iso: 'BZ', name: 'Belice',      flag: '🇧🇿' },
   { iso: 'MX', name: 'México',      flag: '🇲🇽' },
+  { iso: 'US', name: 'Estados Unidos', flag: '🇺🇸' },
   { iso: 'CO', name: 'Colombia',    flag: '🇨🇴' },
   { iso: 'VE', name: 'Venezuela',   flag: '🇻🇪' },
   { iso: 'EC', name: 'Ecuador',     flag: '🇪🇨' },
