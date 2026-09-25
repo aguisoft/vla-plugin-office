@@ -54,7 +54,7 @@ if (hasFrontend) {
 // cuentan y se imprimen para que la próxima vez se note en la salida.
 const migrationsDir = path.join(root, 'migrations');
 const sqlFiles = fs.existsSync(migrationsDir)
-  ? fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql'))
+  ? fs.readdirSync(migrationsDir).filter(f => f.endsWith('.sql') && !f.endsWith('.down.sql'))
   : [];
 const hasMigrations = sqlFiles.length > 0;
 

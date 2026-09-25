@@ -42,6 +42,39 @@ export function resolveCountry(
   return { country: fallback.trim().toUpperCase(), source: 'default' };
 }
 
+export type DepartmentSource =
+  | 'override'  // RRHH lo corrigió a mano
+  | 'bitrix'    // vino de UF_DEPARTMENT vía syncOrgStructure
+  | 'none';     // nadie lo tiene: la persona queda fuera de toda jerarquía
+
+export interface ResolvedDepartment {
+  departmentId: string | null;
+  source: DepartmentSource;
+}
+
+/**
+ * Departamento efectivo: el override de RRHH gana sobre lo que diga Bitrix.
+ *
+ * Importa que esto se resuelva ANTES que el jefe y no en paralelo: el jefe sale
+ * del departamento (`headByDept`), así que corregir el departamento de una
+ * persona tiene que moverla bajo el jefe del departamento nuevo. Si el override
+ * solo cambiara lo que se muestra, no serviría para nada — hoy hay 14 personas
+ * sin departamento que nadie ve en el dashboard, y ese es justo el caso que
+ * este override viene a arreglar.
+ */
+export function resolveDepartment(
+  overrideDeptId: string | null | undefined,
+  bitrixDeptId: string | null | undefined,
+): ResolvedDepartment {
+  const o = (overrideDeptId ?? '').trim();
+  if (o) return { departmentId: o, source: 'override' };
+
+  const b = (bitrixDeptId ?? '').trim();
+  if (b) return { departmentId: b, source: 'bitrix' };
+
+  return { departmentId: null, source: 'none' };
+}
+
 export type ManagerSource =
   | 'override'  // RRHH lo fijó a mano en UserProfileOverride
   | 'bitrix'    // vino de la jerarquía de departamentos de Bitrix

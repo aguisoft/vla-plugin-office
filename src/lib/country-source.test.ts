@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { resolveCountry, resolveManager } from './country-source';
+import { resolveCountry, resolveManager, resolveDepartment } from './country-source';
 
 describe('resolveCountry — precedencia', () => {
   it('el override gana sobre Bitrix y sobre el default', () => {
@@ -44,6 +44,70 @@ describe('resolveCountry — normalizacion', () => {
 
   it('recorta espacios alrededor del valor', () => {
     expect(resolveCountry(' AR ', null, 'CR').country).toBe('AR');
+  });
+});
+
+describe('resolveDepartment', () => {
+  it('el override de RRHH gana sobre Bitrix', () => {
+    expect(resolveDepartment('99', '3')).toEqual({ departmentId: '99', source: 'override' });
+  });
+
+  it('sin override, gana Bitrix', () => {
+    expect(resolveDepartment(null, '3')).toEqual({ departmentId: '3', source: 'bitrix' });
+  });
+
+  it('sin ninguno de los dos, queda fuera de la jerarquia y lo dice', () => {
+    // El caso de las 14 personas de produccion que hoy nadie ve en el dashboard.
+    expect(resolveDepartment(null, null)).toEqual({ departmentId: null, source: 'none' });
+  });
+
+  it('el override permite ASIGNAR departamento a quien Bitrix no le da ninguno', () => {
+    expect(resolveDepartment('5', null)).toEqual({ departmentId: '5', source: 'override' });
+  });
+
+  it('trata "" y espacios como ausencia en las dos fuentes', () => {
+    expect(resolveDepartment('', '3')).toEqual({ departmentId: '3', source: 'bitrix' });
+    expect(resolveDepartment('  ', '  ')).toEqual({ departmentId: null, source: 'none' });
+  });
+
+  it('no normaliza a mayusculas: el id de Bitrix es opaco, no un ISO', () => {
+    expect(resolveDepartment(null, 'a1').departmentId).toBe('a1');
+  });
+});
+
+describe('resolveDepartment + resolveManager juntos', () => {
+  const heads = new Map([['3', 'jefe-dev'], ['5', 'jefe-ventas']]);
+
+  it('corregir el departamento mueve a la persona bajo el jefe nuevo', () => {
+    // Bitrix la pone en el 3, RRHH la corrige al 5: su jefe pasa a ser el del 5.
+    // Si el override solo cambiara lo que se muestra, esto seguiria dando jefe-dev
+    // y el override no serviria para nada.
+    const { departmentId } = resolveDepartment('5', '3');
+    expect(resolveManager('u1', null, departmentId, heads)).toEqual({
+      managerUserId: 'jefe-ventas',
+      source: 'bitrix',
+    });
+  });
+
+  it('asignar departamento a alguien suelto le da jefe por primera vez', () => {
+    const { departmentId } = resolveDepartment('3', null);
+    expect(resolveManager('u1', null, departmentId, heads).managerUserId).toBe('jefe-dev');
+  });
+
+  it('el override de jefe sigue ganandole al departamento corregido', () => {
+    const { departmentId } = resolveDepartment('5', '3');
+    expect(resolveManager('u1', 'jefe-a-mano', departmentId, heads)).toEqual({
+      managerUserId: 'jefe-a-mano',
+      source: 'override',
+    });
+  });
+
+  it('nadie se vuelve su propio jefe al caer en el departamento que dirige', () => {
+    const { departmentId } = resolveDepartment('3', null);
+    expect(resolveManager('jefe-dev', null, departmentId, heads)).toEqual({
+      managerUserId: null,
+      source: 'none',
+    });
   });
 });
 

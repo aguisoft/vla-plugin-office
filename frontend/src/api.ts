@@ -1,5 +1,5 @@
 import type {
-  Absence, Holiday, PendingInvite, RosterUser, UnavailableParticipant,
+  Absence, Department, Holiday, PendingInvite, RosterUser, UnavailableParticipant,
   TimesheetOfficeResponse, TimesheetScope,
 } from './types';
 
@@ -133,8 +133,18 @@ export const respondInvite = (id: string, action: 'accept' | 'decline') =>
 export const getOrg = (userId: string) =>
   api.get<{ userId: string; managerUserId: string | null; country: string }>(`${PLUGIN}/org/${userId}`);
 
-export const setOrg = (userId: string, body: { managerUserId?: string | null; country?: string | null }) =>
-  api.put<{ ok: true }>(`${PLUGIN}/org/${userId}`, body);
+/**
+ * Fija o limpia los overrides de una persona. Omitir una clave la deja como
+ * está; mandarla en `null` la limpia. La distinción importa: mandar el país
+ * solo no puede borrar el departamento que alguien ya corrigió.
+ */
+export const setOrg = (
+  userId: string,
+  body: { managerUserId?: string | null; country?: string | null; departmentId?: string | null },
+) => api.put<{ ok: true }>(`${PLUGIN}/org/${userId}`, body);
+
+export const listDepartments = () =>
+  api.get<{ departments: Department[] }>(`${PLUGIN}/org/departments`);
 
 export const getOrgRoster = () =>
   api.get<{ defaultCountry: string; users: RosterUser[] }>(`${PLUGIN}/org/roster`);

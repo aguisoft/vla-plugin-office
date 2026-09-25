@@ -104,6 +104,18 @@ export interface RosterUser {
   countrySource: 'override' | 'bitrix' | 'default';
   managerUserId: string | null;
   managerSource: 'override' | 'bitrix' | 'none';
+  departmentId: string | null;
+  /** Nombre del catálogo; cae al ID si el sync todavía no lo trajo. */
+  departmentName: string | null;
+  departmentSource: 'override' | 'bitrix' | 'none';
+}
+
+/** Un departamento del organigrama, tal como lo entrega `GET /org/departments`. */
+export interface Department {
+  id: string;
+  name: string;
+  /** Cuánta gente tiene hoy, contando los overrides. */
+  headcount: number;
 }
 
 /** Un día del recorte de tiempo en oficina, tal como lo entrega `GET /timesheet/office`. */

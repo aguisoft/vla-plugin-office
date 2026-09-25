@@ -73,10 +73,13 @@ const plugin: PluginDefinition = {
 
     const presence = new PresenceService(ctx);
     const layout   = new LayoutService(ctx);
-    const bitrix   = new BitrixService(ctx);
     const absences = new AbsenceService(ctx);
     const tz = () => (ctx.plugin.config.TIMEZONE as string) || DEFAULT_TZ;
+    // org va ANTES que bitrix: el sync del organigrama le pasa el catálogo de
+    // departamentos para que los nombres queden guardados. OrgService no depende
+    // de BitrixService, así que el orden se puede invertir sin ciclo.
     const org = new OrgService(ctx, () => (ctx.plugin.config.DEFAULT_COUNTRY as string) || 'CR');
+    const bitrix   = new BitrixService(ctx, deps => org.upsertDepartments(deps));
     const holidays = new HolidayService(ctx);
     const meetings = new MeetingService(
       ctx,
@@ -602,6 +605,17 @@ const plugin: PluginDefinition = {
      * Va con office.manage y ANTES de '/org/:userId' — Express resuelve por
      * orden de registro y la paramétrica se tragaría el literal.
      */
+    /**
+     * Catálogo de departamentos para el desplegable y el filtro de la pantalla.
+     *
+     * VA ANTES de '/org/:userId' por el orden de registro de Express: la
+     * paramétrica se tragaría este literal y devolvería el perfil de un usuario
+     * llamado "departments".
+     */
+    ctx.router.get('/org/departments', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (_req, res) => {
+      res.json({ departments: await org.departments() });
+    }));
+
     ctx.router.get('/org/roster', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (_req, res) => {
       const users = await ctx.prisma.user.findMany({
         where: { isActive: true },
@@ -624,6 +638,9 @@ const plugin: PluginDefinition = {
             countrySource: r?.countrySource ?? 'default',
             managerUserId: r?.managerUserId ?? null,
             managerSource: r?.managerSource ?? 'none',
+            departmentId: r?.departmentId ?? null,
+            departmentName: r?.departmentName ?? null,
+            departmentSource: r?.departmentSource ?? 'none',
           };
         }),
       });
@@ -638,8 +655,10 @@ const plugin: PluginDefinition = {
       });
     });
 
-    ctx.router.put('/org/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (req, res) => {
-      const { managerUserId, country } = req.body as { managerUserId?: string | null; country?: string | null };
+    ctx.router.put('/org/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {
+      const { managerUserId, country, departmentId } = req.body as {
+        managerUserId?: string | null; country?: string | null; departmentId?: string | null;
+      };
       const userId = req.params.userId;
 
       // Nadie puede ser su propio jefe
@@ -658,9 +677,37 @@ const plugin: PluginDefinition = {
         }
       }
 
-      await org.setOverride(userId, { managerUserId, country });
+      // El departamento se escribe aparte porque vive en el esquema del plugin,
+      // no en UserProfileOverride. `undefined` es "no lo toques" y `null` es
+      // "límpialo": sin esa distinción, guardar solo el país borraría el
+      // departamento de quien ya lo tenía corregido.
+      if (departmentId !== undefined) {
+        // Mover a alguien de departamento puede darle un jefe nuevo —el del
+        // departamento destino— y ese jefe podría ser alguien que ya depende de
+        // él. Se valida contra el resultado, no contra la intención.
+        if (departmentId !== null) {
+          const head = (await org.departments()).some(d => d.id === departmentId);
+          if (!head) {
+            return res.status(400).json({ message: 'Ese departamento no existe en el catálogo' });
+          }
+        }
+        await org.setDepartmentOverride(userId, departmentId);
+
+        const nuevoJefe = await org.managerOf(userId);
+        if (nuevoJefe && (await org.managerOf(nuevoJefe)) === userId) {
+          // Revertir: el destino deja a los dos dependiendo uno del otro.
+          await org.setDepartmentOverride(userId, null);
+          return res.status(400).json({
+            message: 'Eso crearía un ciclo: el jefe de ese departamento ya depende de esta persona',
+          });
+        }
+      }
+
+      if (managerUserId !== undefined || country !== undefined) {
+        await org.setOverride(userId, { managerUserId, country });
+      }
       res.json({ ok: true });
-    });
+    }));
 
     // Diagnóstico: cuántos usuarios traen país/jefe de Bitrix (admin funcional).
     // syncOrgStructure() nunca lanza — si Bitrix está inalcanzable devuelve

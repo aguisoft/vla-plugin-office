@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
-  listHolidays, createHoliday, deleteHoliday, getOrgRoster, setOrg, ApiError,
+  listHolidays, createHoliday, deleteHoliday, getOrgRoster, setOrg, listDepartments, ApiError,
 } from '../api';
 import type { StatusError } from '../api';
 import { COUNTRIES, countryOf } from '../countries';
 import { monthOf, dayOf } from '../calendar';
 import { fmtDateOnly } from '../format';
 import { HolidayCalendar } from './HolidayCalendar';
-import type { Holiday, RosterUser } from '../types';
+import type { Department, Holiday, RosterUser } from '../types';
 
 /**
  * Pantalla de feriados: RRHH carga el calendario por país y marca a quién le
@@ -44,6 +44,7 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
 
   const [holidays, setHolidays] = useState<Holiday[] | null>(null);
   const [roster, setRoster] = useState<RosterUser[] | null>(null);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [defaultCountry, setDefaultCountry] = useState('CR');
   const [error, setError] = useState<string | null>(null);
 
@@ -78,8 +79,22 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
     }
   };
 
+  /**
+   * El catálogo falla en silencio a propósito: sin él los desplegables de
+   * departamento quedan vacíos, pero el país y el jefe se siguen pudiendo
+   * corregir. Un banner rojo acá bloquearía visualmente una pantalla que
+   * todavía sirve para dos de sus tres cosas.
+   */
+  const reloadDepartments = async () => {
+    try {
+      setDepartments((await listDepartments()).departments);
+    } catch {
+      setDepartments([]);
+    }
+  };
+
   useEffect(() => { void reloadHolidays(); }, [year]);
-  useEffect(() => { void reloadRoster(); }, []);
+  useEffect(() => { void reloadRoster(); void reloadDepartments(); }, []);
 
   const delPais = useMemo(
     () => (holidays ?? []).filter(h => h.country.toUpperCase() === country),
@@ -201,6 +216,32 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
       await reloadRoster();
     } catch (e) {
       setError(errorMessage(e, 'No se pudo guardar el jefe'));
+    } finally {
+      setSavingUser(null);
+    }
+  }
+
+  /**
+   * Fija (o suelta) el departamento de una persona. Mismo corte de
+   * idempotencia que país y jefe, por la misma razón.
+   *
+   * Recarga el catálogo además del roster: mover gente cambia el conteo que se
+   * muestra en el filtro, y un número viejo al lado de un nombre hace dudar de
+   * los dos.
+   */
+  async function handleSetDepartment(userId: string, departmentId: string | null) {
+    const actual = roster?.find(u => u.userId === userId);
+    if (!actual) return;
+    const vigente = actual.departmentSource === 'override' ? (actual.departmentId ?? null) : null;
+    if (vigente === departmentId) return;
+
+    setSavingUser(userId);
+    setError(null);
+    try {
+      await setOrg(userId, { departmentId });
+      await Promise.all([reloadRoster(), reloadDepartments()]);
+    } catch (e) {
+      setError(errorMessage(e, 'No se pudo guardar el departamento'));
     } finally {
       setSavingUser(null);
     }
@@ -477,11 +518,13 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
           ) : (
             <PersonasTab
               roster={roster}
+              departments={departments}
               country={country}
               defaultCountry={defaultCountry}
               savingUser={savingUser}
               onSetCountry={handleSetCountry}
               onSetManager={handleSetManager}
+              onSetDepartment={handleSetDepartment}
             />
           )}
         </div>
@@ -490,58 +533,191 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
   );
 }
 
+
+/** Estilo compartido por los tres desplegables de la tabla. */
+const SELECT_CLS =
+  'w-full rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] ' +
+  'focus:border-gray-400 focus:outline-none disabled:opacity-50';
+
+/** Cómo se ve cada origen. Los tres campos usan la misma escala de color. */
+const CHIP: Record<'override' | 'bitrix' | 'vacio', string> = {
+  override: 'bg-green-100 text-green-700',
+  bitrix:   'bg-blue-100 text-blue-700',
+  vacio:    'bg-amber-100 text-amber-700',
+};
+
+function OrigenChip({ tipo, texto }: { tipo: 'override' | 'bitrix' | 'vacio'; texto: string }) {
+  return (
+    <span className={`mt-1 inline-block rounded-full px-1.5 py-0.5 text-[9px] font-medium ${CHIP[tipo]}`}>
+      {texto}
+    </span>
+  );
+}
+
+/** Qué falta por resolver. Generaliza el viejo «Solo sin verificar». */
+type Pendiente = 'todos' | 'pais' | 'departamento' | 'jefe' | 'fijados';
+
+const PENDIENTES: Array<{ value: Pendiente; label: string }> = [
+  { value: 'todos',        label: 'Todo el estado del dato' },
+  { value: 'pais',         label: 'País sin verificar' },
+  { value: 'departamento', label: 'Sin departamento' },
+  { value: 'jefe',         label: 'Sin jefe' },
+  { value: 'fijados',      label: 'Fijados por RRHH' },
+];
+
 /**
- * Quién está en el país seleccionado y de dónde sale ese dato, con la opción
- * de moverlo. Es la mitad que faltaba: sin poder marcar las excepciones, todo
- * el mundo queda en el país por defecto y los feriados de un país le caen a
- * gente de otro.
+ * Quién está en cada país y departamento, de dónde sale cada dato, y la opción
+ * de corregirlo. Es la mitad que faltaba: sin poder marcar las excepciones,
+ * todo el mundo queda en el país por defecto y los feriados de un país le caen
+ * a gente de otro.
+ *
+ * Es una tabla con encabezados y no una lista de desplegables sueltos porque
+ * tres selectores seguidos en una fila no dicen cuál es cuál. El encabezado es
+ * la única parte de la interfaz que nombra las columnas.
  */
-function PersonasTab({ roster, country, defaultCountry, savingUser, onSetCountry, onSetManager }: {
+function PersonasTab({
+  roster, departments, country, defaultCountry, savingUser,
+  onSetCountry, onSetManager, onSetDepartment,
+}: {
   roster: RosterUser[] | null;
+  departments: Department[];
   country: string;
   defaultCountry: string;
   savingUser: string | null;
   onSetCountry: (userId: string, iso: string | null) => void;
   onSetManager: (userId: string, managerUserId: string | null) => void;
+  onSetDepartment: (userId: string, departmentId: string | null) => void;
 }) {
-  const [soloDefault, setSoloDefault] = useState(false);
   const [verTodos, setVerTodos] = useState(false);
+  const [busqueda, setBusqueda] = useState('');
+  const [filtroDept, setFiltroDept] = useState('');
+  const [filtroJefe, setFiltroJefe] = useState('');
+  const [pendiente, setPendiente] = useState<Pendiente>('todos');
 
   const aqui = (roster ?? []).filter(u => (u.country ?? '').toUpperCase() === country);
 
   // Con el país vacío hay que mostrar a todo el equipo o no hay forma de meter
   // a nadie: filtrando por país, la lista sale vacía y el selector que movería
   // a alguien no se renderiza nunca. El aviso de "ninguna persona asignada"
-  // mandaba justo acá, así que acá tiene que haber algo que hacer.
+  // manda justo acá, así que acá tiene que haber algo que hacer.
   const vacio = aqui.length === 0;
   const mostrarTodos = verTodos || vacio;
 
+  // Los jefes que existen hoy, para el filtro. Sale del roster y no de una
+  // lista aparte: así solo aparece gente que de verdad tiene a alguien a cargo.
+  const jefes = useMemo(() => {
+    const ids = new Set((roster ?? []).map(u => u.managerUserId).filter(Boolean) as string[]);
+    return (roster ?? [])
+      .filter(u => ids.has(u.userId))
+      .sort((a, b) => a.firstName.localeCompare(b.firstName));
+  }, [roster]);
+
+  const lista = useMemo(() => {
+    let base = mostrarTodos ? (roster ?? []) : aqui;
+
+    const q = busqueda.trim().toLowerCase();
+    if (q) {
+      base = base.filter(u =>
+        `${u.firstName} ${u.lastName}`.toLowerCase().includes(q) ||
+        u.email.toLowerCase().includes(q),
+      );
+    }
+
+    if (filtroDept) {
+      base = filtroDept === '__sin__'
+        ? base.filter(u => !u.departmentId)
+        : base.filter(u => u.departmentId === filtroDept);
+    }
+
+    if (filtroJefe) {
+      base = filtroJefe === '__sin__'
+        ? base.filter(u => !u.managerUserId)
+        : base.filter(u => u.managerUserId === filtroJefe);
+    }
+
+    if (pendiente === 'pais')         base = base.filter(u => u.countrySource === 'default');
+    if (pendiente === 'departamento') base = base.filter(u => u.departmentSource === 'none');
+    if (pendiente === 'jefe')         base = base.filter(u => u.managerSource === 'none');
+    if (pendiente === 'fijados')      base = base.filter(u =>
+      u.countrySource === 'override' || u.departmentSource === 'override' || u.managerSource === 'override');
+
+    return base;
+  }, [roster, aqui, mostrarTodos, busqueda, filtroDept, filtroJefe, pendiente]);
+
   if (roster === null) return <p className="py-12 text-center text-xs text-gray-400">Cargando…</p>;
 
-  const base = mostrarTodos ? roster : aqui;
-  const lista = soloDefault ? base.filter(u => u.countrySource === 'default') : base;
   const cfg = countryOf(country);
-
-  const ORIGEN: Record<RosterUser['countrySource'], { texto: string; clase: string }> = {
-    override: { texto: 'fijado por RRHH', clase: 'bg-green-100 text-green-700' },
-    bitrix:   { texto: 'desde Bitrix',    clase: 'bg-blue-100 text-blue-700' },
-    default:  { texto: 'por defecto',     clase: 'bg-amber-100 text-amber-700' },
+  const nombreDe = (id: string | null) => {
+    const u = roster.find(x => x.userId === id);
+    return u ? `${u.firstName} ${u.lastName}` : null;
   };
-
-  const ORIGEN_JEFE: Record<RosterUser['managerSource'], { texto: string; clase: string }> = {
-    override: { texto: 'fijado por RRHH', clase: 'bg-green-100 text-green-700' },
-    bitrix:   { texto: 'desde Bitrix',    clase: 'bg-blue-100 text-blue-700' },
-    none:     { texto: 'sin jefe',        clase: 'bg-amber-100 text-amber-700' },
-  };
+  const filtrando = Boolean(busqueda.trim() || filtroDept || filtroJefe || pendiente !== 'todos');
 
   return (
     <div>
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-        <p className="text-[11px] text-gray-500">
-          {aqui.length} {aqui.length === 1 ? 'persona' : 'personas'} en {cfg.flag} {cfg.name}
-          {mostrarTodos && <span className="text-gray-400"> · mostrando todo el equipo ({roster.length})</span>}
-        </p>
-        <div className="flex items-center gap-3">
+      {/* ── Filtros ── */}
+      <div className="mb-3 space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            type="search"
+            value={busqueda}
+            onChange={e => setBusqueda(e.target.value)}
+            placeholder="Buscar por nombre o correo…"
+            aria-label="Buscar por nombre o correo"
+            className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-[11px] focus:border-gray-400 focus:outline-none"
+          />
+
+          <select
+            value={filtroDept}
+            onChange={e => setFiltroDept(e.target.value)}
+            aria-label="Filtrar por departamento"
+            className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] focus:border-gray-400 focus:outline-none"
+          >
+            <option value="">Todos los departamentos</option>
+            <option value="__sin__">— Sin departamento —</option>
+            {departments.map(d => (
+              <option key={d.id} value={d.id}>{d.name} ({d.headcount})</option>
+            ))}
+          </select>
+
+          <select
+            value={filtroJefe}
+            onChange={e => setFiltroJefe(e.target.value)}
+            aria-label="Filtrar por jefe"
+            className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] focus:border-gray-400 focus:outline-none"
+          >
+            <option value="">Todos los jefes</option>
+            <option value="__sin__">— Sin jefe —</option>
+            {jefes.map(j => (
+              <option key={j.userId} value={j.userId}>{j.firstName} {j.lastName}</option>
+            ))}
+          </select>
+
+          <select
+            value={pendiente}
+            onChange={e => setPendiente(e.target.value as Pendiente)}
+            aria-label="Filtrar por estado del dato"
+            className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] focus:border-gray-400 focus:outline-none"
+          >
+            {PENDIENTES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
+          </select>
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-[11px] text-gray-500">
+            {lista.length} de {mostrarTodos ? roster.length : aqui.length}
+            {!mostrarTodos && <> en {cfg.flag} {cfg.name}</>}
+            {mostrarTodos && <span className="text-gray-400"> · todo el equipo</span>}
+            {filtrando && (
+              <button
+                onClick={() => { setBusqueda(''); setFiltroDept(''); setFiltroJefe(''); setPendiente('todos'); }}
+                className="ml-2 text-gray-400 underline hover:text-gray-600"
+              >
+                limpiar filtros
+              </button>
+            )}
+          </p>
+
           {/* Con el país vacío el interruptor queda forzado: apagarlo dejaría
               una lista vacía y sin salida. */}
           <label className={`flex items-center gap-1.5 text-[11px] ${vacio ? 'text-gray-300' : 'text-gray-500'}`}>
@@ -554,87 +730,111 @@ function PersonasTab({ roster, country, defaultCountry, savingUser, onSetCountry
             />
             Todo el equipo
           </label>
-          <label className="flex items-center gap-1.5 text-[11px] text-gray-500">
-            <input
-              type="checkbox"
-              checked={soloDefault}
-              onChange={e => setSoloDefault(e.target.checked)}
-              className="rounded border-gray-300"
-            />
-            Solo sin verificar
-          </label>
         </div>
       </div>
 
+      {/* ── Tabla ── */}
       {lista.length === 0 ? (
         <p className="py-10 text-center text-xs text-gray-400">
-          {soloDefault ? 'Nadie con el país sin verificar acá.' : 'Nadie en este país.'}
+          {filtrando ? 'Nadie coincide con esos filtros.' : 'Nadie en este país.'}
         </p>
       ) : (
-        <ul className="space-y-1">
-          {lista.map(u => (
-            <li
-              key={u.userId}
-              className="flex items-center gap-3 rounded-xl px-3 py-2 hover:bg-gray-50"
-            >
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-xs font-medium text-gray-700">
-                  {u.firstName} {u.lastName}
-                </p>
-                <p className="truncate text-[10px] text-gray-400">{u.email}</p>
-              </div>
-
-              {/* Al mostrar todo el equipo, la bandera de quien NO está en el
-                  país seleccionado: sin eso la lista es un montón de nombres
-                  sin decir dónde está cada uno. */}
-              {mostrarTodos && (u.country ?? '').toUpperCase() !== country && (
-                <span className="flex-shrink-0 text-[11px] text-gray-400" title={countryOf(u.country ?? '').name}>
-                  {countryOf(u.country ?? '').flag}
-                </span>
-              )}
-
-              <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${ORIGEN[u.countrySource].clase}`}>
-                {ORIGEN[u.countrySource].texto}
-              </span>
-
-              <select
-                value={u.countrySource === 'override' ? (u.country ?? '') : ''}
-                disabled={savingUser === u.userId}
-                onChange={e => onSetCountry(u.userId, e.target.value || null)}
-                aria-label={`País de ${u.firstName} ${u.lastName}`}
-                className="flex-shrink-0 rounded-xl border border-gray-200 bg-white px-2 py-1 text-[11px] focus:border-gray-400 focus:outline-none disabled:opacity-50"
-              >
-                <option value="">Sin fijar ({defaultCountry})</option>
-                {COUNTRIES.map(c => (
-                  <option key={c.iso} value={c.iso}>{c.flag} {c.name}</option>
+        // La tabla tiene su propio scroll horizontal: en un teléfono las cuatro
+        // columnas no entran, y sin esto la página entera se desplaza de lado.
+        <div className="-mx-1 overflow-x-auto px-1">
+          <table className="w-full min-w-[640px] border-collapse">
+            <thead>
+              <tr className="border-b border-gray-200">
+                {['Persona', 'País', 'Departamento', 'Jefe directo'].map(h => (
+                  <th
+                    key={h}
+                    scope="col"
+                    className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400"
+                  >
+                    {h}
+                  </th>
                 ))}
-              </select>
+              </tr>
+            </thead>
+            <tbody>
+              {lista.map(u => (
+                <tr key={u.userId} className="border-b border-gray-50 align-top hover:bg-gray-50">
+                  <td className="px-2 py-2">
+                    <p className="truncate text-xs font-medium text-gray-700">
+                      {u.firstName} {u.lastName}
+                    </p>
+                    <p className="truncate text-[10px] text-gray-400">{u.email}</p>
+                  </td>
 
-              <select
-                value={u.managerSource === 'override' ? (u.managerUserId ?? '') : ''}
-                disabled={savingUser === u.userId}
-                onChange={e => onSetManager(u.userId, e.target.value || null)}
-                aria-label={`Jefe de ${u.firstName} ${u.lastName}`}
-                className="flex-shrink-0 rounded-xl border border-gray-200 bg-white px-2 py-1 text-[11px] focus:border-gray-400 focus:outline-none disabled:opacity-50"
-              >
-                <option value="">Sin fijar</option>
-                {(roster ?? []).filter(o => o.userId !== u.userId).map(o => (
-                  <option key={o.userId} value={o.userId}>{o.firstName} {o.lastName}</option>
-                ))}
-              </select>
+                  <td className="w-[28%] px-2 py-2">
+                    <select
+                      value={u.countrySource === 'override' ? (u.country ?? '') : ''}
+                      disabled={savingUser === u.userId}
+                      onChange={e => onSetCountry(u.userId, e.target.value || null)}
+                      aria-label={`País de ${u.firstName} ${u.lastName}`}
+                      className={SELECT_CLS}
+                    >
+                      <option value="">Sin fijar ({defaultCountry})</option>
+                      {COUNTRIES.map(c => (
+                        <option key={c.iso} value={c.iso}>{c.flag} {c.name}</option>
+                      ))}
+                    </select>
+                    {u.countrySource === 'override' && <OrigenChip tipo="override" texto="fijado por RRHH" />}
+                    {u.countrySource === 'bitrix'   && <OrigenChip tipo="bitrix"   texto="desde Bitrix" />}
+                    {u.countrySource === 'default'  && <OrigenChip tipo="vacio"    texto={`por defecto · ${countryOf(u.country ?? '').flag}`} />}
+                  </td>
 
-              <span className={`flex-shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ${ORIGEN_JEFE[u.managerSource].clase}`}>
-                {ORIGEN_JEFE[u.managerSource].texto}
-              </span>
-            </li>
-          ))}
-        </ul>
+                  <td className="w-[24%] px-2 py-2">
+                    <select
+                      value={u.departmentSource === 'override' ? (u.departmentId ?? '') : ''}
+                      disabled={savingUser === u.userId}
+                      onChange={e => onSetDepartment(u.userId, e.target.value || null)}
+                      aria-label={`Departamento de ${u.firstName} ${u.lastName}`}
+                      className={SELECT_CLS}
+                    >
+                      <option value="">Sin fijar</option>
+                      {departments.map(d => (
+                        <option key={d.id} value={d.id}>{d.name}</option>
+                      ))}
+                    </select>
+                    {u.departmentSource === 'override' && <OrigenChip tipo="override" texto="fijado por RRHH" />}
+                    {u.departmentSource === 'bitrix'   && <OrigenChip tipo="bitrix"   texto={u.departmentName ?? 'desde Bitrix'} />}
+                    {u.departmentSource === 'none'     && <OrigenChip tipo="vacio"    texto="sin departamento" />}
+                  </td>
+
+                  <td className="w-[24%] px-2 py-2">
+                    <select
+                      value={u.managerSource === 'override' ? (u.managerUserId ?? '') : ''}
+                      disabled={savingUser === u.userId}
+                      onChange={e => onSetManager(u.userId, e.target.value || null)}
+                      aria-label={`Jefe de ${u.firstName} ${u.lastName}`}
+                      className={SELECT_CLS}
+                    >
+                      <option value="">Sin fijar</option>
+                      {roster.filter(o => o.userId !== u.userId).map(o => (
+                        <option key={o.userId} value={o.userId}>{o.firstName} {o.lastName}</option>
+                      ))}
+                    </select>
+                    {u.managerSource === 'override' && <OrigenChip tipo="override" texto="fijado por RRHH" />}
+                    {/* El jefe heredado del departamento se nombra: "desde
+                        Bitrix" a secas obliga a cruzar la fila con otra para
+                        saber quién es. */}
+                    {u.managerSource === 'bitrix'   && <OrigenChip tipo="bitrix" texto={nombreDe(u.managerUserId) ?? 'desde Bitrix'} />}
+                    {u.managerSource === 'none'     && <OrigenChip tipo="vacio"  texto="sin jefe" />}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <p className="mt-4 text-[10px] leading-relaxed text-gray-400">
-        «Sin fijar» en país deja que salga de Bitrix, y si Bitrix no lo trae, del valor por defecto ({defaultCountry}).
-        Lo mismo con el jefe: «sin fijar» lo resuelve desde Bitrix o sin jefe. Fijar cualquiera de los dos acá gana
-        sobre lo automático y es lo que hay que usar para las excepciones.
+        «Sin fijar» deja que el dato salga de Bitrix, y si Bitrix no lo trae, del valor por defecto
+        ({defaultCountry} para el país; sin jefe ni departamento para los otros dos). Fijar cualquiera
+        de los tres acá gana sobre lo automático y es lo que hay que usar para las excepciones.
+        Corregir el <strong>departamento</strong> también cambia el jefe: pasa a ser quien dirija el
+        departamento nuevo, salvo que se le haya fijado uno a mano.
       </p>
     </div>
   );

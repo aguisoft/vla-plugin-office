@@ -1,5 +1,8 @@
 import type { PluginContext } from '@vla/plugin-sdk';
-import { resolveCountry, resolveManager, type CountrySource, type ManagerSource } from '../lib/country-source';
+import {
+  resolveCountry, resolveManager, resolveDepartment,
+  type CountrySource, type ManagerSource, type DepartmentSource,
+} from '../lib/country-source';
 
 export interface RosterEntry {
   userId: string;
@@ -7,6 +10,35 @@ export interface RosterEntry {
   countrySource: CountrySource;
   managerUserId: string | null;
   managerSource: ManagerSource;
+  departmentId: string | null;
+  departmentName: string | null;
+  departmentSource: DepartmentSource;
+}
+
+export interface Department {
+  id: string;
+  name: string;
+  /** Cuánta gente tiene hoy, contando los overrides. Para ordenar la lista. */
+  headcount: number;
+}
+
+/**
+ * Departamento efectivo de cada persona y quién dirige cada departamento.
+ *
+ * Se arma una vez y se reparte porque las tres preguntas que el plugin hace
+ * —quién es mi jefe, a quién veo, qué muestro en la pantalla— dependen todas
+ * del MISMO departamento efectivo. Resolverlo por separado en cada una fue lo
+ * que permitió que el override existiera sin mover a nadie de jefe.
+ */
+interface OrgSnapshot {
+  /** userId → departamento efectivo (override si hay, si no el de Bitrix). */
+  deptOf: Map<string, string | null>;
+  /** userId → de dónde salió ese departamento. */
+  deptSourceOf: Map<string, DepartmentSource>;
+  /** departmentId → userId del jefe. */
+  headByDept: Map<string, string>;
+  /** userId → override explícito de jefe, si lo hay. */
+  managerOverrideOf: Map<string, string | null>;
 }
 
 export class OrgService {
@@ -20,26 +52,97 @@ export class OrgService {
     private readonly defaultCountry: () => string,
   ) {}
 
-  /** Jefe directo: override del plugin, si no el UF_HEAD del departamento. */
-  async managerOf(userId: string): Promise<string | null> {
-    const override = await this.ctx.prisma.userProfileOverride.findUnique({ where: { userId } });
-    // Nadie es su propio jefe, tampoco vía override: PUT /org/:userId ya lo
-    // rechaza con 400, pero managerOf no debe depender de que ese sea el
-    // único escritor (import masivo, script, edición directa en la base).
-    if ((override as any)?.managerUserId && (override as any).managerUserId !== userId) {
-      return (override as any).managerUserId;
+  /**
+   * Overrides de departamento, del esquema del plugin.
+   *
+   * Viven acá y no en `virtual_office.UserProfileOverride` —donde están el país
+   * y el jefe— porque agregarle una columna a esa tabla obliga a reconstruir el
+   * core y reiniciar el API para los 35. El reparto es una decisión de
+   * despliegue, no de modelo: hacia afuera los tres overrides se ven y se
+   * escriben igual.
+   *
+   * Degrada a vacío si la tabla no se puede leer: sin esto, un fallo de la
+   * consulta se lleva puesta la resolución de jefes de todo el plugin, y en
+   * Express 4 una promesa rechazada en un handler mata el proceso entero.
+   */
+  private async departmentOverrides(): Promise<Map<string, string>> {
+    try {
+      const rows = await this.ctx.query<{ user_id: string; department_id: string | null }>(
+        'SELECT user_id, department_id FROM office_org_overrides WHERE department_id IS NOT NULL',
+      );
+      return new Map(rows.map(r => [r.user_id, r.department_id as string]));
+    } catch (e) {
+      this.ctx.logger.warn(`No se pudieron leer los overrides de departamento: ${e}`);
+      return new Map();
+    }
+  }
+
+  /** Catálogo de nombres. Vacío si falla: la pantalla cae al ID, que es legible. */
+  private async departmentNames(): Promise<Map<string, string>> {
+    try {
+      const rows = await this.ctx.query<{ id: string; name: string }>(
+        'SELECT id, name FROM office_departments',
+      );
+      return new Map(rows.map(r => [r.id, r.name]));
+    } catch (e) {
+      this.ctx.logger.warn(`No se pudo leer el catálogo de departamentos: ${e}`);
+      return new Map();
+    }
+  }
+
+  /**
+   * Foto del organigrama efectivo. Una sola pasada por Bitrix + overrides.
+   *
+   * `headByDept` se arma DESPUÉS de aplicar los overrides de departamento: si
+   * RRHH mueve a un jefe de departamento, tiene que dirigir el nuevo, no el que
+   * Bitrix dejó escrito.
+   */
+  private async snapshot(): Promise<OrgSnapshot> {
+    const [mappings, overrides, deptOverrides] = await Promise.all([
+      this.ctx.prisma.bitrixUserMapping.findMany(),
+      this.ctx.prisma.userProfileOverride.findMany(),
+      this.departmentOverrides(),
+    ]);
+
+    const deptOf = new Map<string, string | null>();
+    const deptSourceOf = new Map<string, DepartmentSource>();
+    for (const m of mappings as any[]) {
+      const { departmentId, source } = resolveDepartment(deptOverrides.get(m.userId), m.departmentId);
+      deptOf.set(m.userId, departmentId);
+      deptSourceOf.set(m.userId, source);
+    }
+    // Quien tiene override pero ningún mapeo de Bitrix: no aparece en el bucle
+    // de arriba y se quedaría sin departamento justo después de que RRHH se lo
+    // asignó. Es el caso de alguien que nunca se sincronizó con Bitrix.
+    for (const [userId, deptId] of deptOverrides) {
+      if (!deptOf.has(userId)) {
+        deptOf.set(userId, deptId);
+        deptSourceOf.set(userId, 'override');
+      }
     }
 
-    const mine = await this.ctx.prisma.bitrixUserMapping.findUnique({ where: { userId } });
-    const deptId = (mine as any)?.departmentId;
-    if (!deptId) return null;
+    const headByDept = new Map<string, string>();
+    for (const m of mappings as any[]) {
+      const dept = deptOf.get(m.userId);
+      if (m.isDepartmentHead && dept && !headByDept.has(dept)) headByDept.set(dept, m.userId);
+    }
 
-    const head = await this.ctx.prisma.bitrixUserMapping.findFirst({
-      where: { departmentId: deptId, isDepartmentHead: true },
-    });
-    const headUserId = (head as any)?.userId ?? null;
-    // Nadie es su propio jefe.
-    return headUserId && headUserId !== userId ? headUserId : null;
+    const managerOverrideOf = new Map<string, string | null>(
+      (overrides as any[]).map(o => [o.userId, o.managerUserId ?? null]),
+    );
+
+    return { deptOf, deptSourceOf, headByDept, managerOverrideOf };
+  }
+
+  /** Jefe directo: override explícito, si no el jefe del departamento efectivo. */
+  async managerOf(userId: string): Promise<string | null> {
+    const snap = await this.snapshot();
+    return resolveManager(
+      userId,
+      snap.managerOverrideOf.get(userId),
+      snap.deptOf.get(userId),
+      snap.headByDept,
+    ).managerUserId;
   }
 
   async isManagerOf(viewerId: string, targetId: string): Promise<boolean> {
@@ -47,33 +150,33 @@ export class OrgService {
     return (await this.managerOf(targetId)) === viewerId;
   }
 
-  /** Todos los subordinados directos del viewer. Para el snapshot. */
+  /**
+   * Todos los subordinados directos del viewer. Alimenta el alcance del
+   * dashboard de tiempos, o sea quién recibe 200 y quién 403.
+   *
+   * Se define como el inverso exacto de `managerOf`: alguien está a cargo del
+   * viewer si y solo si su jefe resuelto ES el viewer. Antes esto reconstruía
+   * la regla por su cuenta —overrides, más el departamento si el viewer era
+   * jefe, menos los reasignados— y esa segunda copia de la lógica es lo que
+   * permitía que las dos respuestas se separaran. Con el override de
+   * departamento habría hecho falta una tercera corrección en esta función; en
+   * vez de eso, ahora hay una sola regla.
+   */
   async managedUserIds(viewerId: string): Promise<Set<string>> {
+    const snap = await this.snapshot();
+
+    const candidatos = new Set<string>([...snap.deptOf.keys(), ...snap.managerOverrideOf.keys()]);
     const result = new Set<string>();
 
-    const overrides = await this.ctx.prisma.userProfileOverride.findMany({
-      where: { managerUserId: viewerId },
-    });
-    for (const o of overrides as any[]) result.add(o.userId);
-
-    const me = await this.ctx.prisma.bitrixUserMapping.findUnique({ where: { userId: viewerId } });
-    if ((me as any)?.isDepartmentHead && (me as any)?.departmentId) {
-      const peers = await this.ctx.prisma.bitrixUserMapping.findMany({
-        where: { departmentId: (me as any).departmentId },
-      });
-      for (const p of peers as any[]) {
-        if (p.userId !== viewerId) result.add(p.userId);
-      }
-    }
-
-    // Un override explícito de otro jefe gana sobre la jerarquía de Bitrix.
-    if (result.size > 0) {
-      const reassigned = await this.ctx.prisma.userProfileOverride.findMany({
-        where: { userId: { in: [...result] }, NOT: { managerUserId: viewerId } },
-      });
-      for (const r of reassigned as any[]) {
-        if (r.managerUserId) result.delete(r.userId);
-      }
+    for (const userId of candidatos) {
+      if (userId === viewerId) continue;
+      const { managerUserId } = resolveManager(
+        userId,
+        snap.managerOverrideOf.get(userId),
+        snap.deptOf.get(userId),
+        snap.headByDept,
+      );
+      if (managerUserId === viewerId) result.add(userId);
     }
 
     return result;
@@ -104,50 +207,75 @@ export class OrgService {
   }
 
   /**
-   * País y jefe de TODOS los usuarios pedidos, con dos consultas en total.
+   * País, departamento y jefe de TODOS los usuarios pedidos, de una sola pasada.
    *
-   * `countryByUserId` + `managerOf` por persona costaba 2 consultas por cabeza
-   * (70 para los 35 de producción) y además `countryByUserId` no dice de dónde
-   * salió el valor. La pantalla de feriados necesita el origen: un "CR" que
-   * significa "nadie cargó el dato" no puede verse igual que uno verificado.
+   * Uno por uno costaba 2 consultas por cabeza (70 para los 35 de producción) y
+   * además no decía de dónde salía cada valor. La pantalla necesita el origen:
+   * un "CR" que significa "nadie cargó el dato" no puede verse igual que uno
+   * verificado, y lo mismo vale para el departamento.
    */
   async roster(userIds: string[]): Promise<Map<string, RosterEntry>> {
     const result = new Map<string, RosterEntry>();
     if (userIds.length === 0) return result;
 
-    const [overrides, mappings] = await Promise.all([
+    const [overrides, mappings, snap, names] = await Promise.all([
       this.ctx.prisma.userProfileOverride.findMany({ where: { userId: { in: userIds } } }),
-      // Sin filtro de userId a propósito: el jefe de un departamento puede no
-      // estar en `userIds` (p. ej. si se pide un subconjunto), y sin su fila
-      // headByDept quedaría incompleto y el jefe saldría null.
-      this.ctx.prisma.bitrixUserMapping.findMany(),
+      this.ctx.prisma.bitrixUserMapping.findMany({ where: { userId: { in: userIds } } }),
+      // El snapshot lee TODOS los mapeos sin filtrar a propósito: el jefe de un
+      // departamento puede no estar en `userIds`, y sin su fila headByDept
+      // quedaría incompleto y el jefe saldría null.
+      this.snapshot(),
+      this.departmentNames(),
     ]);
 
     const overrideOf = new Map((overrides as any[]).map(o => [o.userId, o]));
     const mappingOf  = new Map((mappings as any[]).map(m => [m.userId, m]));
-
-    const headByDept = new Map<string, string>();
-    for (const m of mappings as any[]) {
-      if (m.isDepartmentHead && m.departmentId && !headByDept.has(m.departmentId)) {
-        headByDept.set(m.departmentId, m.userId);
-      }
-    }
 
     const fallback = this.defaultCountry();
     for (const id of userIds) {
       const o = overrideOf.get(id) as any;
       const m = mappingOf.get(id) as any;
       const { country, source } = resolveCountry(o?.country, m?.country, fallback);
-      const { managerUserId, source: managerSource } = resolveManager(id, o?.managerUserId, m?.departmentId, headByDept);
+
+      const departmentId = snap.deptOf.get(id) ?? null;
+      const { managerUserId, source: managerSource } =
+        resolveManager(id, o?.managerUserId, departmentId, snap.headByDept);
+
       result.set(id, {
         userId: id,
         country,
         countrySource: source,
         managerUserId,
         managerSource,
+        departmentId,
+        // Sin nombre se cae al ID: sigue siendo identificable y delata que el
+        // catálogo no se sincronizó, en vez de mostrar un hueco.
+        departmentName: departmentId ? (names.get(departmentId) ?? departmentId) : null,
+        departmentSource: snap.deptSourceOf.get(id) ?? 'none',
       });
     }
     return result;
+  }
+
+  /**
+   * Catálogo para el desplegable y para el filtro, con cuánta gente tiene cada
+   * departamento HOY —contando overrides—, para poder ordenarlo por tamaño.
+   *
+   * Incluye departamentos con 0 personas: son a los que RRHH querrá mover a
+   * alguien, y un desplegable que esconde justo los vacíos no sirve para eso.
+   */
+  async departments(): Promise<Department[]> {
+    const [names, snap] = await Promise.all([this.departmentNames(), this.snapshot()]);
+
+    const headcount = new Map<string, number>();
+    for (const dept of snap.deptOf.values()) {
+      if (dept) headcount.set(dept, (headcount.get(dept) ?? 0) + 1);
+    }
+    for (const id of headcount.keys()) if (!names.has(id)) names.set(id, id);
+
+    return [...names.entries()]
+      .map(([id, name]) => ({ id, name, headcount: headcount.get(id) ?? 0 }))
+      .sort((a, b) => b.headcount - a.headcount || a.name.localeCompare(b.name));
   }
 
   async setOverride(
@@ -159,5 +287,47 @@ export class OrgService {
       create: { userId, ...data },
       update: data,
     });
+  }
+
+  /**
+   * Fija o limpia el departamento de una persona.
+   *
+   * `null` borra la fila en vez de guardar un NULL: una fila con
+   * `department_id` nulo y una fila ausente significan lo mismo —"que lo
+   * resuelva Bitrix"— y tener dos representaciones del mismo estado es lo que
+   * después hace que un filtro cuente de más.
+   */
+  async setDepartmentOverride(userId: string, departmentId: string | null): Promise<void> {
+    if (departmentId === null) {
+      await this.ctx.query('DELETE FROM office_org_overrides WHERE user_id = $1', [userId]);
+      return;
+    }
+    await this.ctx.query(
+      `INSERT INTO office_org_overrides (user_id, department_id, updated_at)
+       VALUES ($1, $2, now())
+       ON CONFLICT (user_id) DO UPDATE SET department_id = $2, updated_at = now()`,
+      [userId, departmentId],
+    );
+  }
+
+  /** Guarda los nombres que trae `department.get`. Lo llama el sync de Bitrix. */
+  async upsertDepartments(departments: Array<{ id: string; name: string }>): Promise<number> {
+    let saved = 0;
+    for (const d of departments) {
+      const name = (d.name ?? '').trim();
+      if (!d.id || !name) continue;
+      try {
+        await this.ctx.query(
+          `INSERT INTO office_departments (id, name, synced_at)
+           VALUES ($1, $2, now())
+           ON CONFLICT (id) DO UPDATE SET name = $2, synced_at = now()`,
+          [String(d.id), name],
+        );
+        saved++;
+      } catch (e) {
+        this.ctx.logger.warn(`No se pudo guardar el departamento ${d.id}: ${e}`);
+      }
+    }
+    return saved;
   }
 }

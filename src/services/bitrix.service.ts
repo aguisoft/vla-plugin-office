@@ -90,7 +90,16 @@ const BITRIX_COUNTRY_ISO: Record<string, string> = {
  * Delegates all API calls to ctx.bitrix (core OAuth2 client).
  */
 export class BitrixService {
-  constructor(private readonly ctx: PluginContext) {}
+  /**
+   * `onDepartments` recibe el catálogo de departamentos cada vez que se
+   * sincroniza el organigrama. Es un callback y no una dependencia directa de
+   * OrgService para no cruzar los dos servicios: este sabe hablar con Bitrix,
+   * el otro sabe dónde se guardan las cosas.
+   */
+  constructor(
+    private readonly ctx: PluginContext,
+    private readonly onDepartments?: (departments: Array<{ id: string; name: string }>) => Promise<number>,
+  ) {}
 
   isConfigured(): boolean {
     return this.ctx.bitrix?.isConfigured() ?? false;
@@ -315,6 +324,25 @@ export class BitrixService {
     const headByDept = new Map<string, string>();
     for (const d of departments) {
       if (d.UF_HEAD) headByDept.set(String(d.ID), String(d.UF_HEAD));
+    }
+
+    // El NAME se usaba solo para resolver jefes y se tiraba, así que en la base
+    // el departamento quedaba como un ID desnudo ("3", "1819") y la pantalla no
+    // tenía con qué armar un desplegable legible. Se persiste acá porque este es
+    // el único lugar del plugin que habla con `department.get`.
+    // `onDepartments` es opcional para no acoplar este servicio a OrgService:
+    // quien construye el plugin decide dónde se guardan.
+    if (this.onDepartments) {
+      try {
+        const saved = await this.onDepartments(
+          departments.map(d => ({ id: String(d.ID), name: String(d.NAME ?? '') })),
+        );
+        this.ctx.logger.log(`Catálogo de departamentos: ${saved} nombres guardados`);
+      } catch (e) {
+        // Un fallo acá no puede frenar el sync del organigrama, que es lo que
+        // de verdad alimenta la resolución de jefes.
+        this.ctx.logger.warn(`No se pudo guardar el catálogo de departamentos: ${e}`);
+      }
     }
 
     let synced = 0, heads = 0, withCountry = 0;

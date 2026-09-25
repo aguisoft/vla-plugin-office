@@ -53,7 +53,7 @@ fs.cpSync(distSrc, path.join(targetDir, 'dist'), { recursive: true });
 // note en la salida en vez de quedar en silencio.
 const migrationsSrc = path.join(pluginDir, 'migrations');
 const sqlFiles = fs.existsSync(migrationsSrc)
-  ? fs.readdirSync(migrationsSrc).filter(f => f.endsWith('.sql'))
+  ? fs.readdirSync(migrationsSrc).filter(f => f.endsWith('.sql') && !f.endsWith('.down.sql'))
   : [];
 
 if (sqlFiles.length > 0) {
