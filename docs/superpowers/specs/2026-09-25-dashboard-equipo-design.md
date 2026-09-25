@@ -85,6 +85,20 @@ Arriba de todo, antes de cualquier tabla, lo que requiere acción:
 
 Solo se renderiza si hay algo. Cada excepción enlaza al filtro correspondiente.
 
+Son exactamente dos, y **ambas acotadas al alcance del viewer** — su gente, no la
+organización. Un jefe al que se le avisa de nueve sin marcar cuando siete no son
+suyos aprende a ignorar la franja:
+
+1. **Sin marcar entrada en 30 días**: personas del alcance sin ninguna fila de
+   `CheckInRecord` en los últimos 30 días naturales.
+2. **Sesiones abiertas sin cerrar**: personas del alcance con `checkOutAt IS NULL`
+   en una sesión iniciada antes de la cota de `MAX_OPEN_SESSION_HOURS`. Se nombra
+   la más antigua con su fecha, porque «1 sesión sin cerrar» sin fecha no dice si
+   es de esta mañana o de hace dos semanas.
+
+La vista de toda la organización es la pestaña de Cumplimiento, y requiere
+`office.manage`.
+
 #### Tabla del equipo
 
 Una fila por persona del alcance:
