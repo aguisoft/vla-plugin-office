@@ -256,4 +256,25 @@ describe('entradaHabitual', () => {
   it('solo fechas inválidas da null, no una hora inventada', () => {
     expect(entradaHabitual([new Date('basura'), new Date('otra basura'), new Date(NaN)], TZ)).toBeNull();
   });
+
+  it('con número par cuyo medio cae en .5, el redondeo es determinista', () => {
+    // 08:00 y 08:01 dan una mediana de 480.5. La otra prueba de número par usa
+    // dos valores cuya suma es divisible, así que nunca ejercita el redondeo.
+    const dosMinutosSeguidos = [
+      new Date('2026-09-21T14:00:00Z'), // 08:00 local
+      new Date('2026-09-22T14:01:00Z'), // 08:01 local
+      new Date('2026-09-23T14:00:00Z'), // 08:00 local
+      new Date('2026-09-24T14:01:00Z'), // 08:01 local
+    ];
+    expect(entradaHabitual(dosMinutosSeguidos, TZ)).toBe('08:01');
+  });
+
+  it('la medianoche local sale como 00:00 y no como 24:00', () => {
+    // Cubre el `% 24` de minutosLocales. Con hourCycle h23 Intl devuelve "00",
+    // pero el módulo está para el caso en que devuelva "24": sin él, la
+    // medianoche daría 1440 minutos y la hora saldría como "24:00".
+    const medianoche = Array.from({ length: 3 }, (_, i) =>
+      new Date(`2026-09-2${1 + i}T06:00:00Z`)); // 00:00 local en UTC-6
+    expect(entradaHabitual(medianoche, TZ)).toBe('00:00');
+  });
 });
