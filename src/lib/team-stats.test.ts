@@ -160,11 +160,19 @@ describe('variacion', () => {
   });
 
   it('una norma con promedio en cero no divide, aunque tenga períodos de sobra', () => {
-    // periodosUsados: 5 pasa el mínimo, así que la única cosa que puede
-    // devolver sin-base aquí es la guarda del promedio. Con
-    // periodosUsados: 0 la prueba pasaba por la otra cláusula y la guarda
-    // quedaba sin ejercitar: verificado borrándola, las pruebas seguían verdes.
+    // periodosUsados: 5 pasa el mínimo. Con periodosUsados: 0 esta prueba
+    // pasaba por la otra cláusula y no ejercitaba nada.
     expect(variacion(600, { promedioMinutos: 0, periodosUsados: 5 })).toEqual({ tipo: 'sin-base' });
+  });
+
+  it('una norma con promedio NEGATIVO da sin-base, no un porcentaje al revés', () => {
+    // Este es el único caso que aísla de verdad la guarda `promedioMinutos <= 0`:
+    // con promedio 0 la división da Infinity y la atrapa la guarda de no-finitos,
+    // así que esa prueba pasa aunque se borre la del promedio. Con un promedio
+    // negativo el porcentaje sale finito (−700%) y solo esta guarda lo detiene.
+    // `computeNorm` no puede producir una norma así, pero `variacion` es pública
+    // y acepta cualquier `Norma`.
+    expect(variacion(600, { promedioMinutos: -100, periodosUsados: 5 })).toEqual({ tipo: 'sin-base' });
   });
 
   it('una norma con promedio Infinity no da un porcentaje no finito: sin base', () => {
