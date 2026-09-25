@@ -354,8 +354,11 @@ export default function App() {
   const [statusFilter, setStatusFilter] = useState<string>('ALL');
 
   const zones = layout?.zones ?? [];
-  const gridW = zones.length ? Math.max(...zones.map(z => z.x + z.width))  : 40;
-  const gridH = zones.length ? Math.max(...zones.map(z => z.y + z.height)) : 30;
+  // Ancho de la planta original. Ya no posiciona nada —el mapa fluye en filas—
+  // pero sigue acotando el contenedor para que las zonas envuelvan a lo ancho
+  // que el layout tenía pensado y no se estiren en una sola fila enorme.
+  // La altura la decide el contenido, por eso no se calcula.
+  const gridW = zones.length ? Math.max(...zones.map(z => z.x + z.width)) : 40;
 
   const filteredUsers = users.filter(u => {
     if (statusFilter === 'ALL')    return true;
@@ -372,6 +375,34 @@ export default function App() {
     if (!zoneUsersMap.has(zoneId)) zoneUsersMap.set(zoneId, []);
     zoneUsersMap.get(zoneId)!.push(u);
   }
+
+  /**
+   * Zonas con gente asignada, contando a TODOS y no solo a los filtrados.
+   *
+   * La diferencia es la que decide si el mapa es legible: `zoneUsersMap` se
+   * arma de `filteredUsers`, así que guiarse por él haría desaparecer media
+   * oficina al filtrar por "En línea" — y una zona ausente se lee como "ese
+   * departamento no existe", no como "nadie de ahí cumple el filtro".
+   */
+  const zonasConGente = new Set<string>();
+  for (const u of users) {
+    const zoneId = u.currentZoneId ?? u.defaultZoneId;
+    if (zoneId) zonasConGente.add(zoneId);
+  }
+
+  /**
+   * Las zonas que se dibujan, en el orden de lectura de la planta original
+   * (por fila y después por columna): al compactar se pierden las coordenadas,
+   * y sin este orden las zonas saldrían en el orden en que se cargaron.
+   *
+   * Si NINGUNA tiene gente se muestran todas. Un mapa en blanco en una
+   * instalación nueva parece roto; mostrar la oficina vacía dice la verdad.
+   */
+  const zonasVisibles = (
+    zonasConGente.size === 0 ? zones : zones.filter(z => zonasConGente.has(z.id))
+  ).slice().sort((a, b) => a.y - b.y || a.x - b.x);
+
+  const zonasOcultas = zones.length - zonasVisibles.length;
 
   const myUser = users.find(u => u.userId === currentUser?.id);
   const onlineCount = users.filter(u => u.isCheckedIn).length;
@@ -627,21 +658,46 @@ export default function App() {
                       No hay un layout de oficina configurado.
                     </div>
                   ) : (
-                    <ZoneListView zones={zones} zoneUsersMap={zoneUsersMap} usePhotos={usePhotos} active={viewMode === 'list'} />
+                    <ZoneListView zones={zonasVisibles} zoneUsersMap={zoneUsersMap} usePhotos={usePhotos} active={viewMode === 'list'} />
                   )}
                 </div>
 
                 {/* Vista mapa — siempre en desktop, condicional en móvil */}
-                <div className={`${viewMode === 'list' ? 'hidden md:block' : ''} p-5 h-full`}>
+                {/* overflow-x-auto: las zonas llevan un ancho fijo en píxeles y
+                    no encogen, así que una más ancha que la pantalla tiene que
+                    poder desplazarse en vez de desbordar la página entera. */}
+                <div className={`${viewMode === 'list' ? 'hidden md:block' : ''} p-5 h-full overflow-x-auto`}>
                   {!layout ? (
                     <div className="flex items-center justify-center h-full text-sm text-gray-400">
                       No hay un layout de oficina configurado.
                     </div>
                   ) : (
-                    <div className="relative mx-auto" style={{ width: gridW * TILE, height: gridH * TILE, minWidth: gridW * TILE }}>
-                      {zones.map(zone => (
-                        <ZoneTile key={zone.id} zone={zone} users={zoneUsersMap.get(zone.id) ?? []} usePhotos={usePhotos} />
+                    // Flujo en filas en vez de posiciones absolutas: esconder una
+                    // zona de una planta posicionada dejaba el hueco donde estaba,
+                    // y con varias vacías el mapa quedaba lleno de espacios en
+                    // blanco. Cada zona conserva su tamaño; lo que se pierde es la
+                    // coordenada, que en este layout ya era una grilla de
+                    // rectángulos en filas y no una planta real.
+                    <div className="mx-auto flex flex-wrap content-start gap-3" style={{ maxWidth: gridW * TILE }}>
+                      {zonasVisibles.map(zone => (
+                        <ZoneTile
+                          key={zone.id}
+                          zone={zone}
+                          users={zoneUsersMap.get(zone.id) ?? []}
+                          usePhotos={usePhotos}
+                          compacto
+                        />
                       ))}
+                      {zonasOcultas > 0 && (
+                        // Que la omisión se vea: sin esto, una zona que se vació
+                        // desaparece sin rastro y nadie sabe si se borró del layout
+                        // o si simplemente no tiene a nadie.
+                        <p className="w-full pt-1 text-center text-[11px] text-gray-400">
+                          {zonasOcultas === 1
+                            ? '1 zona sin nadie asignado no se muestra.'
+                            : `${zonasOcultas} zonas sin nadie asignado no se muestran.`}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>

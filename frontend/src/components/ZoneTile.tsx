@@ -5,7 +5,19 @@ import { TILE } from '../App';
 import { cfgOf } from '../statusConfig';
 import type { Zone, UserSnapshot } from '../types';
 
-export function ZoneTile({ zone, users, usePhotos }: { zone: Zone; users: UserSnapshot[]; usePhotos?: boolean }) {
+/**
+ * `compacto` cambia el posicionamiento, no el aspecto: en vez de colocarse en
+ * las coordenadas del layout, la zona se deja acomodar por el contenedor.
+ * Existe porque al ocultar las zonas vacías de una planta posicionada en
+ * absoluto quedaban huecos en blanco donde estaban. El tamaño se conserva en
+ * los dos modos.
+ */
+export function ZoneTile({ zone, users, usePhotos, compacto }: {
+  zone: Zone;
+  users: UserSnapshot[];
+  usePhotos?: boolean;
+  compacto?: boolean;
+}) {
   const [hoveredUser, setHoveredUser] = useState<string | null>(null);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
   // Un ausente no ocupa un puesto: el conteo de la zona sigue midiendo presencia real.
@@ -13,10 +25,9 @@ export function ZoneTile({ zone, users, usePhotos }: { zone: Zone; users: UserSn
 
   return (
     <div
-      className="absolute rounded-2xl border flex flex-col transition-shadow hover:shadow-md"
+      className={`${compacto ? 'relative flex-shrink-0' : 'absolute'} rounded-2xl border flex flex-col transition-shadow hover:shadow-md`}
       style={{
-        left: zone.x * TILE,
-        top: zone.y * TILE,
+        ...(compacto ? {} : { left: zone.x * TILE, top: zone.y * TILE }),
         width: zone.width * TILE,
         height: zone.height * TILE,
         backgroundColor: zone.color ? `${zone.color}44` : '#F9FAFB',
