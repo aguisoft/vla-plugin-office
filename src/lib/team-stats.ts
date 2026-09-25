@@ -14,8 +14,9 @@ export type EstadoRegistro = 'con-registro' | 'sin-registrar';
  * trabajo", y la interfaz tiene que decirlo con esas palabras.
  *
  * Basta con que UNA sesión interseque el período. Una sesión degenerada
- * (inicio == fin) cuenta como registro: la persona marcó, aunque no aporte
- * minutos.
+ * (inicio == fin) cuenta como registro —la persona marcó, aunque no aporte
+ * minutos— salvo que caiga exactamente en un borde del período, donde manda la
+ * regla de abajo y no cuenta.
  *
  * Los bordes son estrictos (`<` / `>`, no `<=` / `>=`) para concordar con
  * `clipSpan`, del que depende `diasConRegistro`: ahí un contacto exacto en el
