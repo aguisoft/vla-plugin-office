@@ -99,7 +99,12 @@ export interface Norma { promedioMinutos: number; periodosUsados: number }
  * trabaja.
  */
 export function computeNorm(totalesPrevios: number[]): Norma {
-  const conActividad = totalesPrevios.filter(m => m > 0);
+  // Number.isFinite descarta tanto NaN como Infinity. Hace falta pedir las dos
+  // cosas: NaN > 0 ya da false y se excluiría solo, pero Infinity > 0 da true
+  // y se colaría en la suma arrastrando el promedio a Infinity. Que NaN e
+  // Infinity se comporten distinto entre sí es peor que cualquiera de los dos
+  // por separado.
+  const conActividad = totalesPrevios.filter(m => Number.isFinite(m) && m > 0);
   if (conActividad.length === 0) return { promedioMinutos: 0, periodosUsados: 0 };
   const suma = conActividad.reduce((a, b) => a + b, 0);
   return {
@@ -131,6 +136,13 @@ export function variacion(actual: number, norma: Norma): Variacion {
   if (norma.periodosUsados < MINIMO_PERIODOS || norma.promedioMinutos <= 0) {
     return { tipo: 'sin-base' };
   }
-  const pct = Math.round(((actual - norma.promedioMinutos) / norma.promedioMinutos) * 100);
+  const crudo = Math.round(((actual - norma.promedioMinutos) / norma.promedioMinutos) * 100);
+  // Un porcentaje que no se puede calcular (norma.promedioMinutos en Infinity,
+  // por ejemplo) no es un porcentaje: no hay nada que mostrar ni que destacar.
+  if (!Number.isFinite(crudo)) return { tipo: 'sin-base' };
+  // Normaliza -0 a 0: Object.is(-0, 0) es false y un consumidor que compare en
+  // proceso (no vía JSON) lo notaría. No se usa `crudo || 0` porque eso
+  // también reescribiría un NaN a 0 y taparía el caso de arriba.
+  const pct = crudo === 0 ? 0 : crudo;
   return { tipo: 'calculada', pct, destacar: Math.abs(pct) > UMBRAL_DESTACAR };
 }

@@ -122,6 +122,20 @@ describe('computeNorm', () => {
   it('redondea a minuto entero', () => {
     expect(computeNorm([100, 101]).promedioMinutos).toBe(101);
   });
+
+  it('un NaN se excluye del promedio, igual que un cero', () => {
+    // spanMinutes siempre da enteros >= 0, pero la función es pública: un NaN
+    // no puede colarse como si fuera un período con actividad.
+    expect(computeNorm([600, NaN, 700])).toEqual({ promedioMinutos: 650, periodosUsados: 2 });
+  });
+
+  it('un Infinity también se excluye: si entrara, la norma quedaría en Infinity', () => {
+    expect(computeNorm([600, Infinity, 700])).toEqual({ promedioMinutos: 650, periodosUsados: 2 });
+  });
+
+  it('solo valores no finitos da una norma sin base', () => {
+    expect(computeNorm([NaN, Infinity])).toEqual({ promedioMinutos: 0, periodosUsados: 0 });
+  });
 });
 
 describe('variacion', () => {
@@ -145,8 +159,24 @@ describe('variacion', () => {
       .toEqual({ tipo: 'calculada', pct: -30, destacar: true });
   });
 
-  it('una norma en cero no divide: sin base', () => {
-    expect(variacion(600, { promedioMinutos: 0, periodosUsados: 0 })).toEqual({ tipo: 'sin-base' });
+  it('una norma con promedio en cero no divide, aunque tenga períodos de sobra', () => {
+    // periodosUsados: 5 pasa el mínimo, así que la única cosa que puede
+    // devolver sin-base aquí es la guarda del promedio. Con
+    // periodosUsados: 0 la prueba pasaba por la otra cláusula y la guarda
+    // quedaba sin ejercitar: verificado borrándola, las pruebas seguían verdes.
+    expect(variacion(600, { promedioMinutos: 0, periodosUsados: 5 })).toEqual({ tipo: 'sin-base' });
+  });
+
+  it('una norma con promedio Infinity no da un porcentaje no finito: sin base', () => {
+    // Solo puede llegar así si alguien arma el objeto Norma a mano; computeNorm
+    // nunca lo produce. Igual variacion es pública y tiene que blindarse.
+    expect(variacion(600, { promedioMinutos: Infinity, periodosUsados: 5 })).toEqual({ tipo: 'sin-base' });
+  });
+
+  it('un porcentaje que redondea a cero negativo se normaliza a cero positivo', () => {
+    const resultado = variacion(997, { promedioMinutos: 1000, periodosUsados: 3 });
+    expect(resultado).toEqual({ tipo: 'calculada', pct: 0, destacar: false });
+    expect(Object.is((resultado as any).pct, -0)).toBe(false);
   });
 
   it('las ventanas por tipo de período son las de la spec', () => {
