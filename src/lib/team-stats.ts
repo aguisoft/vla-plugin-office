@@ -146,3 +146,51 @@ export function variacion(actual: number, norma: Norma): Variacion {
   const pct = crudo === 0 ? 0 : crudo;
   return { tipo: 'calculada', pct, destacar: Math.abs(pct) > UMBRAL_DESTACAR };
 }
+
+/** Mínimo de días para hablar de un hábito. */
+const MINIMO_DIAS_HABITO = 3;
+
+/** Minutos desde la medianoche LOCAL. */
+function minutosLocales(d: Date, tz: string): number {
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: tz, hour: '2-digit', minute: '2-digit', hour12: false,
+  });
+  const partes = Object.fromEntries(fmt.formatToParts(d).map(p => [p.type, p.value]));
+  // Intl devuelve "24" para la medianoche en algunos entornos; se normaliza.
+  const h = Number(partes.hour) % 24;
+  return h * 60 + Number(partes.minute);
+}
+
+/**
+ * Hora local a la que la persona suele entrar, como "HH:MM".
+ *
+ * Mediana y no promedio: el día que alguien entró a las 4am para una entrega
+ * correría el promedio media hora y el número dejaría de describir su rutina.
+ * La mediana lo ignora.
+ *
+ * Recibe UNA entrada por día (la primera de cada día); pasarle todas las
+ * sesiones sesgaría el resultado hacia quien entra y sale varias veces.
+ *
+ * Una fecha inválida (p. ej. `new Date('basura')`) no tiene hora local que
+ * extraer: `Intl.DateTimeFormat` lanza una excepción sobre un instante NaN,
+ * así que dejarla pasar tumbaría toda la función por un solo dato sucio. Se
+ * descarta antes de calcular, igual que `computeNorm` excluye los períodos no
+ * finitos: un dato que no se puede ubicar en el tiempo no cuenta ni a favor
+ * ni en contra del hábito, y si al filtrar quedan menos de las muestras
+ * mínimas, el resultado es `null`, nunca una hora inventada sobre datos
+ * parciales.
+ */
+export function entradaHabitual(primerasEntradas: Date[], tz: string): string | null {
+  const validas = primerasEntradas.filter(d => Number.isFinite(d.getTime()));
+  if (validas.length < MINIMO_DIAS_HABITO) return null;
+
+  const mins = validas.map(d => minutosLocales(d, tz)).sort((a, b) => a - b);
+  const medio = Math.floor(mins.length / 2);
+  const mediana = mins.length % 2 === 1
+    ? mins[medio]
+    : Math.round((mins[medio - 1] + mins[medio]) / 2);
+
+  const hh = String(Math.floor(mediana / 60)).padStart(2, '0');
+  const mm = String(mediana % 60).padStart(2, '0');
+  return `${hh}:${mm}`;
+}

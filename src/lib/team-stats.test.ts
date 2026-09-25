@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { computeNorm, diasConRegistro, diasHabiles, estadoRegistro, PERIODOS_NORMA, variacion } from './team-stats';
+import { computeNorm, diasConRegistro, diasHabiles, entradaHabitual, estadoRegistro, PERIODOS_NORMA, variacion } from './team-stats';
 
 const TZ = 'America/Costa_Rica';
 const span = { start: new Date('2026-09-21T06:00:00Z'), end: new Date('2026-09-28T05:59:59Z') };
@@ -189,5 +189,71 @@ describe('variacion', () => {
 
   it('las ventanas por tipo de período son las de la spec', () => {
     expect(PERIODOS_NORMA).toEqual({ day: 20, week: 8, month: 6 });
+  });
+});
+
+describe('entradaHabitual', () => {
+  it('usa la MEDIANA, no el promedio: un día a las 4am no corre la hora habitual', () => {
+    // 8:00, 8:10, 8:20, 8:30 y un 4:00 suelto. El promedio daría ~7:24; la
+    // mediana se queda en 8:10, que es la hora a la que esta persona entra.
+    const dias = [
+      new Date('2026-09-21T14:00:00Z'), // 08:00 local
+      new Date('2026-09-22T14:10:00Z'), // 08:10
+      new Date('2026-09-23T14:20:00Z'), // 08:20
+      new Date('2026-09-24T14:30:00Z'), // 08:30
+      new Date('2026-09-25T10:00:00Z'), // 04:00  <- el outlier
+    ];
+    expect(entradaHabitual(dias, TZ)).toBe('08:10');
+  });
+
+  it('con número par de muestras promedia las dos del medio', () => {
+    const dias = [
+      new Date('2026-09-21T14:00:00Z'), // 08:00
+      new Date('2026-09-22T14:20:00Z'), // 08:20
+      new Date('2026-09-23T15:00:00Z'), // 09:00
+      new Date('2026-09-24T15:40:00Z'), // 09:40
+    ];
+    expect(entradaHabitual(dias, TZ)).toBe('08:40');
+  });
+
+  it('con menos de 3 días no hay hábito que reportar', () => {
+    expect(entradaHabitual([new Date('2026-09-21T14:00:00Z')], TZ)).toBeNull();
+    expect(entradaHabitual([], TZ)).toBeNull();
+  });
+
+  it('ancla en hora LOCAL, no UTC', () => {
+    // 14:00 UTC es 08:00 en UTC-6. Si se leyera en UTC diría "14:00".
+    const dias = Array.from({ length: 3 }, (_, i) =>
+      new Date(`2026-09-2${1 + i}T14:00:00Z`));
+    expect(entradaHabitual(dias, TZ)).toBe('08:00');
+  });
+
+  it('una fecha inválida se descarta antes de calcular, no envenena la mediana', () => {
+    // new Date('basura') produce un instante NaN. Colarlo en el cálculo haría
+    // que Intl.DateTimeFormat lanzara una excepción (o, si se lo tapara sin
+    // cuidado, que un NaN se disfrazara de minuto válido). El criterio del
+    // proyecto es que un dato que no se puede calcular se descarte, y el
+    // resultado sea igual al que darían solo las fechas válidas.
+    const validas = [
+      new Date('2026-09-21T14:00:00Z'), // 08:00
+      new Date('2026-09-22T14:10:00Z'), // 08:10
+      new Date('2026-09-23T14:20:00Z'), // 08:20
+    ];
+    const conInvalida = [...validas, new Date('basura')];
+    expect(entradaHabitual(conInvalida, TZ)).toBe(entradaHabitual(validas, TZ));
+    expect(entradaHabitual(conInvalida, TZ)).toBe('08:10');
+  });
+
+  it('si tras descartar las inválidas quedan menos de 3 días, no hay hábito que reportar', () => {
+    const dias = [
+      new Date('2026-09-21T14:00:00Z'),
+      new Date('2026-09-22T14:10:00Z'),
+      new Date('basura'),
+    ];
+    expect(entradaHabitual(dias, TZ)).toBeNull();
+  });
+
+  it('solo fechas inválidas da null, no una hora inventada', () => {
+    expect(entradaHabitual([new Date('basura'), new Date('otra basura'), new Date(NaN)], TZ)).toBeNull();
   });
 });
