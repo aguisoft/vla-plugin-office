@@ -933,9 +933,25 @@ const plugin: PluginDefinition = {
       const isAdmin = (req as any).user?.role === 'ADMIN';
       const scope = resolveScope(viewerId, await org.managedUserIds(viewerId), isAdmin);
 
-      const ids = scope === null
-        ? (await ctx.prisma.user.findMany({ where: { isActive: true }, select: { id: true } }) as any[]).map(u => u.id)
-        : [...scope];
+      // I3/M4: mismo patrón que /timesheet/scope (línea de abajo, `where`),
+      // en vez de `[...scope]` tal cual. `managedUserIds` no filtra
+      // `isActive` -- sale de `BitrixUserMapping` ∪ `UserProfileOverride`,
+      // que no se borran al desactivar a alguien -- así que la rama del jefe
+      // colaba ex-empleados como filas "sin registrar" permanentes (I3) y,
+      // sin ORDER BY, la tabla se reordenaba entre recargas según el orden
+      // del `Set` (M4). Se filtra y se ordena ACÁ, no dentro de
+      // `managedUserIds`: ese método también alimenta `/timesheet/office`
+      // (un jefe pidiendo el detalle de un ex-subordinado puntual es
+      // inofensivo) y `SnapshotService` (visibilidad de justificaciones), y
+      // ninguno de los dos necesita este filtro.
+      const where = scope === null
+        ? { isActive: true }
+        : { isActive: true, id: { in: [...scope] } };
+      const ids = (await ctx.prisma.user.findMany({
+        where,
+        select: { id: true },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      }) as any[]).map(u => u.id);
 
       const bounds = periodBounds(anchor, period, tz());
       const [{ filas, cobertura }, excepciones] = await Promise.all([
