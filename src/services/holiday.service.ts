@@ -34,6 +34,34 @@ export class HolidayService {
     return true;
   }
 
+  /**
+   * Fechas (`YYYY-MM-DD`) de los feriados de estos países dentro de
+   * `[from, to]`, agrupadas por país. Alimenta `diasHabiles(within, tz,
+   * feriados)` (I5): `TeamService` resuelve el país de cada persona con
+   * `OrgService.roster` y le pasa el set que corresponda, así que un
+   * feriado de otro país nunca descuenta el denominador de alguien que no
+   * lo tiene.
+   *
+   * No resuelve overrides (feriados que una persona movió a otra fecha del
+   * mismo mes, ver `HolidayOverrideModal`): el spec de I5 pide descontar el
+   * feriado NACIONAL del denominador del equipo, no la excepción individual
+   * de una persona, que es otra pantalla con otro propósito.
+   */
+  async datesByCountry(countries: string[], from: Date, to: Date): Promise<Map<string, Set<string>>> {
+    const out = new Map<string, Set<string>>();
+    if (countries.length === 0) return out;
+    const rows = await this.ctx.prisma.holiday.findMany({
+      where: { country: { in: countries }, date: { gte: from, lte: to } },
+      select: { country: true, date: true },
+    });
+    for (const r of rows as any[]) {
+      const set = out.get(r.country) ?? new Set<string>();
+      set.add(dateOnly(r.date));
+      out.set(r.country, set);
+    }
+    return out;
+  }
+
   async movableForUser(userId: string, country: string): Promise<HolidayRow[]> {
     const [holidays, overrides] = await Promise.all([
       this.list(undefined, country),

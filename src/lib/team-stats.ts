@@ -55,20 +55,25 @@ export function diasConRegistro(sesiones: SesionCruda[], within: Span, tz: strin
  * Se evalúa al mediodía UTC de esa fecha: a esa hora ningún desplazamiento de
  * zona horaria empuja la fecha a otro día, así que el día de la semana sale
  * estable sin importar la zona del servidor.
+ *
+ * Exportada: I6 la necesita para separar, de la lista que ya arma
+ * `diasConRegistro`, cuáles de esos días cayeron en fin de semana.
  */
-function esDiaHabil(fecha: string): boolean {
+export function esDiaHabil(fecha: string): boolean {
   const dow = new Date(`${fecha}T12:00:00Z`).getUTCDay();
   return dow >= 1 && dow <= 5;
 }
 
 /**
- * Días de lunes a viernes dentro del período, en fechas locales.
+ * Días de lunes a viernes dentro del período, en fechas locales, menos los
+ * feriados de `feriados` (fechas `YYYY-MM-DD`) que caigan en ese rango.
  *
- * Es el denominador de "N de M días". Los feriados se descontarían acá cuando
- * RRHH los cargue -- hoy hay 0 en producción, así que el denominador es
- * simplemente los hábiles. No se inventan: un feriado no cargado no existe.
+ * Es el denominador de "N de M días". `feriados` es opcional para no romper
+ * llamadores que todavía no resuelven el país de cada persona -- sin el
+ * argumento, el denominador es simplemente los hábiles (I5): un feriado no
+ * cargado no existe y no se inventa.
  */
-export function diasHabiles(within: Span, tz: string): string[] {
+export function diasHabiles(within: Span, tz: string, feriados?: ReadonlySet<string>): string[] {
   const ultima = localDateString(within.end, tz);
   // Se ancla al mediodía UTC del primer día LOCAL, no al día calendario UTC de
   // `within.start`: cuando el arranque local cae por la tarde, su día UTC va uno
@@ -78,11 +83,27 @@ export function diasHabiles(within: Span, tz: string): string[] {
   const out: string[] = [];
   let fecha = localDateString(cursor, tz);
   while (fecha <= ultima) {
-    if (esDiaHabil(fecha)) out.push(fecha);
+    if (esDiaHabil(fecha) && !feriados?.has(fecha)) out.push(fecha);
     cursor.setUTCDate(cursor.getUTCDate() + 1);
     fecha = localDateString(cursor, tz);
   }
   return out;
+}
+
+/**
+ * Cuántas de estas fechas (`YYYY-MM-DD`, la salida de `diasConRegistro`)
+ * caen fuera de lunes-viernes (I6).
+ *
+ * `diasConRegistro` sigue contando TODOS los días con sesión a propósito --
+ * es el dato correcto, "¿trabajó ese día?" -- pero compararlo tal cual
+ * contra `diasHabiles` produce fracciones como "7/5" para quien trabajó un
+ * sábado: el numerador y el denominador miden universos distintos. Esta
+ * función no cambia `diasConRegistro`; separa el fin de semana para que la
+ * interfaz lo reporte aparte en vez de esconderlo O de dejar que infle la
+ * fracción.
+ */
+export function diasFinDeSemana(dias: string[]): number {
+  return dias.filter(f => !esDiaHabil(f)).length;
 }
 
 /** Cuántos períodos anteriores entran en la norma, por tipo de período. */

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TeamService } from './team.service';
 import type { PluginContext } from '@vla/plugin-sdk';
+import type { OrgService, RosterEntry } from './org.service';
+import type { HolidayService } from './holiday.service';
 import { aggregateSessions, capOpenSession, periodBounds } from '../lib/timesheet';
 import { DEFAULT_TZ } from '../lib/local-date';
 
@@ -96,8 +98,38 @@ function makeCtx(opts: {
   return { ctx: ctx as unknown as PluginContext, warn, checkInFindMany, userFindMany, checkInGroupBy };
 }
 
-function makeService(ctx: PluginContext, capHours = 12) {
-  return new TeamService(ctx, () => TZ, () => capHours);
+/**
+ * Doble mínimo de `OrgService` para I5: por omisión nadie tiene país
+ * resuelto (`roster` vacío), así que `feriadosPorUsuario` no descuenta nada
+ * y el comportamiento es idéntico al de antes de I5 -- las pruebas que no
+ * mencionan feriados no necesitan saber que este doble existe.
+ */
+function fakeOrg(opts: { roster?: Map<string, Partial<RosterEntry>>; reject?: Error } = {}): OrgService {
+  return {
+    roster: vi.fn(async () => {
+      if (opts.reject) throw opts.reject;
+      return opts.roster ?? new Map();
+    }),
+  } as unknown as OrgService;
+}
+
+/** Doble mínimo de `HolidayService` para I5. Por omisión, sin feriados cargados. */
+function fakeHolidays(opts: { porPais?: Map<string, Set<string>>; reject?: Error } = {}): HolidayService {
+  return {
+    datesByCountry: vi.fn(async () => {
+      if (opts.reject) throw opts.reject;
+      return opts.porPais ?? new Map();
+    }),
+  } as unknown as HolidayService;
+}
+
+function makeService(
+  ctx: PluginContext,
+  capHours = 12,
+  org: OrgService = fakeOrg(),
+  holidays: HolidayService = fakeHolidays(),
+) {
+  return new TeamService(ctx, () => TZ, () => capHours, org, holidays);
 }
 
 describe('TeamService.filas — sin-registrar nunca se ve como un cero real', () => {
@@ -279,6 +311,189 @@ describe('TeamService.filasYCobertura — el período en curso no cuenta horas q
       pct: Math.round(((60 - 240) / 240) * 100),
       destacar: true,
     });
+  });
+});
+
+describe('TeamService.filasYCobertura — I4: la norma compara el MISMO punto transcurrido, no el período previo entero', () => {
+  const AHORA = cr('2026-09-24T12:00:00'); // jueves, mitad de la semana en curso (12:00 de 7 días = 50%)
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(AHORA);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  /** Siete sesiones cerradas de 08:00 a 16:00 (480 min), lunes a domingo. */
+  function semanaCompleta(mondayIso: string): CheckInRow[] {
+    const out: CheckInRow[] = [];
+    const monday = new Date(`${mondayIso}T00:00:00Z`);
+    for (let i = 0; i < 7; i++) {
+      const fecha = new Date(monday.getTime() + i * 86_400_000).toISOString().slice(0, 10);
+      out.push({ userId: 'u1', checkInAt: cr(`${fecha}T08:00:00`), checkOutAt: cr(`${fecha}T16:00:00`) });
+    }
+    return out;
+  }
+
+  it('al 50% de la semana con la mitad de los minutos, la variación es ≈0% -- NO -50%', async () => {
+    // La semana en curso (lunes 21 a jueves 24 mediodía, lo único que pasó)
+    // repite el MISMO patrón de 08:00-16:00 que las tres semanas previas,
+    // pero solo hasta "ahora" -- la de hoy queda abierta y se acota a las
+    // 12:00 por el mecanismo de C2/C3, no por este fix. Si `totalesPrevios`
+    // siguiera usando el período previo ENTERO (7 días x 480min = 3360),
+    // 1680 contra 3360 da exactamente -50% -- el bug que describe I4. Con el
+    // fix, cada previo se acota a sus primeras 3.5 días (el mismo punto
+    // relativo), y da 1680 igual: ~0%.
+    const checkIns: CheckInRow[] = [
+      { userId: 'u1', checkInAt: cr('2026-09-21T08:00:00'), checkOutAt: cr('2026-09-21T16:00:00') }, // lunes
+      { userId: 'u1', checkInAt: cr('2026-09-22T08:00:00'), checkOutAt: cr('2026-09-22T16:00:00') }, // martes
+      { userId: 'u1', checkInAt: cr('2026-09-23T08:00:00'), checkOutAt: cr('2026-09-23T16:00:00') }, // miércoles
+      { userId: 'u1', checkInAt: cr('2026-09-24T08:00:00'), checkOutAt: null }, // jueves, hoy, abierta
+      ...semanaCompleta('2026-09-14'), // semana previa -1
+      ...semanaCompleta('2026-09-07'), // semana previa -2
+      ...semanaCompleta('2026-08-31'), // semana previa -3
+    ];
+    const { ctx } = makeCtx({
+      checkIns,
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const [fila] = await makeService(ctx).filas(['u1'], 'week', AHORA);
+
+    expect(fila.totalMinutes).toBe(1680); // 3 días completos (1440) + jueves acotado a "ahora" (240)
+    expect(fila.variacion).toEqual({ tipo: 'calculada', pct: 0, destacar: false });
+  });
+
+  it('un período previo YA CERRADO y más CORTO que el actual no se acota más allá de su propio fin (fuga entre meses)', async () => {
+    // Guarda del `Math.min(p.start + transcurrido, p.end)`. `transcurrido` se
+    // calcula sobre MARZO (31 días); febrero, el previo inmediato, tiene
+    // solo 28 (año no bisiesto). Sin el `Math.min`, `p.start + transcurrido`
+    // para febrero cae el 3 de marzo -- DESPUÉS del propio fin de febrero --
+    // y la sesión del 2 de marzo (que es de MARZO, el período ACTUAL) se
+    // colaría dentro de la "norma" de febrero, inflándola.
+    //
+    // Se corre el reloj más allá de marzo (el `beforeEach` de este describe
+    // lo deja a mitad de la semana del 24-sep) para que marzo quede YA
+    // CERRADO y `transcurrido` cubra su duración completa -- el escenario
+    // exacto en el que la fuga ocurriría si faltara el `Math.min`.
+    vi.setSystemTime(cr('2027-04-05T10:00:00'));
+    const anclaMarzo = cr('2027-03-15T10:00:00');
+    const checkIns: CheckInRow[] = [
+      // Marzo: única sesión del período actual, y el cebo de la fuga si el
+      // `Math.min` faltara.
+      { userId: 'u1', checkInAt: cr('2027-03-02T08:00:00'), checkOutAt: cr('2027-03-02T09:00:00') },
+      // Febrero (28 días, MÁS CORTO que marzo): su propia sesión, la única
+      // que debe contar en su norma.
+      { userId: 'u1', checkInAt: cr('2027-02-01T08:00:00'), checkOutAt: cr('2027-02-01T09:00:00') },
+      // Enero y diciembre (31 días cada uno, IGUAL que marzo): sin riesgo de
+      // fuga, solo para llegar al mínimo de 3 períodos que exige `variacion`.
+      { userId: 'u1', checkInAt: cr('2027-01-01T08:00:00'), checkOutAt: cr('2027-01-01T09:00:00') },
+      { userId: 'u1', checkInAt: cr('2026-12-01T08:00:00'), checkOutAt: cr('2026-12-01T09:00:00') },
+    ];
+    const { ctx } = makeCtx({
+      checkIns,
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const [fila] = await makeService(ctx).filas(['u1'], 'month', anclaMarzo);
+
+    expect(fila.totalMinutes).toBe(60); // marzo, ya cerrado: su única sesión
+    // Norma = 60 (Feb, Ene, Dic, los tres con 60 min reales cada uno) ->
+    // variación 0%. Con la fuga (sin `Math.min`), Feb saldría en 120 y la
+    // norma en 80, dando -25% -- la prueba lo distingue explícitamente.
+    expect(fila.variacion).toEqual({ tipo: 'calculada', pct: 0, destacar: false });
+  });
+});
+
+describe('TeamService.filasYCobertura — I5: feriados por país en el denominador de "N de M días"', () => {
+  const ANCLA = cr('2026-09-21T10:00:00'); // semana lunes 21 a domingo 27 de setiembre
+
+  it('un feriado del país de la persona baja SU diasHabiles; a otro país no le toca', async () => {
+    const { ctx } = makeCtx({
+      users: [
+        { id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' },
+        { id: 'u2', firstName: 'Beto', lastName: 'Solís', email: 'beto@vla.com' },
+      ],
+    });
+    const roster = new Map<string, Partial<RosterEntry>>([
+      ['u1', { country: 'CR' }],
+      ['u2', { country: 'AR' }],
+    ]);
+    // Miércoles 23-sep feriado, pero SOLO en Costa Rica.
+    const porPais = new Map([['CR', new Set(['2026-09-23'])]]);
+
+    const svc = makeService(ctx, 12, fakeOrg({ roster }), fakeHolidays({ porPais }));
+    const filas = await svc.filas(['u1', 'u2'], 'week', ANCLA);
+
+    expect(filas.find(f => f.userId === 'u1')!.diasHabiles).toBe(4);
+    expect(filas.find(f => f.userId === 'u2')!.diasHabiles).toBe(5);
+  });
+
+  it('sin feriados cargados, diasHabiles no cambia respecto de antes de I5', async () => {
+    const { ctx } = makeCtx({ users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }] });
+
+    const [fila] = await makeService(ctx).filas(['u1'], 'week', ANCLA);
+
+    expect(fila.diasHabiles).toBe(5);
+  });
+
+  it('si el organigrama (país) no se pudo leer, NO se descuenta nada y se loguea', async () => {
+    const { ctx, warn } = makeCtx({ users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }] });
+    const org = fakeOrg({ reject: new Error('conexión perdida') });
+
+    const [fila] = await makeService(ctx, 12, org, fakeHolidays()).filas(['u1'], 'week', ANCLA);
+
+    // Un denominador generoso (sin descontar) es menos dañino que apagar la
+    // pantalla entera -- pero el fallo queda logueado para que no pase
+    // desapercibido según el país de las personas.
+    expect(fila.diasHabiles).toBe(5);
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('si el catálogo de feriados (no el organigrama) rechaza, tampoco se descuenta nada', async () => {
+    const { ctx, warn } = makeCtx({ users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }] });
+    const roster = new Map<string, Partial<RosterEntry>>([['u1', { country: 'CR' }]]);
+    const holidays = fakeHolidays({ reject: new Error('relation "holidays" does not exist') });
+
+    const [fila] = await makeService(ctx, 12, fakeOrg({ roster }), holidays).filas(['u1'], 'week', ANCLA);
+
+    expect(fila.diasHabiles).toBe(5);
+    expect(warn).toHaveBeenCalled();
+  });
+});
+
+describe('TeamService.filasYCobertura — I6: diasFinDeSemana separa el fin de semana del numerador', () => {
+  it('quien trabajó un sábado no infla el numerador en silencio: diasFinDeSemana lo separa', async () => {
+    const checkIns: CheckInRow[] = [
+      { userId: 'u1', checkInAt: cr('2026-09-21T08:00:00'), checkOutAt: cr('2026-09-21T09:00:00') }, // lunes
+      { userId: 'u1', checkInAt: cr('2026-09-26T08:00:00'), checkOutAt: cr('2026-09-26T09:00:00') }, // sábado
+    ];
+    const { ctx } = makeCtx({
+      checkIns,
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const [fila] = await makeService(ctx).filas(['u1'], 'week', cr('2026-09-21T10:00:00'));
+
+    // diasConRegistro NO se esconde el sábado -- sigue contando los dos días.
+    expect(fila.diasConRegistro).toBe(2);
+    expect(fila.diasHabiles).toBe(5);
+    expect(fila.diasFinDeSemana).toBe(1);
+    // El numerador que sí comparte universo con el denominador ("1 de 5", no "2 de 5").
+    expect(fila.diasConRegistro - fila.diasFinDeSemana).toBe(1);
+  });
+
+  it('sin fin de semana trabajado, diasFinDeSemana es cero', async () => {
+    const checkIns: CheckInRow[] = [
+      { userId: 'u1', checkInAt: cr('2026-09-21T08:00:00'), checkOutAt: cr('2026-09-21T09:00:00') },
+    ];
+    const { ctx } = makeCtx({
+      checkIns,
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const [fila] = await makeService(ctx).filas(['u1'], 'week', cr('2026-09-21T10:00:00'));
+
+    expect(fila.diasFinDeSemana).toBe(0);
   });
 });
 

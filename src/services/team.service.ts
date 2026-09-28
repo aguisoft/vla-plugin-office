@@ -3,12 +3,14 @@ import {
   periodBounds, capOpenSession, aggregateSessions, clipSpan, type Period, type Span,
 } from '../lib/timesheet';
 import {
-  estadoRegistro, diasConRegistro, diasHabiles, computeNorm, PERIODOS_NORMA, variacion,
-  entradaHabitual, type EstadoRegistro, type Variacion,
+  estadoRegistro, diasConRegistro, diasFinDeSemana, diasHabiles, computeNorm, PERIODOS_NORMA,
+  variacion, entradaHabitual, type EstadoRegistro, type Variacion,
 } from '../lib/team-stats';
 import { localDateString } from '../lib/local-date';
 import { coverageMatrix, type Matriz } from '../lib/coverage';
 import { nombresPorUsuario, type NombreInfo } from '../lib/user-names';
+import type { OrgService } from './org.service';
+import type { HolidayService } from './holiday.service';
 
 /**
  * Estado de una fila de la tabla, con un valor MÁS que la lógica pura.
@@ -34,6 +36,15 @@ export interface FilaEquipo {
   variacion: Variacion;
   diasConRegistro: number;
   diasHabiles: number;
+  /**
+   * Cuántos de los `diasConRegistro` cayeron fuera de lunes-viernes (I6).
+   * `diasConRegistro` sigue siendo el total real -- no se esconde el trabajo
+   * de fin de semana -- pero comparado tal cual contra `diasHabiles` produce
+   * fracciones como "7/5", que en la lectura obvia parecen un error del
+   * sistema. La interfaz resta este valor para armar el numerador que sí
+   * comparte universo con el denominador, y lo muestra aparte.
+   */
+  diasFinDeSemana: number;
   entradaHabitual: string | null;
   /** YYYY-MM-DD local. `null` = de verdad nunca marcó. Ver `ultimoDisponible`. */
   ultimoRegistro: string | null;
@@ -58,10 +69,18 @@ type CheckInRow = { userId: string; checkInAt: Date; checkOutAt: Date | null };
 const DIAS_SIN_MARCAR = 30;
 
 export class TeamService {
+  /**
+   * `org` y `holidays` alimentan I5 (descontar feriados por país del
+   * denominador de "N de M días"). Van al final y no antes de `ctx` para no
+   * mover los parámetros que ya usan los llamadores existentes de más arriba
+   * en la firma.
+   */
   constructor(
     private readonly ctx: PluginContext,
     private readonly tzOf: () => string,
     private readonly maxOpenSessionHoursOf: () => number,
+    private readonly org: OrgService,
+    private readonly holidays: HolidayService,
   ) {}
 
   /**
@@ -149,6 +168,8 @@ export class TeamService {
       variacion: { tipo: 'sin-base' },
       diasConRegistro: 0,
       diasHabiles: diasHabilesPeriodo,
+      // Sin sesiones que leer, no hay fin de semana que separar del cero.
+      diasFinDeSemana: 0,
       entradaHabitual: null,
       ultimoRegistro: ultimos?.get(userId) ?? null,
       ultimoDisponible: ultimos !== null,
@@ -176,10 +197,43 @@ export class TeamService {
       variacion: { tipo: 'sin-base' },
       diasConRegistro: 0,
       diasHabiles: diasHabilesPeriodo,
+      diasFinDeSemana: 0,
       entradaHabitual: null,
       ultimoRegistro: null,
       ultimoDisponible: false,
     };
+  }
+
+  /**
+   * Feriados efectivos de cada persona, como fechas `YYYY-MM-DD`, dentro del
+   * período actual (I5). Resuelve el país de cada quien con `OrgService.roster`
+   * y le pide a `HolidayService` solo los feriados de los países que de verdad
+   * aparecen en `userIds` -- una persona de Argentina nunca pierde un día por
+   * un feriado tico.
+   *
+   * `null` si cualquiera de las dos consultas falla: el llamador entonces NO
+   * descuenta nada de `diasHabiles` -- un denominador algo generoso es menos
+   * dañino que apagar la pantalla entera -- pero queda logueado para que no
+   * pase desapercibido según el país de las personas.
+   */
+  private async feriadosPorUsuario(
+    userIds: string[], currentBounds: Span,
+  ): Promise<Map<string, ReadonlySet<string>> | null> {
+    try {
+      const roster = await this.org.roster(userIds);
+      const paises = new Set<string>();
+      for (const r of roster.values()) paises.add(r.country);
+      const porPais = await this.holidays.datesByCountry([...paises], currentBounds.start, currentBounds.end);
+      const out = new Map<string, ReadonlySet<string>>();
+      for (const userId of userIds) {
+        const pais = roster.get(userId)?.country;
+        out.set(userId, (pais && porPais.get(pais)) || new Set<string>());
+      }
+      return out;
+    } catch (e) {
+      this.ctx.logger.warn(`TeamService: no se pudieron leer los feriados por país, no se descuenta ninguno: ${e}`);
+      return null;
+    }
   }
 
   /**
@@ -248,12 +302,6 @@ export class TeamService {
     const tz = this.tzOf();
     const capHours = this.maxOpenSessionHoursOf();
     const currentBounds = periodBounds(anchor, period, tz);
-    // Denominador de "N de M días": el calendario COMPLETO del período pedido,
-    // corrido o no. Es la excepción a `efectivo` de abajo a propósito -- si se
-    // acotara a "ahora", un lunes diría "1 de 1" y un viernes "5 de 5", y la
-    // fracción perdería el sentido de "cuánto falta/se cumplió" que la
-    // interfaz necesita.
-    const diasHabilesPeriodo = diasHabiles(currentBounds, tz).length;
 
     // C2/C3: el fin efectivo nunca pasa del presente. Un período que incluye
     // hoy no puede contar horas que todavía no ocurrieron (`capOpenSession`,
@@ -269,17 +317,34 @@ export class TeamService {
       end: currentBounds.end < ahora ? currentBounds.end : ahora,
     };
 
+    // I4: cuánto ha transcurrido del período EN CURSO, en milisegundos reales
+    // -- no un período de calendario. Se usa más abajo para acotar cada
+    // período PREVIO (ya cerrado) al mismo punto relativo, en vez de
+    // compararlo completo contra un actual que todavía va a la mitad. Si el
+    // período ya terminó, `efectivo.end` coincide con `currentBounds.end` y
+    // esto cubre la duración entera.
+    const transcurrido = efectivo.end.getTime() - currentBounds.start.getTime();
+
     const periodosPrevios = this.periodosAnteriores(anchor, period, tz, PERIODOS_NORMA[period]);
     const ventanaNorma: Span = {
       start: periodosPrevios[periodosPrevios.length - 1].start,
       end: periodosPrevios[0].end,
     };
 
-    const [nombres, rows, ultimos] = await Promise.all([
+    const [nombres, rows, ultimos, feriados] = await Promise.all([
       nombresPorUsuario(this.ctx, userIds),
       this.checkInsDelEquipo(userIds, ventanaNorma.start, currentBounds.end),
       this.ultimoRegistroPorUsuario(userIds),
+      this.feriadosPorUsuario(userIds, currentBounds),
     ]);
+
+    // I5: denominador de "N de M días" POR PERSONA -- el calendario COMPLETO
+    // del período pedido, corrido o no (es la excepción a `efectivo`: si se
+    // acotara a "ahora", un lunes diría "1 de 1" y un viernes "5 de 5", y la
+    // fracción perdería el sentido de "cuánto falta/se cumplió"), menos los
+    // feriados del país de esa persona en particular. `feriados` es `null`
+    // si esa consulta falló -- ahí no se descuenta nada (ver `feriadosPorUsuario`).
+    const diasHabilesDe = (userId: string) => diasHabiles(currentBounds, tz, feriados?.get(userId)).length;
 
     // I1: sin nombres no hay forma de decir de quién es cada minuto, así que
     // la fila entera se apaga -- ver `filaSinNombres`. Se revisa ANTES que la
@@ -287,14 +352,14 @@ export class TeamService {
     // sus números junto a un nombre en blanco es el defecto que se corrige acá.
     if (nombres === null) {
       return {
-        filas: userIds.map(userId => this.filaSinNombres(userId, diasHabilesPeriodo)),
+        filas: userIds.map(userId => this.filaSinNombres(userId, diasHabilesDe(userId))),
         cobertura: sinCobertura,
       };
     }
 
     if (rows === null) {
       return {
-        filas: userIds.map(userId => this.filaSinConsulta(userId, nombres, diasHabilesPeriodo, ultimos)),
+        filas: userIds.map(userId => this.filaSinConsulta(userId, nombres, diasHabilesDe(userId), ultimos)),
         cobertura: sinCobertura,
       };
     }
@@ -336,15 +401,29 @@ export class TeamService {
     const filas = userIds.map(userId => {
       const sesiones = byUser.get(userId) ?? [];
       const totalActual = aggregateSessions(sesiones, efectivo, tz).totalMinutes;
-      // La norma se calcula SOLO sobre los períodos anteriores, y esos son
-      // períodos YA CERRADOS -- `p` es su propio Span, nunca `efectivo` --
-      // así que no se acotan a "ahora": acotarlos les restaría horas que de
-      // verdad ocurrieron. El actual tampoco entra acá, para no comparar la
-      // norma contra sí misma.
-      const totalesPrevios = periodosPrevios.map(p => aggregateSessions(sesiones, p, tz).totalMinutes);
+      // I4: cada período previo (YA CERRADO -- `p` es su propio Span, nunca
+      // `efectivo`) se acota al MISMO punto relativo que ya transcurrió del
+      // actual (`p.start + transcurrido`), no a su duración completa. Sin
+      // esto, un lunes a las 10am comparaba unas pocas horas contra semanas
+      // enteras y salía ~-90% para todo el mundo. `Math.min` contra
+      // `p.end` es la guarda para cuando el período previo es más corto que
+      // el actual (p. ej. febrero contra un marzo de 31 días): ahí
+      // `transcurrido` ya cubre el período previo entero y no hay que
+      // acotarlo más. Un período previo cerrado con el actual TAMBIÉN
+      // cerrado da `transcurrido` = duración completa, y esto no cambia nada
+      // (mismo caso que ya cubría la prueba de C2/C3).
+      const totalesPrevios = periodosPrevios.map(p => {
+        const finAcotado = new Date(Math.min(p.start.getTime() + transcurrido, p.end.getTime()));
+        return aggregateSessions(sesiones, { start: p.start, end: finAcotado }, tz).totalMinutes;
+      });
       const norma = computeNorm(totalesPrevios);
       const nombre = nombres.get(userId);
       const primerasEntradas = [...(entradasPorDia.get(userId)?.values() ?? [])];
+      // I6: `diasConRegistro` sigue contando TODOS los días con sesión
+      // (correcto, no se esconde el fin de semana) -- acá se separa cuántos
+      // de esos caen fuera de lunes-viernes para que la interfaz arme un
+      // numerador que sí comparte universo con `diasHabiles`.
+      const diasRegistrados = diasConRegistro(sesiones, efectivo, tz);
 
       return {
         userId,
@@ -355,8 +434,9 @@ export class TeamService {
         totalMinutes: totalActual,
         openSessionCapped: acotadas.has(userId),
         variacion: variacion(totalActual, norma),
-        diasConRegistro: diasConRegistro(sesiones, efectivo, tz).length,
-        diasHabiles: diasHabilesPeriodo,
+        diasConRegistro: diasRegistrados.length,
+        diasHabiles: diasHabilesDe(userId),
+        diasFinDeSemana: diasFinDeSemana(diasRegistrados),
         entradaHabitual: entradaHabitual(primerasEntradas, tz),
         // C1: de una consulta APARTE (`ultimoRegistroPorUsuario`), sin cota
         // inferior -- ver su comentario. `null` con `ultimoDisponible: true`

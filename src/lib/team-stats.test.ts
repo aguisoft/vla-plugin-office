@@ -1,5 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { computeNorm, diasConRegistro, diasHabiles, entradaHabitual, estadoRegistro, PERIODOS_NORMA, variacion } from './team-stats';
+import {
+  computeNorm, diasConRegistro, diasFinDeSemana, diasHabiles, entradaHabitual, estadoRegistro,
+  PERIODOS_NORMA, variacion,
+} from './team-stats';
 
 const TZ = 'America/Costa_Rica';
 const span = { start: new Date('2026-09-21T06:00:00Z'), end: new Date('2026-09-28T05:59:59Z') };
@@ -101,6 +104,52 @@ describe('diasHabiles', () => {
   it('un período de un solo día hábil da ese día', () => {
     const unDia = { start: new Date('2026-09-22T06:00:00Z'), end: new Date('2026-09-23T05:59:59Z') };
     expect(diasHabiles(unDia, TZ)).toEqual(['2026-09-22']);
+  });
+
+  describe('con feriados (I5)', () => {
+    it('un feriado en medio de la semana baja el denominador a 4', () => {
+      // Miércoles 23-sep feriado -> quedan lunes, martes, jueves, viernes.
+      const feriados = new Set(['2026-09-23']);
+      expect(diasHabiles(span, TZ, feriados)).toEqual([
+        '2026-09-21', '2026-09-22', '2026-09-24', '2026-09-25',
+      ]);
+    });
+
+    it('un feriado de OTRO país (fuera del rango pedido) no lo toca', () => {
+      // Simula lo que hace TeamService: solo se le pasan los feriados del
+      // país de la persona. Una fecha fuera del período no debería aparecer
+      // nunca en el set real, pero si apareciera, tampoco tendría efecto.
+      const feriados = new Set(['2026-10-05']);
+      expect(diasHabiles(span, TZ, feriados)).toEqual([
+        '2026-09-21', '2026-09-22', '2026-09-23', '2026-09-24', '2026-09-25',
+      ]);
+    });
+
+    it('sin feriados (undefined) el resultado no cambia', () => {
+      expect(diasHabiles(span, TZ)).toEqual(diasHabiles(span, TZ, undefined));
+    });
+
+    it('un set de feriados vacío tampoco cambia nada', () => {
+      expect(diasHabiles(span, TZ, new Set())).toEqual(diasHabiles(span, TZ));
+    });
+  });
+});
+
+describe('diasFinDeSemana (I6)', () => {
+  it('separa el sábado de una lista que ya trae lunes a sábado', () => {
+    expect(diasFinDeSemana(['2026-09-21', '2026-09-22', '2026-09-26'])).toBe(1);
+  });
+
+  it('una lista sin fin de semana da cero', () => {
+    expect(diasFinDeSemana(['2026-09-21', '2026-09-22'])).toBe(0);
+  });
+
+  it('una lista vacía da cero', () => {
+    expect(diasFinDeSemana([])).toBe(0);
+  });
+
+  it('cuenta sábado Y domingo', () => {
+    expect(diasFinDeSemana(['2026-09-26', '2026-09-27'])).toBe(2);
   });
 });
 

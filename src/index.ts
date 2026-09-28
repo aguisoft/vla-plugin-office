@@ -122,7 +122,9 @@ const plugin: PluginDefinition = {
     );
     // Misma razón que timesheet arriba: MAX_OPEN_SESSION_HOURS se lee perezoso
     // porque ctx.plugin.config se hidrata después de registrar el plugin.
-    const team = new TeamService(ctx, tz, horasConfig('MAX_OPEN_SESSION_HOURS', 12));
+    // `org`/`holidays` (I5): descuenta del denominador de "N de M días" los
+    // feriados del país de cada persona, ya instanciados arriba.
+    const team = new TeamService(ctx, tz, horasConfig('MAX_OPEN_SESSION_HOURS', 12), org, holidays);
     // Task 9: reporte de cumplimiento de TODA la organización. Reusa team
     // (excepciones), org (organigrama) y timesheet (coverageStart) en vez de
     // repetir sus consultas -- ver compliance.service.ts para el detalle de
