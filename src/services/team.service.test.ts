@@ -183,7 +183,7 @@ describe('TeamService.excepciones', () => {
 });
 
 describe('TeamService.filas — degrada si la consulta de sesiones rechaza', () => {
-  it('no lanza: devuelve filas sin-registrar y deja un warning', async () => {
+  it('no lanza: devuelve filas no-disponible, distintas de un sin-registrar real', async () => {
     // NUNCA lanza: Express 4 no atrapa un rechazo de promesa en un handler
     // async, así que un fallo acá mataría el proceso entero del API, no solo
     // este endpoint.
@@ -199,7 +199,12 @@ describe('TeamService.filas — degrada si la consulta de sesiones rechaza', () 
 
     expect(filas).toHaveLength(2);
     for (const fila of filas) {
-      expect(fila.estado).toBe('sin-registrar');
+      // Los ceros son los mismos que los de un «sin registrar» real, pero el
+      // estado NO puede serlo: «sin registrar» es un hecho sobre la persona y
+      // «no disponible» es un hecho sobre el sistema. Confundirlos le atribuye
+      // a alguien una conducta que no tuvo.
+      expect(fila.estado).toBe('no-disponible');
+      expect(fila.estado).not.toBe('sin-registrar');
       expect(fila.totalMinutes).toBe(0);
     }
     // diasHabiles no depende de la consulta que falló: sigue siendo el

@@ -8,12 +8,25 @@ import {
 } from '../lib/team-stats';
 import { localDateString } from '../lib/local-date';
 
+/**
+ * Estado de una fila de la tabla, con un valor MÁS que la lógica pura.
+ *
+ * `EstadoRegistro` responde «¿marcó o no?» sobre sesiones que sí se pudieron
+ * leer. Acá hace falta un tercer valor para «no se pudo leer», porque si una
+ * falla de base se presenta como `sin-registrar`, el jefe ve exactamente lo
+ * mismo que vería si la persona no hubiera marcado, y no tiene manera de
+ * distinguirlo. Es el mismo error que ya se corrigió en el desglose por estado
+ * con `breakdownUnavailable`: un fallo de infraestructura dibujado como un dato
+ * sobre una persona.
+ */
+export type EstadoFila = EstadoRegistro | 'no-disponible';
+
 export interface FilaEquipo {
   userId: string;
   firstName: string;
   lastName: string;
   email: string;
-  estado: EstadoRegistro;
+  estado: EstadoFila;
   totalMinutes: number;
   openSessionCapped: boolean;
   variacion: Variacion;
@@ -120,12 +133,17 @@ export class TeamService {
   }
 
   /**
-   * Fila de respaldo cuando la consulta de sesiones falla: los mismos ceros
-   * que un "sin-registrar" real. `FilaEquipo` no tiene un campo para decir
-   * "no se pudo leer" -- la señal de que esto fue una falla de base y no un
-   * dato real vive en el warning que dejó `checkInsDelEquipo`, no en la fila.
-   * `diasHabiles` es la excepción: no depende de la consulta que falló, así
-   * que sigue siendo el calendario real y no otro cero sin explicación.
+   * Fila de respaldo cuando la consulta de sesiones falla.
+   *
+   * Va con `estado: 'no-disponible'` y no con `'sin-registrar'`: los dos casos
+   * producen los mismos ceros, pero significan cosas opuestas. «Sin registrar»
+   * es un hecho sobre la persona —no marcó— y «no disponible» es un hecho sobre
+   * el sistema. Mostrar el primero cuando pasó el segundo le atribuye a alguien
+   * una conducta que no tuvo, que es justo lo que este tablero existe para
+   * evitar.
+   *
+   * `diasHabiles` es la excepción y se conserva: no depende de la consulta que
+   * falló, así que sigue siendo el calendario real y no otro cero sin explicar.
    */
   private filaSinConsulta(userId: string, nombres: Map<string, NombreInfo>, diasHabilesPeriodo: number): FilaEquipo {
     const nombre = nombres.get(userId);
@@ -134,7 +152,7 @@ export class TeamService {
       firstName: nombre?.firstName ?? '',
       lastName: nombre?.lastName ?? '',
       email: nombre?.email ?? '',
-      estado: 'sin-registrar',
+      estado: 'no-disponible',
       totalMinutes: 0,
       openSessionCapped: false,
       variacion: { tipo: 'sin-base' },
