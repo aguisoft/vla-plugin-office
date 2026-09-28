@@ -10,6 +10,7 @@ import { HolidayService } from './services/holiday.service';
 import { MeetingService } from './services/meeting.service';
 import { TimesheetService } from './services/timesheet.service';
 import { TeamService } from './services/team.service';
+import { ComplianceService } from './services/compliance.service';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { DEFAULT_TZ } from './lib/local-date';
 import { validateStatusInput, type StatusInput, type OfficeStatus } from './lib/status-rules';
@@ -121,6 +122,11 @@ const plugin: PluginDefinition = {
     // Misma razón que timesheet arriba: MAX_OPEN_SESSION_HOURS se lee perezoso
     // porque ctx.plugin.config se hidrata después de registrar el plugin.
     const team = new TeamService(ctx, tz, horasConfig('MAX_OPEN_SESSION_HOURS', 12));
+    // Task 9: reporte de cumplimiento de TODA la organización. Reusa team
+    // (excepciones), org (organigrama) y timesheet (coverageStart) en vez de
+    // repetir sus consultas -- ver compliance.service.ts para el detalle de
+    // qué se reusó y qué se decidió escribir aparte.
+    const compliance = new ComplianceService(ctx, tz, team, org, holidays, timesheet);
 
     // ── Helper: configuración en horas ────────────────────────────────────────
     /**
@@ -197,6 +203,31 @@ const plugin: PluginDefinition = {
           }
         }
       };
+    }
+
+    // ── Helper: period/anchor de las rutas de tiempos ─────────────────────────
+    /**
+     * `period`/`anchor` los parsean hoy /timesheet/office y /timesheet/team,
+     * cada uno con su propia copia del mismo bloque. Task 9/10 agrega un
+     * tercer y cuarto lugar (`/timesheet/compliance` y `/timesheet/export`)
+     * que necesitan EXACTAMENTE la misma validación -- el CSV tiene que
+     * poder pedir el mismo período que la pantalla está mostrando -- así
+     * que la tercera copia se evita acá. Las dos rutas viejas quedan como
+     * estaban (no se tocan en esta tarea).
+     */
+    function parsePeriodAnchor(req: Request): { period: Period; anchor: Date } | { error: string } {
+      const period = (req.query.period as Period) || 'week';
+      if (!['day', 'week', 'month'].includes(period)) {
+        return { error: 'period debe ser day, week o month' };
+      }
+      const anchorRaw = req.query.anchor as string | undefined;
+      // Mediodía UTC a propósito: el mismo YYYY-MM-DD cae en el mismo día
+      // local en UTC-6 sin depender de a qué hora corre el servidor.
+      const anchor = anchorRaw ? new Date(`${anchorRaw}T12:00:00Z`) : new Date();
+      if (Number.isNaN(anchor.getTime())) {
+        return { error: 'anchor inválido, se espera YYYY-MM-DD' };
+      }
+      return { period, anchor };
     }
 
     // Sync Bitrix photos + timeman on startup — delayed 5s to let hydrateConfig complete first
@@ -906,7 +937,17 @@ const plugin: PluginDefinition = {
       const bounds = periodBounds(anchor, period, tz());
       const [{ filas, cobertura }, excepciones] = await Promise.all([
         team.filasYCobertura(ids, period, anchor),
-        team.excepciones(ids),
+        // Task 9 cambió `excepciones()` para que RECHACE si la consulta
+        // falla (antes degradaba sola a `{ sinMarcar30Dias: [], sesionesAbiertas: [] }`,
+        // que es el mismo "cero inventado" que el resto del plugin viene
+        // corrigiendo). Acá se conserva el degrade de siempre -- esta
+        // pantalla ya fue revisada con ese contrato -- y `ComplianceService`
+        // (que sí necesita distinguir "sin excepciones" de "no se pudo
+        // comprobar") lo refleja como `null` en su lugar.
+        team.excepciones(ids).catch(e => {
+          ctx.logger.warn(`/timesheet/team: no se pudieron leer las excepciones: ${e}`);
+          return { sinMarcar30Dias: [], sesionesAbiertas: [] };
+        }),
       ]);
 
       res.json({
@@ -919,6 +960,23 @@ const plugin: PluginDefinition = {
         excepciones,
         cobertura,
       });
+    }));
+
+    /**
+     * Reporte de cumplimiento de TODA la organización (Task 9). Va con
+     * `office.manage` y no con VIEW, a diferencia de /timesheet/team: acá no
+     * hay alcance de "mis directos", `office.manage` YA es el permiso que da
+     * acceso a los datos de todos.
+     *
+     * `period`/`anchor` solo alimentan `ausenciasDelPeriodo` -- el resto del
+     * reporte mira el estado actual, no un recorte de tiempo -- pero viajan
+     * igual para que `/timesheet/export` pueda pedir EXACTAMENTE lo que esta
+     * ruta ya mostró.
+     */
+    ctx.router.get('/timesheet/compliance', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {
+      const parsed = parsePeriodAnchor(req);
+      if ('error' in parsed) return res.status(400).json({ message: parsed.error });
+      res.json(await compliance.cumplimiento(parsed.period, parsed.anchor));
     }));
 
     /** A quién puede consultar el viewer. Alimenta el selector de persona. */

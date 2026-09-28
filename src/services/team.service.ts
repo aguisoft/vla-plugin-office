@@ -8,6 +8,7 @@ import {
 } from '../lib/team-stats';
 import { localDateString } from '../lib/local-date';
 import { coverageMatrix, type Matriz } from '../lib/coverage';
+import { nombresPorUsuario, type NombreInfo } from '../lib/user-names';
 
 /**
  * Estado de una fila de la tabla, con un valor MÁS que la lógica pura.
@@ -44,7 +45,6 @@ export interface Excepciones {
 }
 
 type CheckInRow = { userId: string; checkInAt: Date; checkOutAt: Date | null };
-interface NombreInfo { firstName: string; lastName: string; email: string }
 
 /** Ventana para "no ha marcado en N días" en `excepciones`. */
 const DIAS_SIN_MARCAR = 30;
@@ -55,33 +55,6 @@ export class TeamService {
     private readonly tzOf: () => string,
     private readonly maxOpenSessionHoursOf: () => number,
   ) {}
-
-  /**
-   * Nombre y correo de cada persona, desde la tabla de usuarios del core.
-   *
-   * No sale de `OrgService.roster`: esa consulta resuelve país, departamento
-   * y jefe, ninguno de los cuales aparece en `FilaEquipo`. El nombre viene de
-   * `ctx.prisma.user`, igual que `SnapshotService.getAll` y `GET /org/roster`.
-   *
-   * Degrada a un mapa vacío si la consulta falla: un nombre en blanco no le
-   * impide a la fila reportar sus minutos, y en Express 4 un rechazo de
-   * promesa sin atrapar mata el proceso entero.
-   */
-  private async nombresPorUsuario(userIds: string[]): Promise<Map<string, NombreInfo>> {
-    try {
-      const rows = await this.ctx.prisma.user.findMany({
-        where: { id: { in: userIds } },
-        select: { id: true, firstName: true, lastName: true, email: true },
-      });
-      return new Map((rows as any[]).map(u => [
-        u.id,
-        { firstName: u.firstName, lastName: u.lastName, email: u.email },
-      ]));
-    } catch (e) {
-      this.ctx.logger.warn(`TeamService: no se pudieron leer los nombres de usuario: ${e}`);
-      return new Map();
-    }
-  }
 
   /**
    * Los `n` períodos anteriores al que contiene `anchor`, del más al menos
@@ -205,7 +178,7 @@ export class TeamService {
       end: periodosPrevios[0].end,
     };
 
-    const nombres = await this.nombresPorUsuario(userIds);
+    const nombres = await nombresPorUsuario(this.ctx, userIds);
     const rows = await this.checkInsDelEquipo(userIds, ventanaNorma.start, currentBounds.end);
 
     if (rows === null) {
@@ -302,6 +275,17 @@ export class TeamService {
    * No recibe período ni ancla -- a diferencia de `filas()`, mira el
    * historial reciente completo, no una ventana de norma -- así que arma su
    * propia consulta en vez de reusar la de `filas()`.
+   *
+   * Si la consulta de `CheckInRecord` falla, este método RECHAZA en vez de
+   * degradar a `{ sinMarcar30Dias: [], sesionesAbiertas: [] }` (así se
+   * comportaba hasta Task 9). Un arreglo vacío ahí es el mismo defecto que
+   * este plugin lleva corrigiendo desde `FilaEquipo.estado`: un cero
+   * inventado que dice «no hay excepciones» cuando en realidad la consulta
+   * ni corrió. Cada llamador decide cómo degradar según lo que necesite --
+   * `/timesheet/team` (Task 5/6) conserva el arreglo vacío para no cambiar
+   * lo que ya se revisó, y `ComplianceService.cumplimiento` (Task 9) lo
+   * refleja como `null` -- "no disponible", nunca `0` -- porque ahí un
+   * conteo silencioso es justo lo que esta pantalla existe para impedir.
    */
   async excepciones(userIds: string[]): Promise<Excepciones> {
     if (userIds.length === 0) return { sinMarcar30Dias: [], sesionesAbiertas: [] };
@@ -311,22 +295,16 @@ export class TeamService {
     const cutoff = new Date(now.getTime() - DIAS_SIN_MARCAR * 24 * 60 * 60 * 1000);
     const capMs = this.maxOpenSessionHoursOf() * 60 * 60 * 1000;
 
-    const nombres = await this.nombresPorUsuario(userIds);
+    const nombres = await nombresPorUsuario(this.ctx, userIds);
 
-    let rows: CheckInRow[];
-    try {
-      rows = (await this.ctx.prisma.checkInRecord.findMany({
-        where: {
-          userId: { in: userIds },
-          OR: [{ checkOutAt: null }, { checkInAt: { gte: cutoff } }],
-        },
-        select: { userId: true, checkInAt: true, checkOutAt: true },
-        orderBy: { checkInAt: 'asc' },
-      })) as CheckInRow[];
-    } catch (e) {
-      this.ctx.logger.warn(`TeamService.excepciones: no se pudo leer CheckInRecord: ${e}`);
-      return { sinMarcar30Dias: [], sesionesAbiertas: [] };
-    }
+    const rows = (await this.ctx.prisma.checkInRecord.findMany({
+      where: {
+        userId: { in: userIds },
+        OR: [{ checkOutAt: null }, { checkInAt: { gte: cutoff } }],
+      },
+      select: { userId: true, checkInAt: true, checkOutAt: true },
+      orderBy: { checkInAt: 'asc' },
+    })) as CheckInRow[];
 
     const marcoReciente = new Set<string>();
     // La sesión abierta más vieja por persona (normalmente hay una sola).
