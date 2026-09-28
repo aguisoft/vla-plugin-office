@@ -158,10 +158,17 @@ describe('ComplianceService.cumplimiento — camino feliz', () => {
     expect(out.feriadosCargados).toBe(12);
     expect(out.ausenciasDelPeriodo).toBe(2);
     expect(out.historialEstadosDesde).toBe('2026-08-01');
+    // I2: u3 no tiene departamento (departmentId: null en el roster) y ahora
+    // aparece en su propia fila "(sin departamento)" -- antes desaparecía
+    // sin sumar en ningún lado. La suma de las tres filas (2+0+1) da el
+    // total de activos (3), la afirmación central de I2.
     expect(out.porDepartamento).toEqual([
-      { departamento: 'Ventas', total: 2, sinMarcar: 1 },
-      { departamento: 'RRHH', total: 0, sinMarcar: 0 },
+      { departamentoId: 'd1', departamento: 'Ventas', total: 2, sinMarcar: 1 },
+      { departamentoId: 'd2', departamento: 'RRHH', total: 0, sinMarcar: 0 },
+      { departamentoId: null, departamento: '(sin departamento)', total: 1, sinMarcar: 0 },
     ]);
+    const sumaTotales = out.porDepartamento!.reduce((a, d) => a + d.total, 0);
+    expect(sumaTotales).toBe(3); // u1 + u2 + u3, los tres activos
   });
 });
 
@@ -351,6 +358,123 @@ describe('ComplianceService.cumplimiento — cero real, no inventado', () => {
     expect(out.sinDepartamento).toEqual([]);
     expect(out.feriadosCargados).toBe(0);
     expect(out.ausenciasDelPeriodo).toBe(0);
-    expect(out.porDepartamento).toEqual([{ departamento: 'Ventas', total: 1, sinMarcar: 0 }]);
+    expect(out.porDepartamento).toEqual([{ departamentoId: 'd1', departamento: 'Ventas', total: 1, sinMarcar: 0 }]);
+  });
+});
+
+describe('ComplianceService.cumplimiento — porDepartamento (I2)', () => {
+  it('el total sale de los ACTIVOS del roster, no de d.headcount (que cuenta también inactivos)', async () => {
+    // d.headcount dice 5 -- como si viniera de BitrixUserMapping sin filtrar
+    // isActive -- pero el roster (que sí solo tiene activos, viene de
+    // usuariosActivos()) solo trae a dos personas en ese departamento. Antes
+    // del fix el total mostrado era el 5 engañoso; ahora es 2, el real.
+    const { ctx } = makeCtx({
+      activeUsers: [
+        { id: 'u1', firstName: 'Ana', lastName: 'Pérez' },
+        { id: 'u2', firstName: 'Beto', lastName: 'Solís' },
+      ],
+    });
+    const roster: RosterFake = new Map([
+      ['u1', { managerUserId: 'jefe1', departmentId: 'd1', departmentName: 'Marketing' }],
+      ['u2', { managerUserId: 'jefe1', departmentId: 'd1', departmentName: 'Marketing' }],
+    ]);
+
+    const svc = makeService(
+      ctx,
+      fakeTeam(),
+      fakeOrg({ roster, departments: [{ id: 'd1', name: 'Marketing', headcount: 5 }] }),
+      fakeHolidays(),
+      fakeTimesheet(),
+    );
+
+    const out = await svc.cumplimiento('week', ANCHOR);
+
+    expect(out.porDepartamento).toEqual([{ departamentoId: 'd1', departamento: 'Marketing', total: 2, sinMarcar: 0 }]);
+  });
+
+  it('une por departmentId, no por nombre: dos departamentos homónimos NO se suman en una sola fila', async () => {
+    const { ctx } = makeCtx({
+      activeUsers: [
+        { id: 'u1', firstName: 'Ana', lastName: 'Pérez' },
+        { id: 'u2', firstName: 'Beto', lastName: 'Solís' },
+      ],
+    });
+    const roster: RosterFake = new Map([
+      ['u1', { managerUserId: null, departmentId: 'd1', departmentName: 'Ventas' }],
+      ['u2', { managerUserId: null, departmentId: 'd5', departmentName: 'Ventas' }],
+    ]);
+
+    const svc = makeService(
+      ctx,
+      fakeTeam(),
+      fakeOrg({
+        roster,
+        departments: [
+          { id: 'd1', name: 'Ventas', headcount: 1 },
+          { id: 'd5', name: 'Ventas', headcount: 1 },
+        ],
+      }),
+      fakeHolidays(),
+      fakeTimesheet(),
+    );
+
+    const out = await svc.cumplimiento('week', ANCHOR);
+
+    expect(out.porDepartamento).toEqual([
+      { departamentoId: 'd1', departamento: 'Ventas', total: 1, sinMarcar: 0 },
+      { departamentoId: 'd5', departamento: 'Ventas', total: 1, sinMarcar: 0 },
+    ]);
+  });
+
+  it('la gente sin departamento aparece en su propia fila y la suma cuadra con el total de activos', async () => {
+    const { ctx } = makeCtx({
+      activeUsers: [
+        { id: 'u1', firstName: 'Ana', lastName: 'Pérez' },
+        { id: 'u2', firstName: 'Beto', lastName: 'Solís' },
+        { id: 'u3', firstName: 'Cati', lastName: 'Ruiz' },
+      ],
+    });
+    const roster: RosterFake = new Map([
+      ['u1', { managerUserId: null, departmentId: null, departmentName: null }],
+      ['u2', { managerUserId: null, departmentId: null, departmentName: null }],
+      ['u3', { managerUserId: null, departmentId: 'd1', departmentName: 'Ventas' }],
+    ]);
+
+    const svc = makeService(
+      ctx,
+      fakeTeam({ sinMarcar30Dias: [{ userId: 'u1', nombre: 'Ana Pérez' }] }),
+      fakeOrg({ roster, departments: [{ id: 'd1', name: 'Ventas', headcount: 1 }] }),
+      fakeHolidays(),
+      fakeTimesheet(),
+    );
+
+    const out = await svc.cumplimiento('week', ANCHOR);
+
+    expect(out.porDepartamento).toEqual([
+      { departamentoId: 'd1', departamento: 'Ventas', total: 1, sinMarcar: 0 },
+      { departamentoId: null, departamento: '(sin departamento)', total: 2, sinMarcar: 1 },
+    ]);
+    const suma = out.porDepartamento!.reduce((a, d) => a + d.total, 0);
+    expect(suma).toBe(3);
+  });
+
+  it('sin nadie sin departamento, no aparece la fila "(sin departamento)"', async () => {
+    const { ctx } = makeCtx({ activeUsers: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez' }] });
+    const roster: RosterFake = new Map([
+      ['u1', { managerUserId: null, departmentId: 'd1', departmentName: 'Ventas' }],
+    ]);
+
+    const svc = makeService(
+      ctx,
+      fakeTeam(),
+      fakeOrg({ roster, departments: [{ id: 'd1', name: 'Ventas', headcount: 1 }] }),
+      fakeHolidays(),
+      fakeTimesheet(),
+    );
+
+    const out = await svc.cumplimiento('week', ANCHOR);
+
+    expect(out.porDepartamento).toEqual([{ departamentoId: 'd1', departamento: 'Ventas', total: 1, sinMarcar: 0 }]);
+    expect(out.porDepartamento!.some(d => d.departamentoId === null)).toBe(false);
   });
 });

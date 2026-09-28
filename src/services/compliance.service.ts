@@ -31,7 +31,13 @@ export interface Cumplimiento {
   feriadosCargados: number | null;
   ausenciasDelPeriodo: number | null;
   historialEstadosDesde: string | null;
-  porDepartamento: Array<{ departamento: string; total: number; sinMarcar: number }> | null;
+  /**
+   * `departamentoId` es `null` para la fila sintética "(sin departamento)"
+   * (I2) y viaja para que la interfaz tenga una `key` de React estable que
+   * no dependa del NOMBRE -- dos departamentos homónimos son dos filas con
+   * el mismo `departamento` pero distinto `departamentoId`.
+   */
+  porDepartamento: Array<{ departamentoId: string | null; departamento: string; total: number; sinMarcar: number }> | null;
 }
 
 export class ComplianceService {
@@ -208,13 +214,57 @@ export class ComplianceService {
     // ya enriquecida para el numerador -- si cualquiera de las dos fuentes
     // falló, la comparativa completa se vuelve `null` en vez de mostrar un
     // "0/total" que no es cierto.
+    //
+    // I2, tres defectos del mismo bloque que se corrigen juntos:
+    //  1. El total salía de `d.headcount` (`OrgService.departments()`), que
+    //     cuenta TODAS las filas de `BitrixUserMapping` sin mirar `isActive`
+    //     -- esos mapeos no se borran al desactivar a alguien. Acá se cuenta
+    //     desde `rosterMap`, que solo tiene los `userIds` YA FILTRADOS a
+    //     activos (`usuariosActivos()` arriba).
+    //  2. La unión era por NOMBRE (`p.departamento === d.name`): dos
+    //     departamentos homónimos se contaban doble y chocaban en la `key`
+    //     de React. Acá se une por `departmentId`.
+    //  3. Quien no tiene departamento no aparecía en ninguna fila, así que
+    //     la columna no sumaba el total de activos de arriba. Acá se agrega
+    //     una fila final "(sin departamento)" con su propio conteo -- la
+    //     prueba de abajo (`compliance.service.test.ts`) afirma que la suma
+    //     de todas las filas da el total de activos.
     const porDepartamento = (departamentos === null || rosterMap === null || sinMarcar30Dias === null)
       ? null
-      : departamentos.map(d => ({
-          departamento: d.name,
-          total: d.headcount,
-          sinMarcar: sinMarcar30Dias.filter(p => p.departamento === d.name).length,
-        }));
+      : (() => {
+          const activosPorDept = new Map<string, number>();
+          const sinMarcarPorDept = new Map<string, number>();
+          let sinDepto = 0;
+          let sinMarcarSinDepto = 0;
+
+          for (const id of userIds) {
+            const deptId = rosterMap.get(id)?.departmentId ?? null;
+            if (deptId === null) sinDepto++;
+            else activosPorDept.set(deptId, (activosPorDept.get(deptId) ?? 0) + 1);
+          }
+          for (const p of sinMarcar30Dias) {
+            const deptId = rosterMap.get(p.userId)?.departmentId ?? null;
+            if (deptId === null) sinMarcarSinDepto++;
+            else sinMarcarPorDept.set(deptId, (sinMarcarPorDept.get(deptId) ?? 0) + 1);
+          }
+
+          const filas: Array<{ departamentoId: string | null; departamento: string; total: number; sinMarcar: number }> =
+            departamentos.map(d => ({
+              departamentoId: d.id,
+              departamento: d.name,
+              total: activosPorDept.get(d.id) ?? 0,
+              sinMarcar: sinMarcarPorDept.get(d.id) ?? 0,
+            }));
+          if (sinDepto > 0) {
+            filas.push({
+              departamentoId: null,
+              departamento: '(sin departamento)',
+              total: sinDepto,
+              sinMarcar: sinMarcarSinDepto,
+            });
+          }
+          return filas;
+        })();
 
     return {
       sinMarcar30Dias,
