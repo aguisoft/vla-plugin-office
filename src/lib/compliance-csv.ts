@@ -2,10 +2,30 @@ import type { Cumplimiento } from '../services/compliance.service';
 
 const NO_DISPONIBLE = 'no disponible';
 
-/** Envuelve en comillas y duplica las internas si el valor las necesita (coma, comilla o salto de línea). */
+/**
+ * Caracteres con los que Excel, LibreOffice y Google Sheets interpretan una
+ * celda como fórmula en vez de como texto.
+ */
+const ARRANQUE_DE_FORMULA = /^[=+\-@\t\r]/;
+
+/**
+ * Prepara un valor para una celda: neutraliza fórmulas y después escapa.
+ *
+ * Lo de la fórmula no es teórico. Los nombres salen de Bitrix, donde cualquiera
+ * puede escribir lo que quiera en su perfil; un nombre que empiece con `=` hace
+ * que Excel EJECUTE el contenido al abrir el archivo, y esto se exporta para
+ * evaluaciones y planillas, o sea que lo abre gente de RRHH en su máquina. La
+ * comilla simple al frente es la neutralización estándar: Excel la consume y
+ * muestra el texto tal cual.
+ *
+ * El orden importa. Primero se antepone la comilla y después se decide si hay
+ * que entrecomillar: al revés, un valor como `=1,2` quedaría entrecomillado por
+ * la coma y la comilla simple entraría adentro, donde ya no protege de nada.
+ */
 function csvField(value: string): string {
-  if (/["\n\r,]/.test(value)) return `"${value.replace(/"/g, '""')}"`;
-  return value;
+  const seguro = ARRANQUE_DE_FORMULA.test(value) ? `'${value}` : value;
+  if (/["\n\r,]/.test(seguro)) return `"${seguro.replace(/"/g, '""')}"`;
+  return seguro;
 }
 
 function fila(cols: string[]): string {

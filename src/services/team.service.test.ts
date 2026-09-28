@@ -306,3 +306,23 @@ describe('TeamService.filasYCobertura — la sesión abierta se acota ANTES de e
     expect(cobertura.celdas.some(c => c.hora >= 10)).toBe(false);
   });
 });
+
+describe('TeamService.excepciones — RECHAZA en vez de inventar un vacío', () => {
+  it('propaga el fallo de la consulta, no devuelve listas vacías', async () => {
+    // Cambio de contrato de la Task 9, y es el más riesgoso de la entrega:
+    // antes degradaba sola a `{ sinMarcar30Dias: [], sesionesAbiertas: [] }`.
+    // Ese vacío es un «cero inventado»: en la pantalla de Cumplimiento se
+    // leería como «no hay nadie sin marcar», que es la mentira más cara
+    // posible ahí. Ahora rechaza y cada llamador decide — `/timesheet/team`
+    // le pone su `.catch` para conservar el degrade que ya tenía revisado, y
+    // `ComplianceService` lo refleja como `null` («no disponible»).
+    const { ctx, warn } = makeCtx({
+      rejectCheckIns: new Error('relation "check_in_records" does not exist'),
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    await expect(makeService(ctx).excepciones(['u1'])).rejects.toThrow(/check_in_records/);
+    // Y no lo silencia con un warning propio: quien lo atrape decide qué decir.
+    expect(warn).not.toHaveBeenCalled();
+  });
+});

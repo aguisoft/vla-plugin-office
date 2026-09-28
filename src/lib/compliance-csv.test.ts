@@ -81,3 +81,39 @@ describe('cumplimientoToCsv — no disponible vs. vacío de verdad', () => {
     expect(csv).toContain('Historial de estados desde,,,no disponible');
   });
 });
+
+describe('cumplimientoToCsv — inyección de fórmulas', () => {
+  /**
+   * Los nombres salen de Bitrix, donde cualquiera escribe lo que quiere en su
+   * perfil. Un nombre que empiece con `=` hace que Excel EJECUTE el contenido
+   * al abrir el archivo — y esto lo abre gente de RRHH en su máquina para
+   * evaluaciones y planillas.
+   */
+  const conFormula = (nombre: string): Cumplimiento => ({
+    ...COMPLETO,
+    sinJefe: [{ userId: 'u9', nombre }],
+  });
+
+  for (const arranque of ['=', '+', '-', '@']) {
+    it(`neutraliza un nombre que empieza con "${arranque}"`, () => {
+      const csv = cumplimientoToCsv(conFormula(`${arranque}HYPERLINK("http://x")`));
+      expect(csv).toContain(`'${arranque}HYPERLINK`);
+      // Sin la comilla simple, Excel lo ejecuta en vez de mostrarlo.
+      expect(csv).not.toMatch(new RegExp(`,\\${arranque}HYPERLINK`));
+    });
+  }
+
+  it('la comilla simple va ANTES de entrecomillar, no adentro', () => {
+    // Un valor con fórmula Y con coma necesita las dos protecciones, y en ese
+    // orden: al revés la comilla simple queda dentro de las comillas dobles,
+    // donde Excel ya no la trata como marca de texto.
+    const csv = cumplimientoToCsv(conFormula('=SUMA(1,2)'));
+    expect(csv).toContain(`"'=SUMA(1,2)"`);
+  });
+
+  it('un nombre normal no se toca', () => {
+    const csv = cumplimientoToCsv(conFormula('María José Sáenz'));
+    expect(csv).toContain('María José Sáenz');
+    expect(csv).not.toContain(`'María`);
+  });
+});
