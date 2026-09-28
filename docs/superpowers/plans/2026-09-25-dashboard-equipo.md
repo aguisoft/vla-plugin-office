@@ -532,7 +532,11 @@ git commit -m "feat(office): entrada habitual por mediana, resistente al dia rar
   ```ts
   export interface FilaEquipo {
     userId: string; firstName: string; lastName: string; email: string;
-    estado: EstadoRegistro;
+    // Un valor MÁS que la lógica pura: `no-disponible` para cuando la
+    // consulta falla. Si una falla de base se presentara como
+    // `sin-registrar`, el jefe vería lo mismo que si la persona no hubiera
+    // marcado, y no tendría cómo distinguirlo.
+    estado: EstadoRegistro | 'no-disponible';
     totalMinutes: number;
     openSessionCapped: boolean;
     variacion: Variacion;
@@ -564,8 +568,10 @@ Cubrir como mínimo, con el doble de `ctx`:
 4. Una sesión abierta vieja aparece en `excepciones.sesionesAbiertas` con su fecha
    de inicio.
 5. Si la consulta de sesiones rechaza, `filas()` no lanza: devuelve las filas con
-   `estado: 'sin-registrar'` marcadas como no disponibles y loguea — un fallo de
-   base no puede matar el proceso ni inventar ceros.
+   **`estado: 'no-disponible'`** y loguea. Un fallo de base no puede matar el
+   proceso ni inventar ceros, y tampoco puede disfrazarse de `sin-registrar`:
+   eso le atribuiría a una persona una conducta que no tuvo. La prueba afirma
+   las dos cosas — que es `'no-disponible'` y que NO es `'sin-registrar'`.
 
 - [ ] **Paso 2: Correr y ver que fallan**
 
@@ -716,9 +722,16 @@ Requisitos exactos:
 1. **Tabla con encabezados** `Persona · Período · vs. su promedio · Días · Entrada
    habitual · Último`. Encabezados reales (`<th scope="col">`), no una fila de
    texto: es la única parte de la interfaz que nombra las columnas.
-2. **Fila «sin registrar»**: la celda de período muestra `sin registrar` en gris,
-   y `vs. su promedio`, `Días` y `Entrada habitual` muestran `—`. **Nunca `0m`.**
-   Un ícono de aviso y el texto de ayuda «no marcó entrada — no es cero».
+2. **Los tres estados se ven distintos.** La celda de período nunca muestra `0m`
+   para los dos últimos:
+   - `con-registro`: el total normal.
+   - `sin-registrar`: la palabra `sin registrar` en gris, con ícono de aviso y
+     el texto de ayuda «no marcó entrada — no es cero».
+   - `no-disponible`: `no disponible` en ámbar, con el texto «no se pudo leer el
+     registro — no es un dato sobre esta persona».
+   En los dos últimos, `vs. su promedio`, `Días` y `Entrada habitual` muestran `—`.
+   Que `sin-registrar` y `no-disponible` se vean IGUAL es un defecto: uno habla
+   de la persona y el otro del sistema.
 3. **Variación**: `sin-base` muestra `sin base` en gris; `calculada` muestra
    `+8%` / `−21%`, con flecha y color solo si `destacar` es `true`.
 4. **Último**: lenguaje relativo — `hoy`, `ayer`, `hace N días`, `nunca`.
@@ -745,6 +758,11 @@ Esperado: sin errores.
 Con el API local, comprobar en el navegador —o describir con precisión por qué no
 se pudo— que una persona sin sesiones muestra `sin registrar` y no `0m`, y que
 otra con sesiones muestra su total y su variación.
+
+Playwright está caído desde la entrega anterior. Vale la alternativa: verificar
+contra el API real con `curl` que la respuesta trae `estado: 'sin-registrar'` con
+`totalMinutes: 0` para quien no marca, y dejar la verificación visual anotada
+como deuda en el reporte.
 
 - [ ] **Paso 3: Commit**
 
