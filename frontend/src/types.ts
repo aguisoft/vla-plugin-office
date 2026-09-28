@@ -241,8 +241,10 @@ export interface FilaEquipo {
   diasConRegistro: number;
   diasHabiles: number;
   entradaHabitual: string | null;
-  /** YYYY-MM-DD local. `null` si nunca se le vio marcar. */
+  /** YYYY-MM-DD local. `null` = de verdad nunca marcó. Ver `ultimoDisponible`. */
   ultimoRegistro: string | null;
+  /** `false` = no se pudo leer el último registro; `ultimoRegistro: null` ahí NO significa "nunca". */
+  ultimoDisponible: boolean;
 }
 
 /** Excepciones del equipo: quién no ha marcado en 30 días y quién tiene una sesión abierta vieja. */

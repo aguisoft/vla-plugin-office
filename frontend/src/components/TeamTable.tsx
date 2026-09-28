@@ -60,6 +60,27 @@ function ultimoRelativo(fecha: string | null): string {
 }
 
 /**
+ * Celda "Último": `ultimoDisponible` manda, no `estado` (C1).
+ *
+ * `ultimoRegistro` sale de una consulta APARTE de la de sesiones/nombres (ver
+ * `TeamService.ultimoRegistroPorUsuario`), así que puede seguir siendo
+ * confiable aunque `estado` sea `no-disponible` por un fallo en OTRA
+ * consulta. "nunca" es la acusación más fuerte que esta pantalla puede hacer
+ * sobre alguien, y solo se imprime cuando la consulta de verdad corrió y de
+ * verdad no encontró nada (`ultimoDisponible: true` + `ultimoRegistro: null`).
+ * Con `ultimoDisponible: false` -- la consulta no se pudo leer -- se muestra
+ * `—` con un título que lo explica, nunca "nunca".
+ */
+function CeldaUltimo({ fila }: { fila: FilaEquipo }) {
+  if (!fila.ultimoDisponible) {
+    return (
+      <span className="text-xs text-gray-400" title="no se pudo averiguar">—</span>
+    );
+  }
+  return <span className="text-xs text-gray-600">{ultimoRelativo(fila.ultimoRegistro)}</span>;
+}
+
+/**
  * Celda de "Período": los tres valores de `estado` se ven distinto a
  * propósito.
  *
@@ -232,15 +253,7 @@ export function TeamTable({ filas, excepciones, onSelect }: {
                     </span>
                   </td>
                   <td className="px-2 py-2">
-                    <span className="text-xs text-gray-600">
-                      {/* `no-disponible` es un fallo total de la consulta -- ni
-                          siquiera "última vez visto" es un dato confiable acá,
-                          así que también se anula. `sin-registrar` sí conserva
-                          su valor real: la consulta funcionó, y puede que la
-                          persona haya marcado en un período anterior aunque no
-                          en este. */}
-                      {fila.estado === 'no-disponible' ? '—' : ultimoRelativo(fila.ultimoRegistro)}
-                    </span>
+                    <CeldaUltimo fila={fila} />
                   </td>
                 </tr>
               );

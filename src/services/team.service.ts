@@ -35,8 +35,16 @@ export interface FilaEquipo {
   diasConRegistro: number;
   diasHabiles: number;
   entradaHabitual: string | null;
-  /** YYYY-MM-DD local. */
+  /** YYYY-MM-DD local. `null` = de verdad nunca marcó. Ver `ultimoDisponible`. */
   ultimoRegistro: string | null;
+  /**
+   * `false` = la consulta del último registro no se pudo leer, y
+   * `ultimoRegistro` en `null` acá NO significa "nunca marcó" sino "no se
+   * pudo averiguar". Sin este campo los dos casos son indistinguibles desde
+   * afuera y la interfaz no tiene forma de no decir «nunca» sobre alguien
+   * que sí marcó.
+   */
+  ultimoDisponible: boolean;
 }
 
 export interface Excepciones {
@@ -118,8 +126,17 @@ export class TeamService {
    *
    * `diasHabiles` es la excepción y se conserva: no depende de la consulta que
    * falló, así que sigue siendo el calendario real y no otro cero sin explicar.
+   *
+   * `ultimos` viaja aparte porque es OTRA consulta, independiente de la que
+   * falló acá: si ella sí funcionó, no hay razón para apagar también el
+   * «último visto» de cada persona.
    */
-  private filaSinConsulta(userId: string, nombres: Map<string, NombreInfo>, diasHabilesPeriodo: number): FilaEquipo {
+  private filaSinConsulta(
+    userId: string,
+    nombres: Map<string, NombreInfo>,
+    diasHabilesPeriodo: number,
+    ultimos: Map<string, string> | null,
+  ): FilaEquipo {
     const nombre = nombres.get(userId);
     return {
       userId,
@@ -133,8 +150,42 @@ export class TeamService {
       diasConRegistro: 0,
       diasHabiles: diasHabilesPeriodo,
       entradaHabitual: null,
-      ultimoRegistro: null,
+      ultimoRegistro: ultimos?.get(userId) ?? null,
+      ultimoDisponible: ultimos !== null,
     };
+  }
+
+  /**
+   * Fecha del último check-in de cada persona, sin importar el período (C1).
+   *
+   * Consulta aparte y SIN cota inferior a propósito: si saliera de la misma
+   * consulta que arma las filas (`checkInsDelEquipo`), su ventana sería la de
+   * la norma -- 20 días hábiles, 8 semanas o 6 meses -- y quien no marcó
+   * dentro de ella aparecería como «nunca», una acusación fabricada por un
+   * WHERE y no por un hecho real. La columna «Último» responde «¿cuándo se le
+   * vio por última vez?», sin importar el período que se esté mirando.
+   *
+   * Degrada a `null` si falla, y el llamador distingue ese caso ("no se pudo
+   * averiguar") del "de verdad nunca marcó" (persona ausente del mapa) vía
+   * `FilaEquipo.ultimoDisponible`.
+   */
+  private async ultimoRegistroPorUsuario(userIds: string[]): Promise<Map<string, string> | null> {
+    try {
+      const tz = this.tzOf();
+      const rows = await this.ctx.prisma.checkInRecord.groupBy({
+        by: ['userId'],
+        where: { userId: { in: userIds } },
+        _max: { checkInAt: true },
+      });
+      const out = new Map<string, string>();
+      for (const r of rows as Array<{ userId: string; _max: { checkInAt: Date | null } }>) {
+        if (r._max.checkInAt) out.set(r.userId, localDateString(r._max.checkInAt, tz));
+      }
+      return out;
+    } catch (e) {
+      this.ctx.logger.warn(`TeamService: no se pudo leer el último registro por usuario: ${e}`);
+      return null;
+    }
   }
 
   /**
@@ -197,28 +248,27 @@ export class TeamService {
       end: periodosPrevios[0].end,
     };
 
-    const nombres = await nombresPorUsuario(this.ctx, userIds);
-    const rows = await this.checkInsDelEquipo(userIds, ventanaNorma.start, currentBounds.end);
+    const [nombres, rows, ultimos] = await Promise.all([
+      nombresPorUsuario(this.ctx, userIds),
+      this.checkInsDelEquipo(userIds, ventanaNorma.start, currentBounds.end),
+      this.ultimoRegistroPorUsuario(userIds),
+    ]);
 
     if (rows === null) {
       return {
-        filas: userIds.map(userId => this.filaSinConsulta(userId, nombres, diasHabilesPeriodo)),
+        filas: userIds.map(userId => this.filaSinConsulta(userId, nombres, diasHabilesPeriodo, ultimos)),
         cobertura: sinCobertura,
       };
     }
 
     const byUser = new Map<string, Span[]>();
     const acotadas = new Set<string>();
-    const ultimoPorUsuario = new Map<string, Date>();
     // userId -> (fecha local -> primera entrada de ese día), solo dentro de
     // la ventana de la norma. `entradaHabitual` recibe una entrada por día,
     // no todas las sesiones.
     const entradasPorDia = new Map<string, Map<string, Date>>();
 
     for (const r of rows) {
-      const ultimoActual = ultimoPorUsuario.get(r.userId);
-      if (!ultimoActual || r.checkInAt > ultimoActual) ultimoPorUsuario.set(r.userId, r.checkInAt);
-
       if (r.checkInAt >= ventanaNorma.start && r.checkInAt <= ventanaNorma.end) {
         const dia = localDateString(r.checkInAt, tz);
         const porDia = entradasPorDia.get(r.userId) ?? new Map<string, Date>();
@@ -256,7 +306,6 @@ export class TeamService {
       const totalesPrevios = periodosPrevios.map(p => aggregateSessions(sesiones, p, tz).totalMinutes);
       const norma = computeNorm(totalesPrevios);
       const nombre = nombres.get(userId);
-      const ultimo = ultimoPorUsuario.get(userId);
       const primerasEntradas = [...(entradasPorDia.get(userId)?.values() ?? [])];
 
       return {
@@ -271,10 +320,11 @@ export class TeamService {
         diasConRegistro: diasConRegistro(sesiones, efectivo, tz).length,
         diasHabiles: diasHabilesPeriodo,
         entradaHabitual: entradaHabitual(primerasEntradas, tz),
-        // Sin acotar al período: responde "¿cuándo se le vio por última vez?"
-        // con el checkInAt crudo más reciente de la ventana consultada, no el
-        // que sobrevive a clipSpan -- eso ya lo cubre diasConRegistro.
-        ultimoRegistro: ultimo ? localDateString(ultimo, tz) : null,
+        // C1: de una consulta APARTE (`ultimoRegistroPorUsuario`), sin cota
+        // inferior -- ver su comentario. `null` con `ultimoDisponible: true`
+        // es "de verdad nunca marcó"; con `false` es "no se pudo averiguar".
+        ultimoRegistro: ultimos?.get(userId) ?? null,
+        ultimoDisponible: ultimos !== null,
       };
     });
 

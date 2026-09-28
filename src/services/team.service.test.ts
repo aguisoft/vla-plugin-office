@@ -35,27 +35,65 @@ function makeCtx(opts: {
   rejectCheckIns?: Error;
   /** Si se da, el SELECT de usuarios rechaza con este error. */
   rejectUsers?: Error;
+  /**
+   * Filas de origen para el `groupBy` de "último registro por usuario"
+   * (C1). Por omisión se derivan de `checkIns`, así que la mayoría de las
+   * pruebas no necesita tocar esto -- solo la prueba de C1 que exige una
+   * sesión FUERA de la ventana que sí trae `checkIns` la pisa con `ultimos`.
+   */
+  ultimos?: CheckInRow[];
+  /** Si se da, el `groupBy` de "último registro por usuario" rechaza. */
+  rejectUltimo?: Error;
 } = {}) {
   const warn = vi.fn();
 
-  const checkInFindMany = vi.fn(async () => {
+  /**
+   * Simula el WHERE real de `checkInsDelEquipo`
+   * (`checkInAt: { lte: queryEnd }, OR: [{ checkOutAt: null }, { checkOutAt: { gte: queryStart } }]`)
+   * a partir de los argumentos de la llamada. Sin este filtro el doble
+   * devolvía TODO sin importar la ventana pedida, y eso escondía justo el
+   * bug de C1: una sesión vieja se habría colado en `rows` igual que en
+   * producción NO se cuela, y la prueba de la ventana de la norma no podría
+   * reproducir nada.
+   */
+  const checkInFindMany = vi.fn(async (args: any) => {
     if (opts.rejectCheckIns) throw opts.rejectCheckIns;
-    return opts.checkIns ?? [];
+    const rows = opts.checkIns ?? [];
+    const queryEnd: Date | undefined = args?.where?.checkInAt?.lte;
+    const orClause: any[] = args?.where?.OR ?? [];
+    const queryStart: Date | undefined = orClause.find(c => c?.checkOutAt?.gte)?.checkOutAt?.gte;
+    if (queryEnd === undefined && queryStart === undefined) return rows; // otra forma de WHERE (p.ej. excepciones()): sin filtrar
+    return rows.filter(r => {
+      if (queryEnd !== undefined && r.checkInAt > queryEnd) return false;
+      const abierta = r.checkOutAt == null;
+      if (!abierta && queryStart !== undefined && r.checkOutAt! < queryStart) return false;
+      return true;
+    });
   });
   const userFindMany = vi.fn(async () => {
     if (opts.rejectUsers) throw opts.rejectUsers;
     return opts.users ?? [];
   });
+  const checkInGroupBy = vi.fn(async () => {
+    if (opts.rejectUltimo) throw opts.rejectUltimo;
+    const fuente = opts.ultimos ?? opts.checkIns ?? [];
+    const max = new Map<string, Date>();
+    for (const r of fuente) {
+      const actual = max.get(r.userId);
+      if (!actual || r.checkInAt > actual) max.set(r.userId, r.checkInAt);
+    }
+    return [...max.entries()].map(([userId, checkInAt]) => ({ userId, _max: { checkInAt } }));
+  });
 
   const ctx = {
     prisma: {
-      checkInRecord: { findMany: checkInFindMany },
+      checkInRecord: { findMany: checkInFindMany, groupBy: checkInGroupBy },
       user: { findMany: userFindMany },
     },
     logger: { warn, log: vi.fn(), error: vi.fn(), debug: vi.fn() },
   };
 
-  return { ctx: ctx as unknown as PluginContext, warn, checkInFindMany, userFindMany };
+  return { ctx: ctx as unknown as PluginContext, warn, checkInFindMany, userFindMany, checkInGroupBy };
 }
 
 function makeService(ctx: PluginContext, capHours = 12) {
@@ -363,6 +401,51 @@ describe('TeamService.filas — degrada si la consulta de nombres rechaza', () =
     expect(fila.totalMinutes).toBe(60);
     expect(fila.firstName).toBe('');
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('TeamService.filasYCobertura — "último registro" no depende de la ventana de la norma (C1)', () => {
+  it('una sesión anterior a la ventana de la norma igual reporta su fecha real, y NO "nunca"', async () => {
+    // period: 'day' -> la ventana de la norma son 20 días hábiles previos a
+    // la ancla, la más corta de las tres y donde el bug era más visible.
+    // La única sesión de la persona queda MUY afuera de esa ventana.
+    const ultimaVezVisto = cr('2026-07-01T08:00:00');
+    const { ctx } = makeCtx({
+      checkIns: [{ userId: 'u1', checkInAt: ultimaVezVisto, checkOutAt: cr('2026-07-01T09:00:00') }],
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const { filas } = await makeService(ctx).filasYCobertura(['u1'], 'day', cr('2026-09-21T10:00:00'));
+
+    // Sin sesión DENTRO del período pedido, "sin-registrar" sigue siendo
+    // cierto -- lo que no puede pasar es que "último" mienta.
+    expect(filas[0].estado).toBe('sin-registrar');
+    expect(filas[0].ultimoDisponible).toBe(true);
+    expect(filas[0].ultimoRegistro).toBe('2026-07-01');
+    expect(filas[0].ultimoRegistro).not.toBeNull();
+  });
+
+  it('si la consulta de "último registro" rechaza, las filas conservan sus minutos y quedan con ultimoDisponible: false', async () => {
+    const sesion: CheckInRow = {
+      userId: 'u1',
+      checkInAt: cr('2026-09-21T08:00:00'),
+      checkOutAt: cr('2026-09-21T09:00:00'),
+    };
+    const { ctx, warn } = makeCtx({
+      checkIns: [sesion],
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+      rejectUltimo: new Error('conexión perdida'),
+    });
+
+    const [fila] = await makeService(ctx).filas(['u1'], 'day', cr('2026-09-21T10:00:00'));
+
+    // No se cae ni inventa "nunca": los minutos de la sesión (que SÍ se pudo
+    // leer) siguen de pie, y solo la columna de "último" se apaga.
+    expect(fila.estado).toBe('con-registro');
+    expect(fila.totalMinutes).toBe(60);
+    expect(fila.ultimoDisponible).toBe(false);
+    expect(fila.ultimoRegistro).toBeNull();
+    expect(warn).toHaveBeenCalled();
   });
 });
 
