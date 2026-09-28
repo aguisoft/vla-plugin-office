@@ -205,3 +205,58 @@ export interface TimesheetScope {
   isAdmin: boolean;
   users: Array<{ id: string; firstName: string; lastName: string; email: string }>;
 }
+
+/**
+ * Estado de una fila de la tabla del equipo, tal como la entrega
+ * `GET /timesheet/team`. Son TRES valores, no dos:
+ * - `con-registro`: la persona marcó y el total es real.
+ * - `sin-registrar`: la persona no marcó -- un hecho sobre la persona.
+ * - `no-disponible`: el backend no pudo leer `CheckInRecord` -- un hecho
+ *   sobre el sistema, no sobre la persona. Confundir este valor con
+ *   `sin-registrar` en la interfaz le atribuye a alguien una conducta que no
+ *   tuvo, que es justo el defecto que esta tabla existe para evitar.
+ */
+export type EstadoFila = 'con-registro' | 'sin-registrar' | 'no-disponible';
+
+/**
+ * Variación del período actual contra la norma personal (nunca contra el
+ * equipo). `sin-base` cuando no hay suficiente historial o la norma es cero;
+ * `destacar` distingue una fluctuación normal (se muestra el número, sin
+ * flecha ni color) de una que vale la pena señalar.
+ */
+export type Variacion =
+  | { tipo: 'sin-base' }
+  | { tipo: 'calculada'; pct: number; destacar: boolean };
+
+/** Una fila de la tabla del equipo, tal como la entrega `GET /timesheet/team`. */
+export interface FilaEquipo {
+  userId: string;
+  firstName: string;
+  lastName: string;
+  email: string;
+  estado: EstadoFila;
+  totalMinutes: number;
+  openSessionCapped: boolean;
+  variacion: Variacion;
+  diasConRegistro: number;
+  diasHabiles: number;
+  entradaHabitual: string | null;
+  /** YYYY-MM-DD local. `null` si nunca se le vio marcar. */
+  ultimoRegistro: string | null;
+}
+
+/** Excepciones del equipo: quién no ha marcado en 30 días y quién tiene una sesión abierta vieja. */
+export interface Excepciones {
+  sinMarcar30Dias: Array<{ userId: string; nombre: string }>;
+  sesionesAbiertas: Array<{ userId: string; nombre: string; desde: string }>;
+}
+
+export interface TimesheetTeamResponse {
+  period: 'day' | 'week' | 'month';
+  from: string;
+  to: string;
+  viewerId: string;
+  isAdmin: boolean;
+  filas: FilaEquipo[];
+  excepciones: Excepciones;
+}

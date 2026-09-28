@@ -1,6 +1,6 @@
 import type {
   Absence, Department, Holiday, MapZone, PendingInvite, RosterUser, UnavailableParticipant,
-  TimesheetOfficeResponse, TimesheetScope,
+  TimesheetOfficeResponse, TimesheetScope, TimesheetTeamResponse,
 } from './types';
 
 const BASE = '/api/v1';
@@ -169,4 +169,15 @@ export const getOfficeTime = (period: string, anchor: string, userId?: string, s
   const qs = new URLSearchParams({ period, anchor });
   if (userId) qs.set('userId', userId);
   return api.get<TimesheetOfficeResponse>(`${PLUGIN}/timesheet/office?${qs}`, signal);
+};
+
+/**
+ * Filas del equipo (uno por persona a cargo, más el propio jefe) y las
+ * excepciones del período, recortadas al alcance del viewer -- ver
+ * `resolveScope` en el backend. Mismo patrón de `anchor`/`signal` que
+ * `getOfficeTime`.
+ */
+export const getTimesheetTeam = (period: string, anchor: string, signal?: AbortSignal) => {
+  const qs = new URLSearchParams({ period, anchor });
+  return api.get<TimesheetTeamResponse>(`${PLUGIN}/timesheet/team?${qs}`, signal);
 };

@@ -69,3 +69,16 @@ export function absenceReturnDate(endsAtIso: string): Date {
 export function monthName(iso: string): string {
   return new Date(`${iso.slice(0, 10)}T00:00:00`).toLocaleDateString('es', { month: 'long' });
 }
+
+/**
+ * `Xh Ym`, sin la parte en cero: "45m", "2h", "2h 15m". Vivía duplicado en
+ * `TimesheetScreen` y hubiera quedado triplicado con `TeamTable` -- se sube
+ * acá por el mismo motivo que el resto de este archivo (ver docstring de
+ * arriba).
+ */
+export function fmtDuration(min: number): string {
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (h === 0) return `${m}m`;
+  return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}

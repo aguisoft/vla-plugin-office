@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
-import { getTimesheetScope, getOfficeTime, ApiError } from '../api';
-import type { TimesheetScope, TimesheetOfficeResponse } from '../types';
+import { getTimesheetScope, getOfficeTime, getTimesheetTeam, ApiError } from '../api';
+import type { TimesheetScope, TimesheetOfficeResponse, TimesheetTeamResponse } from '../types';
 import { isoDate } from '../calendar';
-import { fmtDateOnly } from '../format';
+import { fmtDateOnly, fmtDuration as hhmm } from '../format';
 import { PeriodPicker } from './PeriodPicker';
 import type { Period } from './PeriodPicker';
 import { TimesheetBreakdown } from './TimesheetBreakdown';
+import { TeamTable } from './TeamTable';
 import { cfgOf } from '../statusConfig';
 
 /**
@@ -17,14 +18,6 @@ import { cfgOf } from '../statusConfig';
  * (`?view=tiempos`), no un diálogo que se cierra sobre otra pantalla; por
  * eso no lleva overlay ni backdrop, solo la tarjeta blanca de siempre.
  */
-
-/** `Xh Ym`, sin la parte en cero: "45m", "2h", "2h 15m". */
-function hhmm(min: number): string {
-  const h = Math.floor(min / 60);
-  const m = min % 60;
-  if (h === 0) return `${m}m`;
-  return m === 0 ? `${h}h` : `${h}h ${m}m`;
-}
 
 /** Hoy como `YYYY-MM-DD` local -- mismo patrón que `isoDate`, nunca `toISOString()`. */
 function hoy(): string {
@@ -59,11 +52,27 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Con más de una persona en el alcance, la pantalla abre en la tabla del
+  // equipo (`'equipo'`) y no en el detalle de nadie en particular -- clic en
+  // una fila es lo que manda a `'detalle'`. Con una sola persona (el caso
+  // normal: nadie a cargo) esta variable ni se consulta -- ver `soloUno`.
+  const [vista, setVista] = useState<'equipo' | 'detalle'>('equipo');
+  const [teamData, setTeamData] = useState<TimesheetTeamResponse | null>(null);
+  const [teamLoading, setTeamLoading] = useState(true);
+  const [teamError, setTeamError] = useState<string | null>(null);
+
   // Alcance primero: hasta no saber quién soy y a quién puedo ver, no hay
-  // `userId` válido para pedir el reporte.
+  // `userId` válido para pedir el reporte de detalle. Con una sola persona en
+  // el alcance no hay tabla que mostrar -- se fija el `userId` de una vez,
+  // igual que antes de esta tarea. Con más de una, `userId` queda en `null`
+  // hasta que se elige una fila; así el efecto de detalle no dispara una
+  // carga que nadie pidió todavía.
   useEffect(() => {
     getTimesheetScope()
-      .then(s => { setScope(s); setUserId(s.viewerId); })
+      .then(s => {
+        setScope(s);
+        if (s.users.length <= 1) setUserId(s.viewerId);
+      })
       .catch(e => {
         setError(errorMessage(e, 'No se pudo cargar el alcance'));
         setLoading(false);
@@ -97,10 +106,37 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
     return () => { vivo = false; ctrl.abort(); };
   }, [period, anchor, userId]);
 
-  const persona = scope?.users.find(u => u.id === userId);
   // Con una sola persona en el alcance (el caso normal: nadie a cargo) el
   // selector no aporta nada, solo confirma quién es.
   const soloUno = (scope?.users.length ?? 0) <= 1;
+
+  // Carga de la tabla del equipo, no del detalle -- mismo patrón de
+  // `AbortController` que el efecto de arriba (comentarios completos allá).
+  // Se dispara en cuanto se conoce el alcance y hay más de una persona, sin
+  // esperar a que `vista` sea `'equipo'`: así volver de un detalle con
+  // «← Volver al equipo» no encuentra la tabla en blanco mientras recarga.
+  useEffect(() => {
+    if (!scope || soloUno) return;
+    const ctrl = new AbortController();
+    let vivo = true;
+    setTeamLoading(true);
+    setTeamError(null);
+    getTimesheetTeam(period, anchor, ctrl.signal)
+      .then(d => { if (!vivo) return; setTeamData(d); setTeamLoading(false); })
+      .catch(e => {
+        if (!vivo || esCancelacion(e)) return;
+        setTeamData(null);
+        setTeamError(errorMessage(e, 'No se pudo cargar el equipo'));
+        setTeamLoading(false);
+      });
+    return () => { vivo = false; ctrl.abort(); };
+  }, [period, anchor, scope, soloUno]);
+
+  const persona = scope?.users.find(u => u.id === userId);
+  const mostrarEquipo = !soloUno && vista === 'equipo';
+
+  const irADetalle = (id: string) => { setUserId(id); setVista('detalle'); };
+  const volverAlEquipo = () => { setVista('equipo'); };
 
   const byDay = data?.office.byDay ?? [];
   const maxMinutes = Math.max(1, ...byDay.map(d => d.minutes));
@@ -130,41 +166,65 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
           </button>
         </div>
 
-        {/* Selector de persona */}
-        <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3 md:px-6">
-          <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Persona</span>
-          {soloUno ? (
-            <span className="text-xs font-medium text-gray-700">
-              {persona ? `${persona.firstName} ${persona.lastName}` : '—'}
-            </span>
-          ) : (
-            <select
-              value={userId ?? ''}
-              // `setLoading(true)` acá y no solo en el efecto: el efecto corre
-              // DESPUÉS del pintado, así que al cambiar de persona con datos ya
-              // cargados React alcanza a pintar un frame con el nombre de B y
-              // los números de A. El AbortController no cubre ese camino --
-              // no hay ninguna petición en vuelo que cancelar.
-              onChange={e => { setLoading(true); setUserId(e.target.value); }}
-              aria-label="Persona"
-              className="rounded-xl border border-gray-200 bg-white px-2 py-1 text-xs focus:border-gray-400 focus:outline-none"
-            >
-              {scope?.users.map(u => (
-                <option key={u.id} value={u.id}>{u.firstName} {u.lastName}</option>
-              ))}
-            </select>
-          )}
-        </div>
+        {/*
+          Selector de persona / navegación de vuelta al equipo.
 
-        {error && (
+          En vista `'equipo'` esta fila no se renderiza: la tabla ya nombra
+          "Persona" en su propio encabezado (Requisito 1), repetirlo acá sería
+          ruido. Solo aparece con una sola persona en el alcance (nunca hubo
+          tabla que mostrar) o en el detalle de alguien elegido desde la
+          tabla, con el botón para volver.
+        */}
+        {(soloUno || vista === 'detalle') && (
+          <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3 md:px-6">
+            {soloUno ? (
+              <>
+                <span className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">Persona</span>
+                <span className="text-xs font-medium text-gray-700">
+                  {persona ? `${persona.firstName} ${persona.lastName}` : '—'}
+                </span>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={volverAlEquipo}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700"
+                >
+                  ← Volver al equipo
+                </button>
+                <span className="text-xs font-medium text-gray-700">
+                  {persona ? `· ${persona.firstName} ${persona.lastName}` : ''}
+                </span>
+              </>
+            )}
+          </div>
+        )}
+
+        {!mostrarEquipo && error && (
           <div className="mx-4 mt-3 flex-shrink-0 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600 md:mx-6">
             {error}
           </div>
         )}
 
+        {mostrarEquipo && teamError && (
+          <div className="mx-4 mt-3 flex-shrink-0 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600 md:mx-6">
+            {teamError}
+          </div>
+        )}
+
         {/* Contenido */}
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6">
-          {loading ? (
+          {mostrarEquipo ? (
+            teamLoading ? (
+              <p className="py-12 text-center text-xs text-gray-400">Cargando…</p>
+            ) : teamError ? null : (
+              <TeamTable
+                filas={teamData?.filas ?? []}
+                excepciones={teamData?.excepciones ?? { sinMarcar30Dias: [], sesionesAbiertas: [] }}
+                onSelect={irADetalle}
+              />
+            )
+          ) : loading ? (
             <p className="py-12 text-center text-xs text-gray-400">Cargando…</p>
           ) : error ? null : (
             // Con error ya no hay nada más que mostrar acá -- el banner rojo
