@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { cumplimientoToCsv } from './compliance-csv';
 import type { Cumplimiento } from '../services/compliance.service';
+import type { FilaEquipo } from '../services/team.service';
 
 /**
  * `cumplimientoToCsv` es la única consumidora de `ComplianceService` en
@@ -19,7 +20,7 @@ const COMPLETO: Cumplimiento = {
   feriadosCargados: 12,
   ausenciasDelPeriodo: 3,
   historialEstadosDesde: '2026-08-01',
-  porDepartamento: [{ departamento: 'Ventas', total: 5, sinMarcar: 1 }],
+  porDepartamento: [{ departamentoId: 'd1', departamento: 'Ventas', total: 5, sinMarcar: 1 }],
 };
 
 describe('cumplimientoToCsv — BOM y formato', () => {
@@ -115,5 +116,74 @@ describe('cumplimientoToCsv — inyección de fórmulas', () => {
     const csv = cumplimientoToCsv(conFormula('María José Sáenz'));
     expect(csv).toContain('María José Sáenz');
     expect(csv).not.toContain(`'María`);
+  });
+});
+
+/**
+ * I7: el spec pide "CSV de la tabla del equipo MÁS las banderas de
+ * cumplimiento" y lo implementado no traía ni una columna de persona. Estas
+ * pruebas verifican que las columnas de `TeamTable` sí lleguen, y que los
+ * TRES estados de fila se distingan también en el CSV -- no solo en la
+ * pantalla.
+ */
+describe('cumplimientoToCsv — tabla del equipo (I7)', () => {
+  const conRegistro: FilaEquipo = {
+    userId: 'u1', firstName: 'María José', lastName: 'Sáenz', email: 'maria@vla.com',
+    estado: 'con-registro', totalMinutes: 270, openSessionCapped: false,
+    variacion: { tipo: 'calculada', pct: 12, destacar: false },
+    diasConRegistro: 5, diasHabiles: 5, diasFinDeSemana: 0,
+    entradaHabitual: '08:10', ultimoRegistro: '2026-09-25', ultimoDisponible: true,
+  };
+  const sinRegistrar: FilaEquipo = {
+    userId: 'u2', firstName: 'Pedro', lastName: 'López', email: 'pedro@vla.com',
+    estado: 'sin-registrar', totalMinutes: 0, openSessionCapped: false,
+    variacion: { tipo: 'sin-base' },
+    diasConRegistro: 0, diasHabiles: 5, diasFinDeSemana: 0,
+    entradaHabitual: null, ultimoRegistro: null, ultimoDisponible: true,
+  };
+  const noDisponible: FilaEquipo = {
+    userId: 'u3', firstName: 'Ana', lastName: 'Ruiz', email: 'ana@vla.com',
+    estado: 'no-disponible', totalMinutes: 0, openSessionCapped: false,
+    variacion: { tipo: 'sin-base' },
+    diasConRegistro: 0, diasHabiles: 5, diasFinDeSemana: 0,
+    entradaHabitual: null, ultimoRegistro: null, ultimoDisponible: false,
+  };
+
+  it('trae las columnas de la tabla del equipo, con una fila con-registro completa', () => {
+    const csv = cumplimientoToCsv(COMPLETO, [conRegistro]);
+    expect(csv).toContain('Persona,Email,Estado,Minutos del período,vs. su promedio,Días con registro,Días hábiles,Días fin de semana,Entrada habitual,Último registro');
+    // "+12%" empieza con "+", el mismo prefijo que neutraliza fórmulas
+    // (ARRANQUE_DE_FORMULA) -- se aplica parejo a TODAS las columnas, no
+    // solo a nombres, así que sale con la comilla simple delante.
+    expect(csv).toContain("María José Sáenz,maria@vla.com,con registro,270,'+12%,5,5,0,08:10,2026-09-25");
+  });
+
+  it('va ANTES de la sección de cumplimiento', () => {
+    const csv = cumplimientoToCsv(COMPLETO, [conRegistro]);
+    const lineas = csv.split('\r\n');
+    // La primera línea lleva el BOM (`﻿`) pegado adelante -- `includes`
+    // y no `startsWith`, para no acoplar esta prueba a ese detalle.
+    const idxEquipo = lineas.findIndex(l => l.includes('Persona,Email,Estado'));
+    const idxCumplimiento = lineas.findIndex(l => l.startsWith('Sección,Detalle'));
+    expect(idxEquipo).toBeGreaterThanOrEqual(0);
+    expect(idxCumplimiento).toBeGreaterThan(idxEquipo);
+  });
+
+  it('sin-registrar no escribe 0 en las columnas del período -- son "no aplica"', () => {
+    const csv = cumplimientoToCsv(COMPLETO, [sinRegistrar]);
+    expect(csv).toContain('Pedro López,pedro@vla.com,sin registrar,no aplica,no aplica,no aplica,no aplica,no aplica,no aplica,nunca');
+    expect(csv).not.toContain('Pedro López,pedro@vla.com,sin registrar,0');
+  });
+
+  it('no-disponible se distingue de sin-registrar, y no escribe "nunca" sobre el último registro', () => {
+    const csv = cumplimientoToCsv(COMPLETO, [noDisponible]);
+    expect(csv).toContain('Ana Ruiz,ana@vla.com,no disponible,no aplica,no aplica,no aplica,no aplica,no aplica,no aplica,no disponible');
+    expect(csv).not.toContain('Ana Ruiz,ana@vla.com,no disponible,no aplica,no aplica,no aplica,no aplica,no aplica,no aplica,nunca');
+  });
+
+  it('sin filas (por omisión, o un arreglo vacío) escribe "Ninguna" y no rompe el resto del CSV', () => {
+    const csv = cumplimientoToCsv(COMPLETO);
+    expect(csv).toContain('Ninguna,,,,,,,,,');
+    expect(csv).toContain('Feriados cargados');
   });
 });

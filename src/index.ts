@@ -1003,13 +1003,32 @@ const plugin: PluginDefinition = {
      * Task 10): sin él, Excel abre el archivo asumiendo Latin-1 y cualquier
      * tilde o ñ en un nombre sale rota. Mismo permiso que /timesheet/compliance
      * -- es el mismo dato, solo que serializado para descargar.
+     *
+     * I7: el spec pide "CSV de la tabla del equipo MÁS las banderas de
+     * cumplimiento" -- lo que había solo volcaba lo segundo. `filas` sale de
+     * TODOS los activos de la organización (mismo universo que
+     * `ComplianceService.cumplimiento`, no el alcance de "mis directos" de
+     * `/timesheet/team`): esta ruta ya exige `office.manage`, que es
+     * justamente el permiso de ver a todo el mundo. Ordenados por nombre,
+     * igual que /timesheet/scope y /timesheet/team (M4). `team.filas` nunca
+     * rechaza -- degrada internamente a filas `no-disponible` -- así que no
+     * hace falta un `.catch` acá.
      */
     ctx.router.get('/timesheet/export', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {
       const parsed = parsePeriodAnchor(req);
       if ('error' in parsed) return res.status(400).json({ message: parsed.error });
 
-      const data = await compliance.cumplimiento(parsed.period, parsed.anchor);
-      const csv = cumplimientoToCsv(data);
+      const activeIds = (await ctx.prisma.user.findMany({
+        where: { isActive: true },
+        select: { id: true },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      }) as any[]).map(u => u.id);
+
+      const [data, filas] = await Promise.all([
+        compliance.cumplimiento(parsed.period, parsed.anchor),
+        team.filas(activeIds, parsed.period, parsed.anchor),
+      ]);
+      const csv = cumplimientoToCsv(data, filas);
       const anchorRaw = (req.query.anchor as string | undefined) ?? localDateString(new Date(), tz());
 
       res.setHeader('Content-Type', 'text/csv; charset=utf-8');

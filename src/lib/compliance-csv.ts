@@ -1,6 +1,9 @@
 import type { Cumplimiento } from '../services/compliance.service';
+import type { FilaEquipo } from '../services/team.service';
 
 const NO_DISPONIBLE = 'no disponible';
+/** Ninguna de las columnas del período aplica a esta fila (I7). */
+const NO_APLICA = 'no aplica';
 
 /**
  * Caracteres con los que Excel, LibreOffice y Google Sheets interpretan una
@@ -35,7 +38,53 @@ function fila(cols: string[]): string {
 const ENCABEZADOS = ['Sección', 'Detalle', 'Persona', 'Departamento', 'Valor'];
 
 /**
- * Vuelca el reporte de `ComplianceService.cumplimiento` a texto CSV.
+ * Columnas de la tabla del equipo (I7): las mismas seis que muestra
+ * `TeamTable`, más el email (join útil en una planilla) y el desglose de
+ * "Días" en sus tres partes -- la tabla lo muestra como una sola celda, pero
+ * un CSV que se va a sumar en Excel necesita las columnas separadas, no un
+ * "4/5" como texto.
+ */
+const ENCABEZADOS_EQUIPO = [
+  'Persona', 'Email', 'Estado', 'Minutos del período', 'vs. su promedio',
+  'Días con registro', 'Días hábiles', 'Días fin de semana', 'Entrada habitual', 'Último registro',
+];
+
+/**
+ * Fila de la tabla del equipo para el CSV. Los TRES estados de
+ * `FilaEquipo.estado` se distinguen también acá (I7): `sin-registrar` y
+ * `no-disponible` nunca escriben `0` en las columnas del período -- son el
+ * mismo "cero inventado" que el resto de este archivo evita, trasladado a
+ * la exportación -- y se distinguen ENTRE SÍ ("sin registrar" es un hecho
+ * sobre la persona; "no disponible" sobre el sistema), igual que en
+ * `TeamTable.CeldaEstado`.
+ */
+function filaEquipoCsv(f: FilaEquipo): string[] {
+  const persona = `${f.firstName} ${f.lastName}`.trim();
+  // `ultimoRegistro` sale de una consulta APARTE de `estado` (ver
+  // `TeamService.ultimoRegistroPorUsuario`, C1): puede seguir siendo
+  // confiable aunque `estado` sea `no-disponible` por el fallo de OTRA
+  // consulta, así que se calcula fuera de la rama de abajo.
+  const ultimo = !f.ultimoDisponible ? NO_DISPONIBLE : (f.ultimoRegistro ?? 'nunca');
+
+  if (f.estado !== 'con-registro') {
+    return [
+      persona, f.email, f.estado === 'sin-registrar' ? 'sin registrar' : NO_DISPONIBLE,
+      NO_APLICA, NO_APLICA, NO_APLICA, NO_APLICA, NO_APLICA, NO_APLICA, ultimo,
+    ];
+  }
+
+  const vsPromedio = f.variacion.tipo === 'sin-base' ? 'sin base' : `${f.variacion.pct >= 0 ? '+' : ''}${f.variacion.pct}%`;
+  return [
+    persona, f.email, 'con registro',
+    String(f.totalMinutes), vsPromedio,
+    String(f.diasConRegistro), String(f.diasHabiles), String(f.diasFinDeSemana),
+    f.entradaHabitual ?? NO_DISPONIBLE, ultimo,
+  ];
+}
+
+/**
+ * Vuelca el reporte de `ComplianceService.cumplimiento` -- y, desde I7, la
+ * tabla del equipo del mismo período -- a texto CSV.
  *
  * Lleva BOM UTF-8 al inicio (Requisito 3, Task 10): sin él Excel abre el
  * archivo asumiendo Latin-1 y cualquier tilde o ñ en un nombre sale rota.
@@ -47,9 +96,23 @@ const ENCABEZADOS = ['Sección', 'Detalle', 'Persona', 'Departamento', 'Valor'];
  * «Ninguna». Las dos palabras tienen que poder distinguirse en la hoja:
  * confundirlas es el mismo error de "cero inventado" que el resto del
  * reporte existe para impedir, ahora en la exportación.
+ *
+ * `filas` va ANTES que el reporte de cumplimiento (I7, el spec de
+ * `GET /timesheet/export` la pide primero): son dos tablas de forma
+ * distinta en el mismo archivo -- RRHH abre una sola hoja y encuentra
+ * primero la de evaluación/planilla, después la de cumplimiento. Por
+ * omisión es `[]` para no romper a quien ya llamaba `cumplimientoToCsv`
+ * con un solo argumento.
  */
-export function cumplimientoToCsv(data: Cumplimiento): string {
-  const lineas: string[] = [fila(ENCABEZADOS)];
+export function cumplimientoToCsv(data: Cumplimiento, filas: FilaEquipo[] = []): string {
+  const lineas: string[] = [fila(ENCABEZADOS_EQUIPO)];
+  if (filas.length === 0) {
+    lineas.push(fila(['Ninguna', '', '', '', '', '', '', '', '', '']));
+  } else {
+    for (const f of filas) lineas.push(fila(filaEquipoCsv(f)));
+  }
+
+  lineas.push(fila(ENCABEZADOS));
 
   lineas.push(fila([
     'Resumen', 'Feriados cargados', '', '',
