@@ -240,6 +240,14 @@ export interface FilaEquipo {
   variacion: Variacion;
   diasConRegistro: number;
   diasHabiles: number;
+  /**
+   * Cuántos de `diasConRegistro` cayeron fuera de lunes-viernes (I6).
+   * `diasConRegistro` sigue contando TODOS los días con sesión -- no se
+   * esconde el trabajo de fin de semana -- así que la interfaz resta este
+   * valor para armar el numerador que sí comparte universo con
+   * `diasHabiles`, y muestra el fin de semana aparte.
+   */
+  diasFinDeSemana: number;
   entradaHabitual: string | null;
   /** YYYY-MM-DD local. `null` = de verdad nunca marcó. Ver `ultimoDisponible`. */
   ultimoRegistro: string | null;
@@ -306,5 +314,11 @@ export interface Cumplimiento {
   feriadosCargados: number | null;
   ausenciasDelPeriodo: number | null;
   historialEstadosDesde: string | null;
-  porDepartamento: Array<{ departamento: string; total: number; sinMarcar: number }> | null;
+  /**
+   * `departamentoId` es `null` para la fila sintética "(sin departamento)" y
+   * es la `key` de React de cada fila -- dos departamentos homónimos dan dos
+   * filas con el mismo `departamento` pero distinto `departamentoId`, y una
+   * `key` basada en el nombre las confundiría.
+   */
+  porDepartamento: Array<{ departamentoId: string | null; departamento: string; total: number; sinMarcar: number }> | null;
 }

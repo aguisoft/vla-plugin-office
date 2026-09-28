@@ -183,8 +183,15 @@ export function TimesheetScreen({ onClose, canManageOffice }: {
   // su propio detalle. "Cumplimiento" solo aparece con el permiso. Con una
   // sola candidata no hace falta selector -- confirmaría algo que ya es la
   // única vista posible.
+  // M7: mientras `scope` no ha llegado todavía no se sabe si hay una sola
+  // persona o varias -- `soloUno` (arriba) vale `true` con `scope: null` por
+  // cómo está escrito (`(scope?.users.length ?? 0) <= 1`), así que esta
+  // pestaña decidía "Mi tiempo" de una y se corregía a "Equipo" en cuanto
+  // llegaba la respuesta, un parpadeo de rótulo. No se decide nada hasta
+  // tener el alcance: la etiqueta queda en blanco ese instante en vez de
+  // afirmar algo que todavía no se sabe.
   const pestañas: Array<{ key: 'equipo' | 'cumplimiento'; label: string }> = [
-    { key: 'equipo', label: soloUno ? 'Mi tiempo' : 'Equipo' },
+    { key: 'equipo', label: scope === null ? '' : (soloUno ? 'Mi tiempo' : 'Equipo') },
     ...(canManageOffice ? [{ key: 'cumplimiento' as const, label: 'Cumplimiento' }] : []),
   ];
 

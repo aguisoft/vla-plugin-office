@@ -81,6 +81,18 @@ function CeldaUltimo({ fila }: { fila: FilaEquipo }) {
 }
 
 /**
+ * `fmtDuration` puro da "0m" para cero minutos, y ese es un cero REAL en la
+ * mayoría de sus usos (p. ej. el total del día en `TimesheetScreen`). Acá NO
+ * lo es (M3): con `estado: 'con-registro'`, `totalMinutes: 0` solo puede
+ * pasar por un solape menor a 30 segundos que `spanMinutes` redondea a cero
+ * -- `estadoRegistro` ya confirmó que la persona SÍ marcó. Mostrar "0m" acá
+ * sería exactamente el cero inventado que esta pantalla existe para evitar.
+ */
+function fmtPeriodoConRegistro(min: number): string {
+  return min <= 0 ? 'menos de 1m' : fmtDuration(min);
+}
+
+/**
  * Celda de "Período": los tres valores de `estado` se ven distinto a
  * propósito.
  *
@@ -97,7 +109,7 @@ function CeldaEstado({ fila }: { fila: FilaEquipo }) {
     // tan malo como no acotar.
     return (
       <div className="flex flex-col gap-0.5">
-        <span className="text-xs font-semibold tabular-nums text-gray-800">{fmtDuration(fila.totalMinutes)}</span>
+        <span className="text-xs font-semibold tabular-nums text-gray-800">{fmtPeriodoConRegistro(fila.totalMinutes)}</span>
         {fila.openSessionCapped && (
           <span className="text-[10px] leading-tight text-gray-400">sesión abierta, acotada</span>
         )}
@@ -243,9 +255,27 @@ export function TeamTable({ filas, excepciones, onSelect }: {
                     {conDatosDelPeriodo ? <CeldaVariacion v={fila.variacion} /> : <span className="text-xs text-gray-300">—</span>}
                   </td>
                   <td className="px-2 py-2">
-                    <span className="text-xs tabular-nums text-gray-600">
-                      {conDatosDelPeriodo ? `${fila.diasConRegistro}/${fila.diasHabiles}` : '—'}
-                    </span>
+                    {/* I6: el numerador es solo los días HÁBILES con
+                        registro -- comparado tal cual contra `diasHabiles`,
+                        `diasConRegistro` (que sí cuenta fin de semana, a
+                        propósito) producía fracciones como "7/5" para quien
+                        trabajó un sábado, que en la lectura obvia parecen un
+                        error del sistema. El fin de semana no se esconde:
+                        se muestra aparte, en vez de sumarse al numerador. */}
+                    {conDatosDelPeriodo ? (
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-xs tabular-nums text-gray-600">
+                          {fila.diasConRegistro - fila.diasFinDeSemana}/{fila.diasHabiles}
+                        </span>
+                        {fila.diasFinDeSemana > 0 && (
+                          <span className="text-[10px] leading-tight text-gray-400">
+                            +{fila.diasFinDeSemana} fin de semana
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-gray-300">—</span>
+                    )}
                   </td>
                   <td className="px-2 py-2">
                     <span className="text-xs tabular-nums text-gray-600">

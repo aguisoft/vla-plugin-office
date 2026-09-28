@@ -1,5 +1,3 @@
-import { isoDate } from './calendar';
-
 /**
  * Helpers de formato de fecha/hora en español, compartidos entre `App.tsx`
  * y los componentes que agregan las Tasks 22/23 (`MeetingInviteModal`,
@@ -86,35 +84,24 @@ export function fmtDuration(min: number): string {
 }
 
 /**
- * Hoy como `YYYY-MM-DD` local -- mismo patrón que `isoDate`, nunca
- * `toISOString()` (correría la fecha en cualquier zona al oeste de UTC).
- * Vivía duplicado en `TimesheetScreen` (para el ancla del `PeriodPicker`) y
- * en `TeamTable` (para "Último") con el mismo cuerpo -- mismo motivo que
- * `fmtDuration` arriba.
+ * Zona de la operación (Costa Rica), fija -- la misma que ancla el backend
+ * (`DEFAULT_TZ` en `lib/local-date.ts`). El proyecto entero opera en esta
+ * zona sin importar desde dónde se conecte un jefe o RRHH.
  */
-export function hoyLocal(): string {
-  const d = new Date();
-  return isoDate(d.getFullYear(), d.getMonth(), d.getDate());
-}
+const TZ_OPERACION = 'America/Costa_Rica';
 
 /**
- * "hoy" / "ayer" / "hace N días" / "nunca", a partir de una fecha
- * `YYYY-MM-DD` local -- la misma forma en la que `GET /timesheet/team`
- * entrega `ultimoRegistro` (ver `localDateString` en el backend). `null`
- * (nunca se le vio marcar) da "nunca".
- *
- * Las dos fechas se anclan al mediodía UTC antes de restar -- mismo truco
- * que `esDiaHabil` en `lib/team-stats.ts` del backend -- para que ningún
- * desplazamiento de zona horaria corra el día calculado.
+ * Hoy como `YYYY-MM-DD` en la zona de la OPERACIÓN, nunca la del navegador
+ * (M6). `d.getFullYear()/getMonth()/getDate()` leen la zona local del
+ * dispositivo: alguien consultando desde otro huso corría "hoy"/"ayer" un
+ * día -- el mismo defecto de fondo que este proyecto ya corrigió del lado
+ * del servidor con `localDateString`, ahora también acá. `Intl.DateTimeFormat`
+ * con `timeZone` fija la zona sin importar dónde corra el navegador; el
+ * locale `en-CA` es el truco estándar para que el formato salga `YYYY-MM-DD`
+ * directo, sin armar el string a mano.
  */
-export function fmtUltimoRegistro(fecha: string | null): string {
-  if (!fecha) return 'nunca';
-  const hoy = hoyLocal();
-  if (fecha === hoy) return 'hoy';
-  const dias = Math.round(
-    (new Date(`${hoy}T12:00:00Z`).getTime() - new Date(`${fecha}T12:00:00Z`).getTime()) / 86_400_000,
-  );
-  if (dias <= 0) return 'hoy';
-  if (dias === 1) return 'ayer';
-  return `hace ${dias} días`;
+export function hoyLocal(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ_OPERACION, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date());
 }

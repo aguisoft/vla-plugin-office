@@ -178,7 +178,7 @@ export function ComplianceTab({ data, loading, error, period, anchor }: {
         ) : (
           <ul className="space-y-1.5">
             {data.porDepartamento.map(d => (
-              <li key={d.departamento} className="flex items-center justify-between gap-2 text-xs">
+              <li key={d.departamentoId ?? '(sin departamento)'} className="flex items-center justify-between gap-2 text-xs">
                 <span className="text-gray-600">{d.departamento}</span>
                 <span className="font-medium tabular-nums text-gray-700">{d.sinMarcar} / {d.total}</span>
               </li>
