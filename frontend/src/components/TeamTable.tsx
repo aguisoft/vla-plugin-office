@@ -1,6 +1,5 @@
 import type { Excepciones, FilaEquipo, Variacion } from '../types';
-import { isoDate } from '../calendar';
-import { fmtDateOnly, fmtDuration } from '../format';
+import { fmtDateOnly, fmtDuration, hoyLocal } from '../format';
 
 /**
  * Tabla del equipo: una fila por persona a cargo (más el propio jefe), con
@@ -38,12 +37,6 @@ function IconoAviso({ className = '' }: { className?: string }) {
       />
     </svg>
   );
-}
-
-/** Hoy como `YYYY-MM-DD` local -- mismo patrón que el resto del plugin, nunca `toISOString()`. */
-function hoyLocal(): string {
-  const d = new Date();
-  return isoDate(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
 /**
@@ -182,18 +175,33 @@ export function TeamTable({ filas, excepciones, onSelect }: {
               // trasladado a otra columna.
               const conDatosDelPeriodo = fila.estado === 'con-registro';
               return (
+                // La fila conserva su semántica nativa de `row`: ponerle
+                // `role="button"` se la quitaba, y con ella el ancestro que sus
+                // celdas necesitan para que un lector de pantalla asocie cada
+                // valor con su encabezado. Justo lo que los `<th scope="col">`
+                // vinieron a resolver.
+                //
+                // El clic en toda la fila queda como comodidad para el mouse; a
+                // teclado y lector de pantalla se llega por el botón del nombre,
+                // que sí tiene nombre accesible propio.
                 <tr
                   key={fila.userId}
                   onClick={() => onSelect(fila.userId)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(fila.userId); } }}
                   className="cursor-pointer border-b border-gray-50 align-top hover:bg-gray-50"
                 >
                   <td className="px-2 py-2">
-                    <p className="truncate text-xs font-medium text-gray-700">
-                      {fila.firstName} {fila.lastName}
-                    </p>
+                    <button
+                      type="button"
+                      // Sin esto el clic sobre el botón burbujea al `<tr>` y
+                      // `onSelect` corre dos veces.
+                      onClick={e => { e.stopPropagation(); onSelect(fila.userId); }}
+                      aria-label={`Ver detalle de ${fila.firstName} ${fila.lastName}`}
+                      className="block max-w-full text-left hover:underline focus:outline-none focus-visible:rounded focus-visible:ring-2 focus-visible:ring-gray-400"
+                    >
+                      <span className="block truncate text-xs font-medium text-gray-700">
+                        {fila.firstName} {fila.lastName}
+                      </span>
+                    </button>
                     <p className="truncate text-[10px] text-gray-400">{fila.email}</p>
                   </td>
                   <td className="px-2 py-2">

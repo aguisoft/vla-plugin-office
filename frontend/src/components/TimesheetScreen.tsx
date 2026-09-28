@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
 import { getTimesheetScope, getOfficeTime, getTimesheetTeam, ApiError } from '../api';
 import type { TimesheetScope, TimesheetOfficeResponse, TimesheetTeamResponse } from '../types';
-import { isoDate } from '../calendar';
-import { fmtDateOnly, fmtDuration as hhmm } from '../format';
+import { fmtDateOnly, fmtDuration as hhmm, hoyLocal as hoy } from '../format';
 import { PeriodPicker } from './PeriodPicker';
 import type { Period } from './PeriodPicker';
 import { TimesheetBreakdown } from './TimesheetBreakdown';
@@ -18,12 +17,6 @@ import { cfgOf } from '../statusConfig';
  * (`?view=tiempos`), no un diálogo que se cierra sobre otra pantalla; por
  * eso no lleva overlay ni backdrop, solo la tarjeta blanca de siempre.
  */
-
-/** Hoy como `YYYY-MM-DD` local -- mismo patrón que `isoDate`, nunca `toISOString()`. */
-function hoy(): string {
-  const d = new Date();
-  return isoDate(d.getFullYear(), d.getMonth(), d.getDate());
-}
 
 function errorMessage(e: unknown, fallback: string): string {
   const detail = e instanceof ApiError ? (e.detail as { message?: string } | undefined) : undefined;
@@ -135,7 +128,22 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
   const persona = scope?.users.find(u => u.id === userId);
   const mostrarEquipo = !soloUno && vista === 'equipo';
 
-  const irADetalle = (id: string) => { setUserId(id); setVista('detalle'); };
+  // `setLoading(true)` y `setData(null)` acá, de forma síncrona, y no solo
+  // dentro del efecto de detalle: el efecto corre DESPUÉS del pintado, así
+  // que ir de un detalle a otro (tabla -> Pedro -> «Volver al equipo» ->
+  // María) deja `loading` en `false` y `data` todavía con lo de Pedro justo
+  // en el frame donde React ya pintó el encabezado de María. El resultado es
+  // un frame real con el nombre de una persona y los números de otra. El
+  // primer clic desde la tabla se salva solo porque `loading` arranca en
+  // `true`; cualquier cambio de detalle a detalle sin esto lo reproduce. El
+  // selector de persona que existía antes de esta tarea ya tenía este mismo
+  // fix (commit `ce169fb`, 22-sep) -- se perdió al retirarlo y se repone acá.
+  const irADetalle = (id: string) => {
+    setLoading(true);
+    setData(null);
+    setUserId(id);
+    setVista('detalle');
+  };
   const volverAlEquipo = () => { setVista('equipo'); };
 
   const byDay = data?.office.byDay ?? [];

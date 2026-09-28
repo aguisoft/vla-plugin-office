@@ -1,3 +1,5 @@
+import { isoDate } from './calendar';
+
 /**
  * Helpers de formato de fecha/hora en español, compartidos entre `App.tsx`
  * y los componentes que agregan las Tasks 22/23 (`MeetingInviteModal`,
@@ -81,4 +83,38 @@ export function fmtDuration(min: number): string {
   const m = min % 60;
   if (h === 0) return `${m}m`;
   return m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
+/**
+ * Hoy como `YYYY-MM-DD` local -- mismo patrón que `isoDate`, nunca
+ * `toISOString()` (correría la fecha en cualquier zona al oeste de UTC).
+ * Vivía duplicado en `TimesheetScreen` (para el ancla del `PeriodPicker`) y
+ * en `TeamTable` (para "Último") con el mismo cuerpo -- mismo motivo que
+ * `fmtDuration` arriba.
+ */
+export function hoyLocal(): string {
+  const d = new Date();
+  return isoDate(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+/**
+ * "hoy" / "ayer" / "hace N días" / "nunca", a partir de una fecha
+ * `YYYY-MM-DD` local -- la misma forma en la que `GET /timesheet/team`
+ * entrega `ultimoRegistro` (ver `localDateString` en el backend). `null`
+ * (nunca se le vio marcar) da "nunca".
+ *
+ * Las dos fechas se anclan al mediodía UTC antes de restar -- mismo truco
+ * que `esDiaHabil` en `lib/team-stats.ts` del backend -- para que ningún
+ * desplazamiento de zona horaria corra el día calculado.
+ */
+export function fmtUltimoRegistro(fecha: string | null): string {
+  if (!fecha) return 'nunca';
+  const hoy = hoyLocal();
+  if (fecha === hoy) return 'hoy';
+  const dias = Math.round(
+    (new Date(`${hoy}T12:00:00Z`).getTime() - new Date(`${fecha}T12:00:00Z`).getTime()) / 86_400_000,
+  );
+  if (dias <= 0) return 'hoy';
+  if (dias === 1) return 'ayer';
+  return `hace ${dias} días`;
 }
