@@ -9,6 +9,7 @@ import { OrgService } from './services/org.service';
 import { HolidayService } from './services/holiday.service';
 import { MeetingService } from './services/meeting.service';
 import { TimesheetService } from './services/timesheet.service';
+import { TeamService } from './services/team.service';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { DEFAULT_TZ } from './lib/local-date';
 import { validateStatusInput, type StatusInput, type OfficeStatus } from './lib/status-rules';
@@ -117,6 +118,9 @@ const plugin: PluginDefinition = {
       horasConfig('WORKDAY_HOURS', 8),
       horasConfig('MAX_OPEN_SESSION_HOURS', 12),
     );
+    // Misma razón que timesheet arriba: MAX_OPEN_SESSION_HOURS se lee perezoso
+    // porque ctx.plugin.config se hidrata después de registrar el plugin.
+    const team = new TeamService(ctx, tz, horasConfig('MAX_OPEN_SESSION_HOURS', 12));
 
     // ── Helper: configuración en horas ────────────────────────────────────────
     /**
@@ -862,6 +866,57 @@ const plugin: PluginDefinition = {
         // del desglose por estado. Los feriados quedan fuera a propósito --
         // ver el comentario de tallyAbsences en lib/timesheet.ts.
         absences: await timesheet.absences(target, span),
+      });
+    }));
+
+    /**
+     * Tabla del equipo del período: una fila por persona del alcance.
+     *
+     * VA ANTES de cualquier ruta paramétrica de /timesheet por el orden de
+     * registro de Express, igual que /timesheet/scope.
+     *
+     * El alcance es el mismo de siempre: uno mismo más los directos, o todo si
+     * es ADMIN. No recibe `userId`: esta vista ES el equipo. Quien quiera una
+     * sola persona usa /timesheet/office, que ya valida el 403.
+     */
+    ctx.router.get('/timesheet/team', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      const viewerId = (req as any).user?.sub;
+      if (!viewerId) return res.status(401).json({ message: 'Unauthorized' });
+
+      const period = (req.query.period as Period) || 'week';
+      if (!['day', 'week', 'month'].includes(period)) {
+        return res.status(400).json({ message: 'period debe ser day, week o month' });
+      }
+
+      const anchorRaw = req.query.anchor as string | undefined;
+      // Mediodía UTC a propósito: el mismo YYYY-MM-DD cae en el mismo día
+      // local en UTC-6 sin depender de a qué hora corre el servidor.
+      const anchor = anchorRaw ? new Date(`${anchorRaw}T12:00:00Z`) : new Date();
+      if (Number.isNaN(anchor.getTime())) {
+        return res.status(400).json({ message: 'anchor inválido, se espera YYYY-MM-DD' });
+      }
+
+      const isAdmin = (req as any).user?.role === 'ADMIN';
+      const scope = resolveScope(viewerId, await org.managedUserIds(viewerId), isAdmin);
+
+      const ids = scope === null
+        ? (await ctx.prisma.user.findMany({ where: { isActive: true }, select: { id: true } }) as any[]).map(u => u.id)
+        : [...scope];
+
+      const bounds = periodBounds(anchor, period, tz());
+      const [filas, excepciones] = await Promise.all([
+        team.filas(ids, period, anchor),
+        team.excepciones(ids),
+      ]);
+
+      res.json({
+        period,
+        from: bounds.start.toISOString(),
+        to: bounds.end.toISOString(),
+        viewerId,
+        isAdmin,
+        filas,
+        excepciones,
       });
     }));
 
