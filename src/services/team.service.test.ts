@@ -76,9 +76,28 @@ function makeCtx(opts: {
     if (opts.rejectUsers) throw opts.rejectUsers;
     return opts.users ?? [];
   });
-  const checkInGroupBy = vi.fn(async () => {
+  /**
+   * Doble de `groupBy` para `ultimoRegistroPorUsuario` (C1).
+   *
+   * **Aplica el `where` que recibe**, y eso es el punto: el contrato de esa
+   * consulta es que NO tenga cota de fechas, porque una ventana ahí es lo que
+   * fabricaba el «nunca». Un doble que ignore sus argumentos devolvería la
+   * fecha correcta aunque alguien le volviera a poner la cota, y la prueba que
+   * guarda ese contrato pasaría sin probar nada — que es exactamente lo que
+   * pasaba con el doble de `findMany` antes de arreglarlo.
+   */
+  const checkInGroupBy = vi.fn(async (args?: any) => {
     if (opts.rejectUltimo) throw opts.rejectUltimo;
-    const fuente = opts.ultimos ?? opts.checkIns ?? [];
+    const where = args?.where ?? {};
+    const ids: string[] | undefined = where.userId?.in;
+    const desde: Date | undefined = where.checkInAt?.gte;
+    const hasta: Date | undefined = where.checkInAt?.lte;
+
+    const fuente = (opts.ultimos ?? opts.checkIns ?? []).filter(r =>
+      (!ids || ids.includes(r.userId)) &&
+      (!desde || r.checkInAt >= desde) &&
+      (!hasta || r.checkInAt <= hasta));
+
     const max = new Map<string, Date>();
     for (const r of fuente) {
       const actual = max.get(r.userId);
@@ -113,12 +132,34 @@ function fakeOrg(opts: { roster?: Map<string, Partial<RosterEntry>>; reject?: Er
   } as unknown as OrgService;
 }
 
-/** Doble mínimo de `HolidayService` para I5. Por omisión, sin feriados cargados. */
+/**
+ * Doble de `HolidayService` para I5. Por omisión, sin feriados cargados.
+ *
+ * **Simula el rango de la consulta**, no solo devuelve lo que se le pone. Un
+ * doble que ignora sus argumentos no puede detectar un `WHERE` mal armado, y
+ * eso ya pasó dos veces en este plan: el de `checkInRecord.findMany` hizo que
+ * el bug de «último: nunca» fuera irreproducible en una prueba, y este mismo
+ * dejó pasar un rango que perdía el feriado del primer día del período.
+ *
+ * `Holiday.date` es una columna DATE: Prisma la entrega a medianoche UTC, así
+ * que el filtro se evalúa contra ese instante, igual que en la base real.
+ */
 function fakeHolidays(opts: { porPais?: Map<string, Set<string>>; reject?: Error } = {}): HolidayService {
   return {
-    datesByCountry: vi.fn(async () => {
+    datesByCountry: vi.fn(async (countries: string[], from: Date, to: Date) => {
       if (opts.reject) throw opts.reject;
-      return opts.porPais ?? new Map();
+      const todos = opts.porPais ?? new Map<string, Set<string>>();
+      const out = new Map<string, Set<string>>();
+      for (const [pais, fechas] of todos) {
+        if (!countries.includes(pais)) continue;
+        const dentro = new Set<string>();
+        for (const fecha of fechas) {
+          const instante = new Date(`${fecha}T00:00:00Z`);
+          if (instante >= from && instante <= to) dentro.add(fecha);
+        }
+        if (dentro.size > 0) out.set(pais, dentro);
+      }
+      return out;
     }),
   } as unknown as HolidayService;
 }
@@ -278,14 +319,18 @@ describe('TeamService.filasYCobertura — el período en curso no cuenta horas q
     expect(cobertura.fechas).toContain('2026-09-20');
   });
 
-  it('la norma de los períodos previos (YA CERRADOS) no se acota a "ahora"', async () => {
-    // Tres días previos COMPLETOS con 240 min cada uno. Si `totalesPrevios`
-    // se acotara a "ahora" (14:00 del 25-sep) en vez de usar el Span propio
-    // de cada período cerrado, no cambiaría nada acá -- son días enteros que
-    // ya terminaron hace tiempo -- pero es justo la aritmética que un
-    // refactor descuidado de C2 podría romper (acotar TODO a `efectivo` sin
-    // distinguir período actual de períodos previos). La prueba fija el
-    // número exacto para que ese descuido se note.
+  it('los períodos previos se acotan al MISMO offset transcurrido, no a "ahora"', async () => {
+    // Título corregido tras I4: los previos SÍ se acotan, pero a
+    // `inicio + transcurrido`, no al instante «ahora». La diferencia importa:
+    // acotar a «ahora» dejaría a cada período previo con su duración entera
+    // (ya terminaron), y entonces un lunes a las 10am se compararía media
+    // jornada contra jornadas completas — la flecha roja para todo el equipo
+    // que I4 vino a quitar.
+    //
+    // Acá las sesiones previas cierran a las 12:00 y «ahora» son las 14:00,
+    // así que el recorte por offset no muerde y los tres previos aportan sus
+    // 240 minutos completos. Lo que la prueba fija es que el ACTUAL no
+    // contamine la norma.
     const checkIns: CheckInRow[] = [
       { userId: 'u1', checkInAt: cr('2026-09-22T08:00:00'), checkOutAt: cr('2026-09-22T12:00:00') },
       { userId: 'u1', checkInAt: cr('2026-09-23T08:00:00'), checkOutAt: cr('2026-09-23T12:00:00') },
@@ -407,6 +452,41 @@ describe('TeamService.filasYCobertura — I4: la norma compara el MISMO punto tr
 describe('TeamService.filasYCobertura — I5: feriados por país en el denominador de "N de M días"', () => {
   const ANCLA = cr('2026-09-21T10:00:00'); // semana lunes 21 a domingo 27 de setiembre
 
+  it('un feriado en LUNES —el primer día del período— también se descuenta', async () => {
+    // El caso que el rango viejo perdía. `Holiday.date` es una columna DATE y
+    // llega a medianoche UTC; `currentBounds.start` es medianoche LOCAL, que en
+    // UTC−6 son las 06:00Z. Con el `gte` contra el instante local, el feriado
+    // del primer día quedaba siempre afuera: en la vista «Día» no se descontaba
+    // ninguno, y en la semanal se perdían los de lunes. En Costa Rica eso no es
+    // marginal — la Ley 9875 traslada varios feriados a ese día.
+    const { ctx } = makeCtx({
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+    const roster = new Map<string, Partial<RosterEntry>>([['u1', { country: 'CR' }]]);
+    const porPais = new Map([['CR', new Set(['2026-09-21'])]]); // el lunes mismo
+
+    const svc = makeService(ctx, 12, fakeOrg({ roster }), fakeHolidays({ porPais }));
+    const [fila] = await svc.filas(['u1'], 'week', ANCLA);
+
+    expect(fila.diasHabiles).toBe(4);
+  });
+
+  it('en la vista de un solo DÍA, el feriado deja el denominador en cero', async () => {
+    // El período de un día empieza y termina el mismo día, así que el feriado
+    // es SIEMPRE el primer día: con el rango viejo, la vista diaria no
+    // descontaba feriados nunca y decía que había jornada que cumplir.
+    const { ctx } = makeCtx({
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+    const roster = new Map<string, Partial<RosterEntry>>([['u1', { country: 'CR' }]]);
+    const porPais = new Map([['CR', new Set(['2026-09-21'])]]);
+
+    const svc = makeService(ctx, 12, fakeOrg({ roster }), fakeHolidays({ porPais }));
+    const [fila] = await svc.filas(['u1'], 'day', ANCLA);
+
+    expect(fila.diasHabiles).toBe(0);
+  });
+
   it('un feriado del país de la persona baja SU diasHabiles; a otro país no le toca', async () => {
     const { ctx } = makeCtx({
       users: [
@@ -461,8 +541,8 @@ describe('TeamService.filasYCobertura — I5: feriados por país en el denominad
   });
 });
 
-describe('TeamService.filasYCobertura — I6: diasFinDeSemana separa el fin de semana del numerador', () => {
-  it('quien trabajó un sábado no infla el numerador en silencio: diasFinDeSemana lo separa', async () => {
+describe('TeamService.filasYCobertura — I6/N2: el numerador sale del mismo universo que el denominador', () => {
+  it('quien trabajó un sábado no infla el numerador en silencio: se reporta aparte', async () => {
     const checkIns: CheckInRow[] = [
       { userId: 'u1', checkInAt: cr('2026-09-21T08:00:00'), checkOutAt: cr('2026-09-21T09:00:00') }, // lunes
       { userId: 'u1', checkInAt: cr('2026-09-26T08:00:00'), checkOutAt: cr('2026-09-26T09:00:00') }, // sábado
@@ -474,15 +554,43 @@ describe('TeamService.filasYCobertura — I6: diasFinDeSemana separa el fin de s
 
     const [fila] = await makeService(ctx).filas(['u1'], 'week', cr('2026-09-21T10:00:00'));
 
-    // diasConRegistro NO se esconde el sábado -- sigue contando los dos días.
-    expect(fila.diasConRegistro).toBe(2);
+    // "1 de 5", no "2 de 5": el numerador cuenta solo los días hábiles.
+    expect(fila.diasConRegistro).toBe(1);
     expect(fila.diasHabiles).toBe(5);
-    expect(fila.diasFinDeSemana).toBe(1);
-    // El numerador que sí comparte universo con el denominador ("1 de 5", no "2 de 5").
-    expect(fila.diasConRegistro - fila.diasFinDeSemana).toBe(1);
+    // El sábado no se esconde: se reporta aparte.
+    expect(fila.diasFueraDeHabiles).toBe(1);
   });
 
-  it('sin fin de semana trabajado, diasFinDeSemana es cero', async () => {
+  it('un FERIADO trabajado entre semana tampoco invierte la fracción (N2)', async () => {
+    // El caso que reabría el «7/5» con otra causa: `diasHabiles` resta los
+    // feriados desde I5, pero el numerador solo restaba fines de semana. Quien
+    // trabajaba el feriado producía «5/4» — más días trabajados que días
+    // hábiles, que se lee como un error del sistema.
+    // Es un caso vivo: el 15-sep-2026 (martes) ya está cargado en producción.
+    const checkIns: CheckInRow[] = [
+      { userId: 'u1', checkInAt: cr('2026-09-21T08:00:00'), checkOutAt: cr('2026-09-21T09:00:00') }, // lunes
+      { userId: 'u1', checkInAt: cr('2026-09-22T08:00:00'), checkOutAt: cr('2026-09-22T09:00:00') }, // martes
+      { userId: 'u1', checkInAt: cr('2026-09-23T08:00:00'), checkOutAt: cr('2026-09-23T09:00:00') }, // miércoles: FERIADO
+    ];
+    const { ctx } = makeCtx({
+      checkIns,
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+    const roster = new Map<string, Partial<RosterEntry>>([['u1', { country: 'CR' }]]);
+    const porPais = new Map([['CR', new Set(['2026-09-23'])]]);
+
+    const svc = makeService(ctx, 12, fakeOrg({ roster }), fakeHolidays({ porPais }));
+    const [fila] = await svc.filas(['u1'], 'week', cr('2026-09-21T10:00:00'));
+
+    // "2 de 4", nunca "3 de 4": el feriado sale de los dos lados.
+    expect(fila.diasConRegistro).toBe(2);
+    expect(fila.diasHabiles).toBe(4);
+    expect(fila.diasConRegistro).toBeLessThanOrEqual(fila.diasHabiles);
+    // Y el día trabajado en feriado no se pierde: se reporta aparte.
+    expect(fila.diasFueraDeHabiles).toBe(1);
+  });
+
+  it('sin días fuera de jornada, el contador aparte queda en cero', async () => {
     const checkIns: CheckInRow[] = [
       { userId: 'u1', checkInAt: cr('2026-09-21T08:00:00'), checkOutAt: cr('2026-09-21T09:00:00') },
     ];
@@ -493,7 +601,7 @@ describe('TeamService.filasYCobertura — I6: diasFinDeSemana separa el fin de s
 
     const [fila] = await makeService(ctx).filas(['u1'], 'week', cr('2026-09-21T10:00:00'));
 
-    expect(fila.diasFinDeSemana).toBe(0);
+    expect(fila.diasFueraDeHabiles).toBe(0);
   });
 });
 

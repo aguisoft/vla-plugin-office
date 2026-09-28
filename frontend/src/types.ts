@@ -247,7 +247,7 @@ export interface FilaEquipo {
    * valor para armar el numerador que sí comparte universo con
    * `diasHabiles`, y muestra el fin de semana aparte.
    */
-  diasFinDeSemana: number;
+  diasFueraDeHabiles: number;
   entradaHabitual: string | null;
   /** YYYY-MM-DD local. `null` = de verdad nunca marcó. Ver `ultimoDisponible`. */
   ultimoRegistro: string | null;

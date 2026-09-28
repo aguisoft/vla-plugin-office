@@ -42,10 +42,26 @@ function makeCtx(opts: {
 } = {}) {
   const warn = vi.fn();
   let userFindManyCalls = 0;
-  const userFindMany = vi.fn(async () => {
+  /**
+   * Doble de `user.findMany`. **Exige el filtro de activos** en la primera
+   * llamada, la de `usuariosActivos()`.
+   *
+   * Sin eso, borrar `isActive: true` del servicio dejaría pasar todas las
+   * pruebas de este archivo — y ese filtro es la premisa entera de I2: el
+   * denominador de «N de M por departamento» estaba sesgado al optimismo
+   * justo porque contaba inactivos. Una prueba que no puede detectar su
+   * desaparición no protege nada.
+   */
+  const userFindMany = vi.fn(async (args?: any) => {
     userFindManyCalls += 1;
     if (opts.rejectActiveUsers) throw opts.rejectActiveUsers;
     if (opts.rejectNombres && userFindManyCalls === 2) throw opts.rejectNombres;
+    if (userFindManyCalls === 1 && args?.where?.isActive !== true) {
+      throw new Error(
+        'usuariosActivos() consultó sin `isActive: true`: el conteo por departamento ' +
+        'incluiría gente desactivada y el denominador volvería a mentir (I2).',
+      );
+    }
     return opts.activeUsers ?? [];
   });
   const absenceCount = vi.fn(async () => {

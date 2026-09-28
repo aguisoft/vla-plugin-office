@@ -46,7 +46,7 @@ const ENCABEZADOS = ['Sección', 'Detalle', 'Persona', 'Departamento', 'Valor'];
  */
 const ENCABEZADOS_EQUIPO = [
   'Persona', 'Email', 'Estado', 'Minutos del período', 'vs. su promedio',
-  'Días con registro', 'Días hábiles', 'Días fin de semana', 'Entrada habitual', 'Último registro',
+  'Días con registro', 'Días hábiles', 'Días fuera de hábiles', 'Entrada habitual', 'Último registro',
 ];
 
 /**
@@ -77,7 +77,7 @@ function filaEquipoCsv(f: FilaEquipo): string[] {
   return [
     persona, f.email, 'con registro',
     String(f.totalMinutes), vsPromedio,
-    String(f.diasConRegistro), String(f.diasHabiles), String(f.diasFinDeSemana),
+    String(f.diasConRegistro), String(f.diasHabiles), String(f.diasFueraDeHabiles),
     f.entradaHabitual ?? NO_DISPONIBLE, ultimo,
   ];
 }

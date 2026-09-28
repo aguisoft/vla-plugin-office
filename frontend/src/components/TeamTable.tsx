@@ -265,11 +265,11 @@ export function TeamTable({ filas, excepciones, onSelect }: {
                     {conDatosDelPeriodo ? (
                       <div className="flex flex-col gap-0.5">
                         <span className="text-xs tabular-nums text-gray-600">
-                          {fila.diasConRegistro - fila.diasFinDeSemana}/{fila.diasHabiles}
+                          {fila.diasConRegistro}/{fila.diasHabiles}
                         </span>
-                        {fila.diasFinDeSemana > 0 && (
+                        {fila.diasFueraDeHabiles > 0 && (
                           <span className="text-[10px] leading-tight text-gray-400">
-                            +{fila.diasFinDeSemana} fin de semana
+                            +{fila.diasFueraDeHabiles} fuera de jornada
                           </span>
                         )}
                       </div>

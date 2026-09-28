@@ -131,27 +131,27 @@ describe('cumplimientoToCsv — tabla del equipo (I7)', () => {
     userId: 'u1', firstName: 'María José', lastName: 'Sáenz', email: 'maria@vla.com',
     estado: 'con-registro', totalMinutes: 270, openSessionCapped: false,
     variacion: { tipo: 'calculada', pct: 12, destacar: false },
-    diasConRegistro: 5, diasHabiles: 5, diasFinDeSemana: 0,
+    diasConRegistro: 5, diasHabiles: 5, diasFueraDeHabiles: 0,
     entradaHabitual: '08:10', ultimoRegistro: '2026-09-25', ultimoDisponible: true,
   };
   const sinRegistrar: FilaEquipo = {
     userId: 'u2', firstName: 'Pedro', lastName: 'López', email: 'pedro@vla.com',
     estado: 'sin-registrar', totalMinutes: 0, openSessionCapped: false,
     variacion: { tipo: 'sin-base' },
-    diasConRegistro: 0, diasHabiles: 5, diasFinDeSemana: 0,
+    diasConRegistro: 0, diasHabiles: 5, diasFueraDeHabiles: 0,
     entradaHabitual: null, ultimoRegistro: null, ultimoDisponible: true,
   };
   const noDisponible: FilaEquipo = {
     userId: 'u3', firstName: 'Ana', lastName: 'Ruiz', email: 'ana@vla.com',
     estado: 'no-disponible', totalMinutes: 0, openSessionCapped: false,
     variacion: { tipo: 'sin-base' },
-    diasConRegistro: 0, diasHabiles: 5, diasFinDeSemana: 0,
+    diasConRegistro: 0, diasHabiles: 5, diasFueraDeHabiles: 0,
     entradaHabitual: null, ultimoRegistro: null, ultimoDisponible: false,
   };
 
   it('trae las columnas de la tabla del equipo, con una fila con-registro completa', () => {
     const csv = cumplimientoToCsv(COMPLETO, [conRegistro]);
-    expect(csv).toContain('Persona,Email,Estado,Minutos del período,vs. su promedio,Días con registro,Días hábiles,Días fin de semana,Entrada habitual,Último registro');
+    expect(csv).toContain('Persona,Email,Estado,Minutos del período,vs. su promedio,Días con registro,Días hábiles,Días fuera de hábiles,Entrada habitual,Último registro');
     // "+12%" empieza con "+", el mismo prefijo que neutraliza fórmulas
     // (ARRANQUE_DE_FORMULA) -- se aplica parejo a TODAS las columnas, no
     // solo a nombres, así que sale con la comilla simple delante.

@@ -3,7 +3,7 @@ import {
   periodBounds, capOpenSession, aggregateSessions, clipSpan, type Period, type Span,
 } from '../lib/timesheet';
 import {
-  estadoRegistro, diasConRegistro, diasFinDeSemana, diasHabiles, computeNorm, PERIODOS_NORMA,
+  estadoRegistro, diasConRegistro, diasHabiles, computeNorm, PERIODOS_NORMA,
   variacion, entradaHabitual, type EstadoRegistro, type Variacion,
 } from '../lib/team-stats';
 import { localDateString } from '../lib/local-date';
@@ -37,14 +37,15 @@ export interface FilaEquipo {
   diasConRegistro: number;
   diasHabiles: number;
   /**
-   * Cuántos de los `diasConRegistro` cayeron fuera de lunes-viernes (I6).
-   * `diasConRegistro` sigue siendo el total real -- no se esconde el trabajo
-   * de fin de semana -- pero comparado tal cual contra `diasHabiles` produce
-   * fracciones como "7/5", que en la lectura obvia parecen un error del
-   * sistema. La interfaz resta este valor para armar el numerador que sí
-   * comparte universo con el denominador, y lo muestra aparte.
+   * Días trabajados que NO son hábiles: fin de semana y feriados trabajados (N2).
+   *
+   * `diasConRegistro` cuenta solo los que caen dentro de `diasHabiles`, para
+   * que la fracción compare el mismo universo arriba y abajo. Lo que queda
+   * afuera se reporta acá en vez de esconderse: un sábado o un feriado
+   * trabajado es trabajo real, y borrarlo para que cuadre la fracción sería
+   * peor que la fracción misma.
    */
-  diasFinDeSemana: number;
+  diasFueraDeHabiles: number;
   entradaHabitual: string | null;
   /** YYYY-MM-DD local. `null` = de verdad nunca marcó. Ver `ultimoDisponible`. */
   ultimoRegistro: string | null;
@@ -169,7 +170,7 @@ export class TeamService {
       diasConRegistro: 0,
       diasHabiles: diasHabilesPeriodo,
       // Sin sesiones que leer, no hay fin de semana que separar del cero.
-      diasFinDeSemana: 0,
+      diasFueraDeHabiles: 0,
       entradaHabitual: null,
       ultimoRegistro: ultimos?.get(userId) ?? null,
       ultimoDisponible: ultimos !== null,
@@ -197,7 +198,7 @@ export class TeamService {
       variacion: { tipo: 'sin-base' },
       diasConRegistro: 0,
       diasHabiles: diasHabilesPeriodo,
-      diasFinDeSemana: 0,
+      diasFueraDeHabiles: 0,
       entradaHabitual: null,
       ultimoRegistro: null,
       ultimoDisponible: false,
@@ -223,7 +224,18 @@ export class TeamService {
       const roster = await this.org.roster(userIds);
       const paises = new Set<string>();
       for (const r of roster.values()) paises.add(r.country);
-      const porPais = await this.holidays.datesByCountry([...paises], currentBounds.start, currentBounds.end);
+      // El rango se ancla al DÍA UTC de las fechas locales, no al instante
+      // local. `Holiday.date` es una columna DATE y Prisma la entrega a
+      // medianoche UTC; `currentBounds.start` es medianoche LOCAL, que en UTC−6
+      // son las 06:00Z. Comparar uno contra otro dejaba fuera del `gte` al
+      // feriado que cae el primer día del período: en la vista «Día» no se
+      // descontaba ninguno, y en la semanal se perdían los de lunes —que en
+      // Costa Rica son varios, porque la Ley 9875 traslada feriados a ese día.
+      // Pedir fechas de más es inocuo: `diasHabiles` solo consulta el set para
+      // los días que recorre.
+      const desde = new Date(`${localDateString(currentBounds.start, this.tzOf())}T00:00:00Z`);
+      const hasta = new Date(`${localDateString(currentBounds.end, this.tzOf())}T23:59:59.999Z`);
+      const porPais = await this.holidays.datesByCountry([...paises], desde, hasta);
       const out = new Map<string, ReadonlySet<string>>();
       for (const userId of userIds) {
         const pais = roster.get(userId)?.country;
@@ -344,7 +356,7 @@ export class TeamService {
     // fracción perdería el sentido de "cuánto falta/se cumplió"), menos los
     // feriados del país de esa persona en particular. `feriados` es `null`
     // si esa consulta falló -- ahí no se descuenta nada (ver `feriadosPorUsuario`).
-    const diasHabilesDe = (userId: string) => diasHabiles(currentBounds, tz, feriados?.get(userId)).length;
+    const diasHabilesDe = (userId: string) => diasHabiles(currentBounds, tz, feriados?.get(userId));
 
     // I1: sin nombres no hay forma de decir de quién es cada minuto, así que
     // la fila entera se apaga -- ver `filaSinNombres`. Se revisa ANTES que la
@@ -352,14 +364,14 @@ export class TeamService {
     // sus números junto a un nombre en blanco es el defecto que se corrige acá.
     if (nombres === null) {
       return {
-        filas: userIds.map(userId => this.filaSinNombres(userId, diasHabilesDe(userId))),
+        filas: userIds.map(userId => this.filaSinNombres(userId, diasHabilesDe(userId).length)),
         cobertura: sinCobertura,
       };
     }
 
     if (rows === null) {
       return {
-        filas: userIds.map(userId => this.filaSinConsulta(userId, nombres, diasHabilesDe(userId), ultimos)),
+        filas: userIds.map(userId => this.filaSinConsulta(userId, nombres, diasHabilesDe(userId).length, ultimos)),
         cobertura: sinCobertura,
       };
     }
@@ -434,9 +446,25 @@ export class TeamService {
         totalMinutes: totalActual,
         openSessionCapped: acotadas.has(userId),
         variacion: variacion(totalActual, norma),
-        diasConRegistro: diasRegistrados.length,
-        diasHabiles: diasHabilesDe(userId),
-        diasFinDeSemana: diasFinDeSemana(diasRegistrados),
+        ...(() => {
+          // El numerador tiene que salir del MISMO conjunto que el denominador
+          // (N2). `diasFinDeSemana` resta solo sábados y domingos, pero desde
+          // I5 el denominador resta además los feriados: quien trabajaba un
+          // feriado entre semana volvía a producir una fracción invertida
+          // —«5/4»—, el mismo «7/5» que I6 vino a matar, con otra causa.
+          //
+          // Los días trabajados FUERA de los hábiles no se esconden: se
+          // reportan aparte. Un sábado y un feriado trabajado son trabajo real,
+          // y borrarlos para que cuadre la fracción sería peor que la fracción.
+          const habiles = diasHabilesDe(userId);
+          const setHabiles = new Set(habiles);
+          const enHabiles = diasRegistrados.filter(d => setHabiles.has(d)).length;
+          return {
+            diasConRegistro: enHabiles,
+            diasHabiles: habiles.length,
+            diasFueraDeHabiles: diasRegistrados.length - enHabiles,
+          };
+        })(),
         entradaHabitual: entradaHabitual(primerasEntradas, tz),
         // C1: de una consulta APARTE (`ultimoRegistroPorUsuario`), sin cota
         // inferior -- ver su comentario. `null` con `ultimoDisponible: true`
