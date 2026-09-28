@@ -120,3 +120,32 @@ describe('coverageMatrix — una sesión que cruza medianoche local reparte sus 
     expect(hora12Dia1?.personas).toBe(0);
   });
 });
+
+describe('coverageMatrix — los días vacíos del período no desaparecen', () => {
+  it('un día SIN NADIE dentro del período aparece igual, todo en ceros', () => {
+    // Es el hueco de cobertura más grande que existe. Si solo se devolvieran
+    // los días con datos, un martes en el que no se conectó nadie se vería
+    // idéntico a un martes que ni siquiera se pidió — y este mapa existe
+    // justamente para que esos huecos se vean.
+    const within = { start: new Date('2026-09-21T06:00:00Z'), end: new Date('2026-09-24T05:59:59Z') };
+    const m = coverageMatrix(
+      [{ userId: 'u1', sesiones: [
+        { start: new Date('2026-09-21T14:00:00Z'), end: new Date('2026-09-21T15:00:00Z') },
+        { start: new Date('2026-09-23T14:00:00Z'), end: new Date('2026-09-23T15:00:00Z') },
+      ] }],
+      within, TZ,
+    );
+
+    expect(m.fechas).toEqual(['2026-09-21', '2026-09-22', '2026-09-23']);
+    const martes = m.celdas.filter(c => c.fecha === '2026-09-22');
+    expect(martes.length).toBeGreaterThan(0);
+    expect(martes.every(c => c.personas === 0)).toBe(true);
+  });
+
+  it('el período COMPLETAMENTE vacío sigue devolviendo nada, para no dibujar el mapa', () => {
+    // La excepción deliberada: sin una sola sesión no hay mapa de cobertura
+    // del que hablar. Con una sola, el mapa muestra el período entero.
+    const within = { start: new Date('2026-09-21T06:00:00Z'), end: new Date('2026-09-24T05:59:59Z') };
+    expect(coverageMatrix([], within, TZ)).toEqual({ horaMin: 0, horaMax: 0, fechas: [], celdas: [] });
+  });
+});

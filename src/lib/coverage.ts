@@ -59,11 +59,36 @@ function finDeHoraLocal(instant: Date, tz: string): Date {
  * `Map<fecha, Map<hora, Set<userId>>>`, y es el `Set` el que garantiza que
  * alguien que entra y sale tres veces en la misma hora siga sumando 1, no 3.
  *
- * `fechas` sale de los propios datos, no del `within` pedido: un período sin
- * ninguna sesión (o un `porPersona` vacío) da `celdas: []`, y ese vacío es la
- * señal que la interfaz usa para no dibujar nada -- devolver igual todas las
- * fechas del período con ceros lo escondería.
+ * Con al menos una sesión, `fechas` cubre TODOS los días locales del período,
+ * no solo los que tuvieron gente. Un día entero sin nadie es el hueco de
+ * cobertura más grande que existe, y es justo el que esta matriz viene a
+ * mostrar: si solo se devolvieran los días con datos, un martes en el que no se
+ * conectó nadie se vería idéntico a un martes que ni siquiera se pidió.
+ *
+ * La excepción es el período COMPLETAMENTE vacío (o un `porPersona` vacío):
+ * ahí sí se devuelve `celdas: []`, y ese vacío es la señal que la interfaz usa
+ * para no dibujar nada. Sin una sola sesión no hay mapa de cobertura del que
+ * hablar; con una sola, el mapa muestra el período entero.
  */
+/**
+ * Todos los días locales que toca el período, en orden. Se itera sobre FECHAS
+ * locales y no sobre instantes: anclar el cursor al día UTC perdería el primer
+ * día cuando el arranque local cae por la tarde, que es el mismo error que ya
+ * se corrigió en `diasHabiles` (ver `team-stats.ts`).
+ */
+function fechasDelPeriodo(within: Span, tz: string): string[] {
+  const ultima = localDateString(within.end, tz);
+  const cursor = new Date(`${localDateString(within.start, tz)}T12:00:00Z`);
+  const out: string[] = [];
+  let fecha = localDateString(cursor, tz);
+  while (fecha <= ultima) {
+    out.push(fecha);
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+    fecha = localDateString(cursor, tz);
+  }
+  return out;
+}
+
 export function coverageMatrix(
   porPersona: Array<{ userId: string; sesiones: SesionCruda[] }>,
   within: Span,
@@ -107,15 +132,17 @@ export function coverageMatrix(
 
   if (porFecha.size === 0) return { horaMin: 0, horaMax: 0, fechas: [], celdas: [] };
 
-  const fechas = [...porFecha.keys()].sort();
+  const fechas = fechasDelPeriodo(within, tz);
   const celdas: Celda[] = [];
   for (const fecha of fechas) {
-    const porHora = porFecha.get(fecha)!;
+    // Puede no existir: un día sin nadie conectado igual dibuja su fila, toda
+    // en ceros. Ese es el punto.
+    const porHora = porFecha.get(fecha);
     for (let hora = horaMin; hora <= horaMax; hora++) {
       // Celda en cero (dentro del rango horaMin..horaMax) se produce igual
       // que una con datos -- es la que la interfaz pinta como un punto gris,
       // distinta de una hora fuera del rango, que ni siquiera existe acá.
-      celdas.push({ fecha, hora, personas: porHora.get(hora)?.size ?? 0 });
+      celdas.push({ fecha, hora, personas: porHora?.get(hora)?.size ?? 0 });
     }
   }
 
