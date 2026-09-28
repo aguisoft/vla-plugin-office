@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
-import { getTimesheetScope, getOfficeTime, getTimesheetTeam, ApiError } from '../api';
-import type { TimesheetScope, TimesheetOfficeResponse, TimesheetTeamResponse } from '../types';
+import { getTimesheetScope, getOfficeTime, getTimesheetTeam, getCompliance, ApiError } from '../api';
+import type { TimesheetScope, TimesheetOfficeResponse, TimesheetTeamResponse, Cumplimiento } from '../types';
 import { fmtDateOnly, fmtDuration as hhmm, hoyLocal as hoy } from '../format';
 import { PeriodPicker } from './PeriodPicker';
 import type { Period } from './PeriodPicker';
 import { TimesheetBreakdown } from './TimesheetBreakdown';
 import { TeamTable } from './TeamTable';
 import { CoverageMap } from './CoverageMap';
+import { ComplianceTab } from './ComplianceTab';
 import { cfgOf } from '../statusConfig';
 
 /**
@@ -37,7 +38,22 @@ function esCancelacion(e: unknown): boolean {
   return (e as any)?.name === 'AbortError';
 }
 
-export function TimesheetScreen({ onClose }: { onClose: () => void }) {
+export function TimesheetScreen({ onClose, canManageOffice }: {
+  onClose: () => void;
+  /**
+   * Gate de la pestaña de Cumplimiento (Task 10). Viene de
+   * `currentUser?.permissions?.includes('office.manage')` en `App.tsx` --
+   * el mismo camino que ya usa `canManageHolidays` (App.tsx:445) -- y NO del
+   * `hasManage` que trae `GET /snapshot`: ese es un parámetro interno de
+   * `SnapshotService` para decidir si se ven las justificaciones ajenas de
+   * OTRA persona, no un permiso, y `App.tsx` ni lo lee.
+   *
+   * La pestaña se OCULTA sin este permiso, no se atenúa (Requisito 1): una
+   * pestaña que no se puede abrir es ruido, y mostrarla deshabilitada
+   * insinúa que existe algo que pedir acceso.
+   */
+  canManageOffice: boolean;
+}) {
   const [period, setPeriod] = useState<Period>('week');
   const [anchor, setAnchor] = useState(hoy());
   const [scope, setScope] = useState<TimesheetScope | null>(null);
@@ -50,10 +66,16 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
   // equipo (`'equipo'`) y no en el detalle de nadie en particular -- clic en
   // una fila es lo que manda a `'detalle'`. Con una sola persona (el caso
   // normal: nadie a cargo) esta variable ni se consulta -- ver `soloUno`.
-  const [vista, setVista] = useState<'equipo' | 'detalle'>('equipo');
+  // `'cumplimiento'` (Task 10) es independiente del alcance de equipo -- un
+  // `office.manage` sin gente a cargo igual necesita poder verla.
+  const [vista, setVista] = useState<'equipo' | 'detalle' | 'cumplimiento'>('equipo');
   const [teamData, setTeamData] = useState<TimesheetTeamResponse | null>(null);
   const [teamLoading, setTeamLoading] = useState(true);
   const [teamError, setTeamError] = useState<string | null>(null);
+
+  const [complianceData, setComplianceData] = useState<Cumplimiento | null>(null);
+  const [complianceLoading, setComplianceLoading] = useState(true);
+  const [complianceError, setComplianceError] = useState<string | null>(null);
 
   // Alcance primero: hasta no saber quién soy y a quién puedo ver, no hay
   // `userId` válido para pedir el reporte de detalle. Con una sola persona en
@@ -126,8 +148,45 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
     return () => { vivo = false; ctrl.abort(); };
   }, [period, anchor, scope, soloUno]);
 
+  // Carga del reporte de cumplimiento (Task 10). Mismo patrón que el efecto
+  // del equipo de arriba: dispara en cuanto hay permiso, sin esperar a que
+  // `vista` sea `'cumplimiento'` -- así volver de un detalle a la pestaña no
+  // encuentra el reporte en blanco mientras recarga. Independiente de
+  // `soloUno`: alguien con `office.manage` pero sin gente a cargo igual
+  // necesita poder abrirla.
+  useEffect(() => {
+    if (!canManageOffice) return;
+    const ctrl = new AbortController();
+    let vivo = true;
+    setComplianceLoading(true);
+    setComplianceError(null);
+    getCompliance(period, anchor, ctrl.signal)
+      .then(d => { if (!vivo) return; setComplianceData(d); setComplianceLoading(false); })
+      .catch(e => {
+        if (!vivo || esCancelacion(e)) return;
+        setComplianceData(null);
+        setComplianceError(errorMessage(e, 'No se pudo cargar el reporte de cumplimiento'));
+        setComplianceLoading(false);
+      });
+    return () => { vivo = false; ctrl.abort(); };
+  }, [period, anchor, canManageOffice]);
+
   const persona = scope?.users.find(u => u.id === userId);
   const mostrarEquipo = !soloUno && vista === 'equipo';
+  const mostrarCumplimiento = canManageOffice && vista === 'cumplimiento';
+  // Pestañas disponibles arriba del contenido. La primera SIEMPRE existe --
+  // es "Equipo" con gente a cargo, o "Mi tiempo" para quien solo se ve a sí
+  // mismo (`soloUno`); las dos reusan la misma clave `'equipo'` porque
+  // `mostrarEquipo` ya distingue el contenido según `soloUno`. Sin esta
+  // primera pestaña, alguien con `office.manage` pero SIN gente a cargo
+  // (`soloUno && canManageOffice`) no tendría cómo volver de Cumplimiento a
+  // su propio detalle. "Cumplimiento" solo aparece con el permiso. Con una
+  // sola candidata no hace falta selector -- confirmaría algo que ya es la
+  // única vista posible.
+  const pestañas: Array<{ key: 'equipo' | 'cumplimiento'; label: string }> = [
+    { key: 'equipo', label: soloUno ? 'Mi tiempo' : 'Equipo' },
+    ...(canManageOffice ? [{ key: 'cumplimiento' as const, label: 'Cumplimiento' }] : []),
+  ];
 
   // `setLoading(true)` y `setData(null)` acá, de forma síncrona, y no solo
   // dentro del efecto de detalle: el efecto corre DESPUÉS del pintado, así
@@ -176,15 +235,39 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
         </div>
 
         {/*
+          Pestañas Equipo / Cumplimiento (Task 10). Solo se renderiza con más
+          de una candidata -- con una sola no hay nada que elegir, sería un
+          selector que confirma lo obvio. No aparece en vista `'detalle'`: ese
+          es un drill-down de una fila del equipo, no una pestaña hermana, y
+          tiene su propio "← Volver al equipo" más abajo.
+        */}
+        {pestañas.length > 1 && vista !== 'detalle' && (
+          <div className="flex flex-shrink-0 items-center gap-1 border-b border-gray-100 px-4 py-2 md:px-6">
+            {pestañas.map(p => (
+              <button
+                key={p.key}
+                onClick={() => setVista(p.key)}
+                className={`rounded-lg px-2.5 py-1 text-xs transition-colors ${
+                  vista === p.key ? 'bg-gray-100 font-semibold text-gray-800' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/*
           Selector de persona / navegación de vuelta al equipo.
 
           En vista `'equipo'` esta fila no se renderiza: la tabla ya nombra
           "Persona" en su propio encabezado (Requisito 1), repetirlo acá sería
           ruido. Solo aparece con una sola persona en el alcance (nunca hubo
           tabla que mostrar) o en el detalle de alguien elegido desde la
-          tabla, con el botón para volver.
+          tabla, con el botón para volver. Tampoco en `'cumplimiento'`: ese
+          reporte es de toda la organización, no de "Persona".
         */}
-        {(soloUno || vista === 'detalle') && (
+        {!mostrarCumplimiento && (soloUno || vista === 'detalle') && (
           <div className="flex flex-shrink-0 flex-wrap items-center gap-2 border-b border-gray-100 px-4 py-3 md:px-6">
             {soloUno ? (
               <>
@@ -209,7 +292,7 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {!mostrarEquipo && error && (
+        {!mostrarEquipo && !mostrarCumplimiento && error && (
           <div className="mx-4 mt-3 flex-shrink-0 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600 md:mx-6">
             {error}
           </div>
@@ -218,6 +301,12 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
         {mostrarEquipo && teamError && (
           <div className="mx-4 mt-3 flex-shrink-0 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600 md:mx-6">
             {teamError}
+          </div>
+        )}
+
+        {mostrarCumplimiento && complianceError && (
+          <div className="mx-4 mt-3 flex-shrink-0 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600 md:mx-6">
+            {complianceError}
           </div>
         )}
 
@@ -240,6 +329,14 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
                 {teamData && <CoverageMap matriz={teamData.cobertura} />}
               </div>
             )
+          ) : mostrarCumplimiento ? (
+            <ComplianceTab
+              data={complianceData}
+              loading={complianceLoading}
+              error={complianceError}
+              period={period}
+              anchor={anchor}
+            />
           ) : loading ? (
             <p className="py-12 text-center text-xs text-gray-400">Cargando…</p>
           ) : error ? null : (

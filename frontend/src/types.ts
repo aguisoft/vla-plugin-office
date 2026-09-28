@@ -285,3 +285,24 @@ export interface TimesheetTeamResponse {
   excepciones: Excepciones;
   cobertura: Matriz;
 }
+
+/**
+ * Reporte de cumplimiento de TODA la organización, tal como lo entrega
+ * `GET /timesheet/compliance` (solo `office.manage`).
+ *
+ * Cada campo es `null` cuando esa fuente en particular no se pudo leer --
+ * NUNCA `0` ni un arreglo vacío, que en esta pantalla se leería como "está
+ * todo bien" cuando en realidad nadie pudo comprobarlo. `ComplianceTab` lo
+ * muestra literalmente como «no disponible». Ver `compliance.service.ts`
+ * en el backend para el detalle de qué fuente alimenta cada campo.
+ */
+export interface Cumplimiento {
+  sinMarcar30Dias: Array<{ userId: string; nombre: string; departamento: string | null }> | null;
+  sesionesAbiertas: Array<{ userId: string; nombre: string; desde: string }> | null;
+  sinJefe: Array<{ userId: string; nombre: string }> | null;
+  sinDepartamento: Array<{ userId: string; nombre: string }> | null;
+  feriadosCargados: number | null;
+  ausenciasDelPeriodo: number | null;
+  historialEstadosDesde: string | null;
+  porDepartamento: Array<{ departamento: string; total: number; sinMarcar: number }> | null;
+}

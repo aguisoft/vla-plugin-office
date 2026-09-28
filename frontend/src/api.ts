@@ -1,6 +1,6 @@
 import type {
   Absence, Department, Holiday, MapZone, PendingInvite, RosterUser, UnavailableParticipant,
-  TimesheetOfficeResponse, TimesheetScope, TimesheetTeamResponse,
+  TimesheetOfficeResponse, TimesheetScope, TimesheetTeamResponse, Cumplimiento,
 } from './types';
 
 const BASE = '/api/v1';
@@ -180,4 +180,23 @@ export const getOfficeTime = (period: string, anchor: string, userId?: string, s
 export const getTimesheetTeam = (period: string, anchor: string, signal?: AbortSignal) => {
   const qs = new URLSearchParams({ period, anchor });
   return api.get<TimesheetTeamResponse>(`${PLUGIN}/timesheet/team?${qs}`, signal);
+};
+
+/**
+ * Reporte de cumplimiento de toda la organización -- solo `office.manage`.
+ * Mismo patrón de `anchor`/`signal` que `getTimesheetTeam`.
+ */
+export const getCompliance = (period: string, anchor: string, signal?: AbortSignal) => {
+  const qs = new URLSearchParams({ period, anchor });
+  return api.get<Cumplimiento>(`${PLUGIN}/timesheet/compliance?${qs}`, signal);
+};
+
+/**
+ * URL de la descarga del CSV -- no pasa por `api.get` porque el navegador
+ * abre esto directo (`window.location` / un `<a href>`), no un `fetch` que
+ * parsee JSON.
+ */
+export const complianceExportUrl = (period: string, anchor: string) => {
+  const qs = new URLSearchParams({ period, anchor });
+  return `${BASE}${PLUGIN}/timesheet/export?${qs}`;
 };

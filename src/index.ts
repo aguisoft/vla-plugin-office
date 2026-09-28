@@ -12,7 +12,8 @@ import { TimesheetService } from './services/timesheet.service';
 import { TeamService } from './services/team.service';
 import { ComplianceService } from './services/compliance.service';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
-import { DEFAULT_TZ } from './lib/local-date';
+import { DEFAULT_TZ, localDateString } from './lib/local-date';
+import { cumplimientoToCsv } from './lib/compliance-csv';
 import { validateStatusInput, type StatusInput, type OfficeStatus } from './lib/status-rules';
 import { periodBounds, resolveScope, canSee, reconcile, type Period } from './lib/timesheet';
 
@@ -977,6 +978,25 @@ const plugin: PluginDefinition = {
       const parsed = parsePeriodAnchor(req);
       if ('error' in parsed) return res.status(400).json({ message: parsed.error });
       res.json(await compliance.cumplimiento(parsed.period, parsed.anchor));
+    }));
+
+    /**
+     * CSV del mismo reporte de cumplimiento, con BOM UTF-8 (Requisito 3,
+     * Task 10): sin él, Excel abre el archivo asumiendo Latin-1 y cualquier
+     * tilde o ñ en un nombre sale rota. Mismo permiso que /timesheet/compliance
+     * -- es el mismo dato, solo que serializado para descargar.
+     */
+    ctx.router.get('/timesheet/export', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {
+      const parsed = parsePeriodAnchor(req);
+      if ('error' in parsed) return res.status(400).json({ message: parsed.error });
+
+      const data = await compliance.cumplimiento(parsed.period, parsed.anchor);
+      const csv = cumplimientoToCsv(data);
+      const anchorRaw = (req.query.anchor as string | undefined) ?? localDateString(new Date(), tz());
+
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="cumplimiento-${anchorRaw}.csv"`);
+      res.send(csv);
     }));
 
     /** A quién puede consultar el viewer. Alimenta el selector de persona. */

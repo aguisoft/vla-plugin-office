@@ -572,7 +572,7 @@ export default function App() {
         {/* Reemplaza al mapa, no se superpone: es una vista que se consulta,
             no un diálogo. Vive dentro del mismo PluginShell. */}
         {view === 'tiempos' ? (
-          <TimesheetScreen onClose={() => irA('oficina')} />
+          <TimesheetScreen onClose={() => irA('oficina')} canManageOffice={canManageHolidays} />
         ) : (
         <div className="h-full flex flex-col">
           <div className="flex-1 flex overflow-hidden">
