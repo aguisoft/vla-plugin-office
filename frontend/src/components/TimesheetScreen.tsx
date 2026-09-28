@@ -6,6 +6,7 @@ import { PeriodPicker } from './PeriodPicker';
 import type { Period } from './PeriodPicker';
 import { TimesheetBreakdown } from './TimesheetBreakdown';
 import { TeamTable } from './TeamTable';
+import { CoverageMap } from './CoverageMap';
 import { cfgOf } from '../statusConfig';
 
 /**
@@ -226,11 +227,18 @@ export function TimesheetScreen({ onClose }: { onClose: () => void }) {
             teamLoading ? (
               <p className="py-12 text-center text-xs text-gray-400">Cargando…</p>
             ) : teamError ? null : (
-              <TeamTable
-                filas={teamData?.filas ?? []}
-                excepciones={teamData?.excepciones ?? { sinMarcar30Dias: [], sesionesAbiertas: [] }}
-                onSelect={irADetalle}
-              />
+              <div className="space-y-4">
+                <TeamTable
+                  filas={teamData?.filas ?? []}
+                  excepciones={teamData?.excepciones ?? { sinMarcar30Dias: [], sesionesAbiertas: [] }}
+                  onSelect={irADetalle}
+                />
+                {/* Debajo de la tabla: la tabla responde "¿cuánto trabajó
+                    cada quien?", el mapa responde "¿a qué hora hay gente?" --
+                    ninguna suma de la tabla contesta eso. Se omite sola si
+                    `cobertura.fechas` viene vacío (ver CoverageMap). */}
+                {teamData && <CoverageMap matriz={teamData.cobertura} />}
+              </div>
             )
           ) : loading ? (
             <p className="py-12 text-center text-xs text-gray-400">Cargando…</p>

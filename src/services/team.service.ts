@@ -7,6 +7,7 @@ import {
   entradaHabitual, type EstadoRegistro, type Variacion,
 } from '../lib/team-stats';
 import { localDateString } from '../lib/local-date';
+import { coverageMatrix, type Matriz } from '../lib/coverage';
 
 /**
  * Estado de una fila de la tabla, con un valor MÁS que la lógica pura.
@@ -166,14 +167,32 @@ export class TeamService {
   /**
    * Filas del equipo para el período que contiene `anchor`.
    *
+   * Delegado en `filasYCobertura`: existía sola antes de la matriz de
+   * cobertura y sus pruebas ya la llaman con esta firma exacta, así que se
+   * conserva como una vista parcial del mismo cálculo en vez de forzar a
+   * cada consumidor a pedir la cobertura aunque no la use.
+   */
+  async filas(userIds: string[], period: Period, anchor: Date): Promise<FilaEquipo[]> {
+    return (await this.filasYCobertura(userIds, period, anchor)).filas;
+  }
+
+  /**
+   * Filas del equipo Y matriz de cobertura horaria, del MISMO query.
+   *
    * Una sola consulta trae `CheckInRecord` de todo `userIds` desde el inicio
    * del período más antiguo de la norma hasta el fin del período actual, y el
    * reparto por persona y por período se hace en memoria: con 22 personas y
    * miles de filas históricas, una consulta por persona serían 22 viajes a la
-   * base en vez de uno.
+   * base en vez de uno. La cobertura sale de las MISMAS sesiones ya armadas
+   * para las filas -- `coverageMatrix` recorta contra `currentBounds`, así
+   * que las sesiones de la ventana de la norma que no tocan el período actual
+   * simplemente no aportan celdas, sin necesidad de otra consulta.
    */
-  async filas(userIds: string[], period: Period, anchor: Date): Promise<FilaEquipo[]> {
-    if (userIds.length === 0) return [];
+  async filasYCobertura(
+    userIds: string[], period: Period, anchor: Date,
+  ): Promise<{ filas: FilaEquipo[]; cobertura: Matriz }> {
+    const sinCobertura: Matriz = { horaMin: 0, horaMax: 0, fechas: [], celdas: [] };
+    if (userIds.length === 0) return { filas: [], cobertura: sinCobertura };
 
     const tz = this.tzOf();
     const capHours = this.maxOpenSessionHoursOf();
@@ -190,7 +209,10 @@ export class TeamService {
     const rows = await this.checkInsDelEquipo(userIds, ventanaNorma.start, currentBounds.end);
 
     if (rows === null) {
-      return userIds.map(userId => this.filaSinConsulta(userId, nombres, diasHabilesPeriodo));
+      return {
+        filas: userIds.map(userId => this.filaSinConsulta(userId, nombres, diasHabilesPeriodo)),
+        cobertura: sinCobertura,
+      };
     }
 
     const byUser = new Map<string, Span[]>();
@@ -231,7 +253,7 @@ export class TeamService {
       byUser.set(r.userId, lista);
     }
 
-    return userIds.map(userId => {
+    const filas = userIds.map(userId => {
       const sesiones = byUser.get(userId) ?? [];
       const totalActual = aggregateSessions(sesiones, currentBounds, tz).totalMinutes;
       // La norma se calcula SOLO sobre los períodos anteriores: el actual
@@ -260,6 +282,17 @@ export class TeamService {
         ultimoRegistro: ultimo ? localDateString(ultimo, tz) : null,
       };
     });
+
+    // Mismas sesiones que arriba -- ya con las abiertas acotadas contra
+    // `currentBounds.end` (líneas arriba, `capOpenSession`) -- así que
+    // `coverageMatrix` no repite esa cota ni puede desacordarse de ella.
+    // `coverageMatrix` recorta cada sesión contra `currentBounds`, así que
+    // las de la ventana de la norma que no tocan el período actual no
+    // aportan ninguna celda.
+    const porPersona = userIds.map(userId => ({ userId, sesiones: byUser.get(userId) ?? [] }));
+    const cobertura = coverageMatrix(porPersona, currentBounds, tz);
+
+    return { filas, cobertura };
   }
 
   /**

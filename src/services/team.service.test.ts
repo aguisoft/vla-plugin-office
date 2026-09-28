@@ -247,3 +247,62 @@ describe('TeamService.filas — degrada si la consulta de nombres rechaza', () =
     expect(warn).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('TeamService.filasYCobertura — filas y cobertura salen del mismo query', () => {
+  it('devuelve la misma fila que filas() y una cobertura consistente con esa sesión', async () => {
+    const sesion: CheckInRow = {
+      userId: 'u1',
+      checkInAt: cr('2026-09-21T08:00:00'),
+      checkOutAt: cr('2026-09-21T09:00:00'),
+    };
+    const { ctx } = makeCtx({
+      checkIns: [sesion],
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const { filas, cobertura } = await makeService(ctx).filasYCobertura(['u1'], 'day', cr('2026-09-21T10:00:00'));
+
+    expect(filas).toHaveLength(1);
+    expect(filas[0].totalMinutes).toBe(60);
+    expect(cobertura.celdas).toEqual([{ fecha: '2026-09-21', hora: 8, personas: 1 }]);
+  });
+
+  it('sin userIds no consulta nada y devuelve cobertura vacía', async () => {
+    const { ctx, checkInFindMany } = makeCtx();
+
+    const { filas, cobertura } = await makeService(ctx).filasYCobertura([], 'week', cr('2026-09-21T10:00:00'));
+
+    expect(filas).toEqual([]);
+    expect(cobertura).toEqual({ horaMin: 0, horaMax: 0, fechas: [], celdas: [] });
+    expect(checkInFindMany).not.toHaveBeenCalled();
+  });
+
+  it('si la consulta de sesiones rechaza, la cobertura queda vacía en vez de inventar datos', async () => {
+    const { ctx } = makeCtx({
+      rejectCheckIns: new Error('conexión perdida'),
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const { cobertura } = await makeService(ctx).filasYCobertura(['u1'], 'week', cr('2026-09-21T10:00:00'));
+
+    expect(cobertura).toEqual({ horaMin: 0, horaMax: 0, fechas: [], celdas: [] });
+  });
+});
+
+describe('TeamService.filasYCobertura — la sesión abierta se acota ANTES de entrar en la cobertura', () => {
+  it('una sesión sin marcar salida no pinta cobertura más allá de la cota configurada', async () => {
+    const { ctx } = makeCtx({
+      checkIns: [{ userId: 'u1', checkInAt: cr('2026-09-21T08:00:00'), checkOutAt: null }],
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    // Cota de 2 horas desde las 08:00 local -> 10:00. Sin la cota, una
+    // sesión olvidada pintaría cobertura de personas: 1 en las 24 horas del
+    // día -- el mismo defecto que ya se resolvió para `totalMinutes`.
+    const { cobertura } = await makeService(ctx, 2).filasYCobertura(['u1'], 'day', cr('2026-09-21T10:00:00'));
+
+    expect(cobertura.horaMin).toBe(8);
+    expect(cobertura.horaMax).toBe(9);
+    expect(cobertura.celdas.some(c => c.hora >= 10)).toBe(false);
+  });
+});

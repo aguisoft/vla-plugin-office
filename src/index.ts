@@ -904,8 +904,8 @@ const plugin: PluginDefinition = {
         : [...scope];
 
       const bounds = periodBounds(anchor, period, tz());
-      const [filas, excepciones] = await Promise.all([
-        team.filas(ids, period, anchor),
+      const [{ filas, cobertura }, excepciones] = await Promise.all([
+        team.filasYCobertura(ids, period, anchor),
         team.excepciones(ids),
       ]);
 
@@ -917,6 +917,7 @@ const plugin: PluginDefinition = {
         isAdmin,
         filas,
         excepciones,
+        cobertura,
       });
     }));
 

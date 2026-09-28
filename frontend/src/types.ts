@@ -251,6 +251,30 @@ export interface Excepciones {
   sesionesAbiertas: Array<{ userId: string; nombre: string; desde: string }>;
 }
 
+/** Una celda de la matriz de cobertura horaria, tal como la entrega `GET /timesheet/team`. */
+export interface Celda {
+  fecha: string;
+  hora: number;
+  personas: number;
+}
+
+/**
+ * Matriz de cobertura horaria del equipo: cuánta gente distinta estaba
+ * conectada en cada combinación de fecha local y hora local.
+ *
+ * `horaMin`/`horaMax` se derivan de los datos, no de una constante -- un
+ * turno de 22:00 a 02:00 no desaparece por caer fuera de un horario de
+ * oficina supuesto de antemano. `fechas: []` (y `celdas: []`) significa que
+ * nadie tuvo sesiones en el período: la interfaz no dibuja nada, ver
+ * `CoverageMap`.
+ */
+export interface Matriz {
+  horaMin: number;
+  horaMax: number;
+  fechas: string[];
+  celdas: Celda[];
+}
+
 export interface TimesheetTeamResponse {
   period: 'day' | 'week' | 'month';
   from: string;
@@ -259,4 +283,5 @@ export interface TimesheetTeamResponse {
   isAdmin: boolean;
   filas: FilaEquipo[];
   excepciones: Excepciones;
+  cobertura: Matriz;
 }
