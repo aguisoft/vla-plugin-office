@@ -70,7 +70,18 @@ function ultimoRelativo(fecha: string | null): string {
  */
 function CeldaEstado({ fila }: { fila: FilaEquipo }) {
   if (fila.estado === 'con-registro') {
-    return <span className="text-xs font-semibold tabular-nums text-gray-800">{fmtDuration(fila.totalMinutes)}</span>;
+    // `openSessionCapped` viaja en la respuesta pero antes no se dibujaba acá
+    // -- el detalle individual sí trae su nota (ver TimesheetScreen), y sin
+    // esta el número acotado quedaba sin explicación: acotar en silencio es
+    // tan malo como no acotar.
+    return (
+      <div className="flex flex-col gap-0.5">
+        <span className="text-xs font-semibold tabular-nums text-gray-800">{fmtDuration(fila.totalMinutes)}</span>
+        {fila.openSessionCapped && (
+          <span className="text-[10px] leading-tight text-gray-400">sesión abierta, acotada</span>
+        )}
+      </div>
+    );
   }
   if (fila.estado === 'sin-registrar') {
     return (

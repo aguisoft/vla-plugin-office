@@ -170,7 +170,26 @@ export class TeamService {
     const tz = this.tzOf();
     const capHours = this.maxOpenSessionHoursOf();
     const currentBounds = periodBounds(anchor, period, tz);
+    // Denominador de "N de M días": el calendario COMPLETO del período pedido,
+    // corrido o no. Es la excepción a `efectivo` de abajo a propósito -- si se
+    // acotara a "ahora", un lunes diría "1 de 1" y un viernes "5 de 5", y la
+    // fracción perdería el sentido de "cuánto falta/se cumplió" que la
+    // interfaz necesita.
     const diasHabilesPeriodo = diasHabiles(currentBounds, tz).length;
+
+    // C2/C3: el fin efectivo nunca pasa del presente. Un período que incluye
+    // hoy no puede contar horas que todavía no ocurrieron (`capOpenSession`,
+    // `aggregateSessions`) ni dibujar días que no han pasado (`coverageMatrix`)
+    // -- `/timesheet/office` ya lo hacía (index.ts:862) y esta vista no, así
+    // que la tabla y el detalle daban números distintos sobre la misma
+    // persona, y el mapa de cobertura pintaba el resto de la semana como
+    // "nadie conectado". Un período ya cerrado no cambia: `efectivo.end`
+    // coincide con `currentBounds.end`.
+    const ahora = new Date();
+    const efectivo: Span = {
+      start: currentBounds.start,
+      end: currentBounds.end < ahora ? currentBounds.end : ahora,
+    };
 
     const periodosPrevios = this.periodosAnteriores(anchor, period, tz, PERIODOS_NORMA[period]);
     const ventanaNorma: Span = {
@@ -212,11 +231,11 @@ export class TeamService {
       if (r.checkOutAt) {
         end = r.checkOutAt;
       } else {
-        end = capOpenSession(r.checkInAt, currentBounds.end, capHours * 60);
-        // Solo cuenta si el tramo YA ACOTADO toca el período actual (mismo
+        end = capOpenSession(r.checkInAt, efectivo.end, capHours * 60);
+        // Solo cuenta si el tramo YA ACOTADO toca el período efectivo (mismo
         // chequeo que TimesheetService.officeTime): una sesión abierta vieja
         // que la cota deja fuera del período no debería decir que lo acotó.
-        if (end < currentBounds.end && clipSpan({ start: r.checkInAt, end }, currentBounds)) {
+        if (end < efectivo.end && clipSpan({ start: r.checkInAt, end }, efectivo)) {
           acotadas.add(r.userId);
         }
       }
@@ -228,9 +247,12 @@ export class TeamService {
 
     const filas = userIds.map(userId => {
       const sesiones = byUser.get(userId) ?? [];
-      const totalActual = aggregateSessions(sesiones, currentBounds, tz).totalMinutes;
-      // La norma se calcula SOLO sobre los períodos anteriores: el actual
-      // nunca entra en `totalesPrevios`, para no compararlo contra sí mismo.
+      const totalActual = aggregateSessions(sesiones, efectivo, tz).totalMinutes;
+      // La norma se calcula SOLO sobre los períodos anteriores, y esos son
+      // períodos YA CERRADOS -- `p` es su propio Span, nunca `efectivo` --
+      // así que no se acotan a "ahora": acotarlos les restaría horas que de
+      // verdad ocurrieron. El actual tampoco entra acá, para no comparar la
+      // norma contra sí misma.
       const totalesPrevios = periodosPrevios.map(p => aggregateSessions(sesiones, p, tz).totalMinutes);
       const norma = computeNorm(totalesPrevios);
       const nombre = nombres.get(userId);
@@ -242,11 +264,11 @@ export class TeamService {
         firstName: nombre?.firstName ?? '',
         lastName: nombre?.lastName ?? '',
         email: nombre?.email ?? '',
-        estado: estadoRegistro(sesiones, currentBounds),
+        estado: estadoRegistro(sesiones, efectivo),
         totalMinutes: totalActual,
         openSessionCapped: acotadas.has(userId),
         variacion: variacion(totalActual, norma),
-        diasConRegistro: diasConRegistro(sesiones, currentBounds, tz).length,
+        diasConRegistro: diasConRegistro(sesiones, efectivo, tz).length,
         diasHabiles: diasHabilesPeriodo,
         entradaHabitual: entradaHabitual(primerasEntradas, tz),
         // Sin acotar al período: responde "¿cuándo se le vio por última vez?"
@@ -257,13 +279,13 @@ export class TeamService {
     });
 
     // Mismas sesiones que arriba -- ya con las abiertas acotadas contra
-    // `currentBounds.end` (líneas arriba, `capOpenSession`) -- así que
+    // `efectivo.end` (líneas arriba, `capOpenSession`) -- así que
     // `coverageMatrix` no repite esa cota ni puede desacordarse de ella.
-    // `coverageMatrix` recorta cada sesión contra `currentBounds`, así que
-    // las de la ventana de la norma que no tocan el período actual no
-    // aportan ninguna celda.
+    // Se recorta contra `efectivo` y no contra `currentBounds`: por la misma
+    // razón de C2/C3, un día que todavía no pasa no puede pintarse como
+    // "nadie conectado" -- simplemente no debe aparecer.
     const porPersona = userIds.map(userId => ({ userId, sesiones: byUser.get(userId) ?? [] }));
-    const cobertura = coverageMatrix(porPersona, currentBounds, tz);
+    const cobertura = coverageMatrix(porPersona, efectivo, tz);
 
     return { filas, cobertura };
   }

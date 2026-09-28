@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { TeamService } from './team.service';
 import type { PluginContext } from '@vla/plugin-sdk';
-import { aggregateSessions } from '../lib/timesheet';
+import { aggregateSessions, capOpenSession, periodBounds } from '../lib/timesheet';
 import { DEFAULT_TZ } from '../lib/local-date';
 
 /**
@@ -123,6 +123,124 @@ describe('TeamService.filas — la norma excluye el período actual', () => {
 
     expect(fila.totalMinutes).toBe(180);
     expect(fila.variacion).toEqual({ tipo: 'calculada', pct: 200, destacar: true });
+  });
+});
+
+describe('TeamService.filasYCobertura — el período en curso no cuenta horas que aún no pasaron (C2/C3)', () => {
+  const AHORA = cr('2026-09-25T14:00:00'); // viernes de la semana en curso, 14:00 local
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(AHORA);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('con una sesión abierta, el total coincide EXACTO con el que calcularía /timesheet/office (index.ts:862) para la misma persona', async () => {
+    // Cota de 3h desde las 08:00 -> 11:00, ANTES de "ahora" (14:00): la cota
+    // sí llega a aplicarse, así que la prueba también cubre `openSessionCapped`.
+    const capHours = 3;
+    const checkInAt = cr('2026-09-25T08:00:00');
+    const { ctx } = makeCtx({
+      checkIns: [{ userId: 'u1', checkInAt, checkOutAt: null }],
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const [fila] = await makeService(ctx, capHours).filas(['u1'], 'week', AHORA);
+
+    // Réplica EXACTA de la lógica de index.ts:862 -- /timesheet/office acota
+    // `bounds.end` a "ahora" antes de cerrar la sesión abierta contra ese fin.
+    const bounds = periodBounds(AHORA, 'week', TZ);
+    const spanOficina = { start: bounds.start, end: bounds.end < AHORA ? bounds.end : AHORA };
+    const sesionCerrada = { start: checkInAt, end: capOpenSession(checkInAt, spanOficina.end, capHours * 60) };
+    const esperado = aggregateSessions([sesionCerrada], spanOficina, TZ).totalMinutes;
+
+    expect(fila.totalMinutes).toBe(esperado);
+    expect(fila.totalMinutes).toBe(180); // 08:00 a 11:00 (la cota, no las 6h transcurridas hasta "ahora")
+    expect(fila.openSessionCapped).toBe(true);
+  });
+
+  it('con una sesión abierta DENTRO de la cota, el total es lo transcurrido hasta "ahora" -- no la cota entera', async () => {
+    // Este es el caso que exponía C2: sin el fix, `capOpenSession` usaba
+    // `currentBounds.end` (el domingo 23:59:59 de esta semana, en el futuro)
+    // como límite, así que una sesión de la mañana se contaba hasta la cota
+    // completa de 12h en vez de hasta "ahora" -- 720 min contra 360.
+    const checkInAt = cr('2026-09-25T08:00:00'); // abierta desde las 08:00; "ahora" 14:00 -> 360 min transcurridos
+    const { ctx } = makeCtx({
+      checkIns: [{ userId: 'u1', checkInAt, checkOutAt: null }],
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const [fila] = await makeService(ctx, 12).filas(['u1'], 'week', AHORA);
+
+    expect(fila.totalMinutes).toBe(360); // NO 720
+    // La cota de 12h no llegó a aplicarse -- lo que se ve es "ahora", no la cota.
+    expect(fila.openSessionCapped).toBe(false);
+  });
+
+  it('la cobertura no dibuja ningún día posterior a "hoy" dentro de la semana en curso', async () => {
+    const { ctx } = makeCtx({
+      checkIns: [{ userId: 'u1', checkInAt: cr('2026-09-21T08:00:00'), checkOutAt: cr('2026-09-21T09:00:00') }],
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const { cobertura } = await makeService(ctx).filasYCobertura(['u1'], 'week', AHORA);
+
+    const hoyIso = '2026-09-25';
+    expect(cobertura.fechas.every(f => f <= hoyIso)).toBe(true);
+    // Sábado y domingo de esta misma semana: todavía no pasan.
+    expect(cobertura.fechas).not.toContain('2026-09-26');
+    expect(cobertura.fechas).not.toContain('2026-09-27');
+  });
+
+  it('un período enteramente pasado no cambia de comportamiento', async () => {
+    const { ctx } = makeCtx({
+      checkIns: [{ userId: 'u1', checkInAt: cr('2026-09-14T08:00:00'), checkOutAt: cr('2026-09-14T09:00:00') }],
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const anchorPasado = cr('2026-09-14T10:00:00'); // semana ya cerrada antes de "ahora" (25-sep)
+    const { filas, cobertura } = await makeService(ctx).filasYCobertura(['u1'], 'week', anchorPasado);
+
+    expect(filas[0].totalMinutes).toBe(60);
+    // El domingo de esa semana (2026-09-20) ya pasó por completo: sigue
+    // apareciendo en el mapa, igual que antes del fix.
+    expect(cobertura.fechas).toContain('2026-09-14');
+    expect(cobertura.fechas).toContain('2026-09-20');
+  });
+
+  it('la norma de los períodos previos (YA CERRADOS) no se acota a "ahora"', async () => {
+    // Tres días previos COMPLETOS con 240 min cada uno. Si `totalesPrevios`
+    // se acotara a "ahora" (14:00 del 25-sep) en vez de usar el Span propio
+    // de cada período cerrado, no cambiaría nada acá -- son días enteros que
+    // ya terminaron hace tiempo -- pero es justo la aritmética que un
+    // refactor descuidado de C2 podría romper (acotar TODO a `efectivo` sin
+    // distinguir período actual de períodos previos). La prueba fija el
+    // número exacto para que ese descuido se note.
+    const checkIns: CheckInRow[] = [
+      { userId: 'u1', checkInAt: cr('2026-09-22T08:00:00'), checkOutAt: cr('2026-09-22T12:00:00') },
+      { userId: 'u1', checkInAt: cr('2026-09-23T08:00:00'), checkOutAt: cr('2026-09-23T12:00:00') },
+      { userId: 'u1', checkInAt: cr('2026-09-24T08:00:00'), checkOutAt: cr('2026-09-24T12:00:00') },
+      { userId: 'u1', checkInAt: cr('2026-09-25T08:00:00'), checkOutAt: cr('2026-09-25T09:00:00') }, // hoy, 60 min
+    ];
+    const { ctx } = makeCtx({
+      checkIns,
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const [fila] = await makeService(ctx).filas(['u1'], 'day', AHORA);
+
+    // Norma = 240 (promedio de los 3 días previos, cada uno con 240 min
+    // completos). Actual = 60. Si la norma se hubiera acotado a "ahora" con
+    // el mismo criterio que el día actual, estos tres días -- ya cerrados
+    // antes de "ahora" -- igual habrían dado 240 cada uno, así que este
+    // número no cambia; lo que fija la prueba es que sea EXACTAMENTE 240 y
+    // no otro valor si alguien conecta `efectivo` a `totalesPrevios`.
+    expect(fila.totalMinutes).toBe(60);
+    expect(fila.variacion).toEqual({
+      tipo: 'calculada',
+      pct: Math.round(((60 - 240) / 240) * 100),
+      destacar: true,
+    });
   });
 });
 
