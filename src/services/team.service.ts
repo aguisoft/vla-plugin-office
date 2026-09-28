@@ -156,6 +156,33 @@ export class TeamService {
   }
 
   /**
+   * Fila de respaldo cuando la consulta de NOMBRES falla (I1).
+   *
+   * `nombresPorUsuario` es una consulta distinta de la de sesiones, que puede
+   * haber funcionado -- pero sin saber de quién es cada fila, los minutos no
+   * significan nada: mostrarlos junto a un nombre en blanco es peor que no
+   * mostrarlos. Por eso la fila entera se apaga a `no-disponible`, igual que
+   * `filaSinConsulta`, en vez de mezclar un nombre vacío con tiempos reales.
+   */
+  private filaSinNombres(userId: string, diasHabilesPeriodo: number): FilaEquipo {
+    return {
+      userId,
+      firstName: '',
+      lastName: '',
+      email: '',
+      estado: 'no-disponible',
+      totalMinutes: 0,
+      openSessionCapped: false,
+      variacion: { tipo: 'sin-base' },
+      diasConRegistro: 0,
+      diasHabiles: diasHabilesPeriodo,
+      entradaHabitual: null,
+      ultimoRegistro: null,
+      ultimoDisponible: false,
+    };
+  }
+
+  /**
    * Fecha del último check-in de cada persona, sin importar el período (C1).
    *
    * Consulta aparte y SIN cota inferior a propósito: si saliera de la misma
@@ -253,6 +280,17 @@ export class TeamService {
       this.checkInsDelEquipo(userIds, ventanaNorma.start, currentBounds.end),
       this.ultimoRegistroPorUsuario(userIds),
     ]);
+
+    // I1: sin nombres no hay forma de decir de quién es cada minuto, así que
+    // la fila entera se apaga -- ver `filaSinNombres`. Se revisa ANTES que la
+    // consulta de sesiones porque, aunque esta última haya funcionado, mostrar
+    // sus números junto a un nombre en blanco es el defecto que se corrige acá.
+    if (nombres === null) {
+      return {
+        filas: userIds.map(userId => this.filaSinNombres(userId, diasHabilesPeriodo)),
+        cobertura: sinCobertura,
+      };
+    }
 
     if (rows === null) {
       return {
@@ -390,9 +428,13 @@ export class TeamService {
       }
     }
 
+    // I1: un `userId` crudo no es un nombre -- nadie que lea el aviso de
+    // excepciones sabe a quién señala un UUID. Si la consulta de nombres
+    // falló (`null`) o a esta persona en particular no le llegó nombre, se
+    // dice «no disponible» en vez de imprimir el identificador interno.
     const nombreDe = (userId: string): string => {
-      const n = nombres.get(userId);
-      return n ? `${n.firstName} ${n.lastName}` : userId;
+      const n = nombres?.get(userId);
+      return n ? `${n.firstName} ${n.lastName}` : 'no disponible';
     };
 
     const sinMarcar30Dias = userIds

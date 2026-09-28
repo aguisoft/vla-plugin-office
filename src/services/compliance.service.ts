@@ -174,12 +174,15 @@ export class ComplianceService {
     // Nombres de TODOS los activos -- distinto de los nombres que ya trae
     // `excepciones()`, que solo cubren a quien está en esas dos listas.
     // `sinJefe`/`sinDepartamento` necesitan poder nombrar a cualquiera.
-    // Degrada a un mapa vacío (nunca lanza, ver `nombresPorUsuario`): el
-    // nombre en blanco es cosmético, no invalida la lista.
+    // Nunca lanza (ver `nombresPorUsuario`), pero SÍ puede volver `null` si la
+    // consulta falló -- I1: un `userId` crudo no es un nombre, así que ese
+    // caso (y el de una persona puntual sin fila en el mapa) dice «no
+    // disponible» en vez de imprimir el UUID. La LISTA en sí no se invalida:
+    // sigue viniendo de `excepciones()`/`roster()`, fuentes aparte.
     const nombres = await nombresPorUsuario(this.ctx, userIds);
     const nombreDe = (userId: string) => {
-      const n = nombres.get(userId);
-      return n ? `${n.firstName} ${n.lastName}` : userId;
+      const n = nombres?.get(userId);
+      return n ? `${n.firstName} ${n.lastName}` : 'no disponible';
     };
 
     // `departamento` de cada persona de `sinMarcarBase`, para la columna que

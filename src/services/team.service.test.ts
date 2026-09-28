@@ -381,8 +381,14 @@ describe('TeamService.filas — degrada si la consulta de sesiones rechaza', () 
   });
 });
 
-describe('TeamService.filas — degrada si la consulta de nombres rechaza', () => {
-  it('sigue calculando las sesiones con nombre vacío y deja un warning', async () => {
+describe('TeamService.filas — degrada si la consulta de nombres rechaza (I1)', () => {
+  it('TODAS las filas salen no-disponible: ninguna con nombre vacío y minutos reales', async () => {
+    // DESVÍO del comportamiento anterior a propósito (I1 en fix-A): antes esta
+    // fila salía `estado: 'con-registro'`, `firstName: ''` y 60 minutos reales
+    // -- un número real junto a un nombre en blanco, sin nada que avise de
+    // quién es. `nombresPorUsuario` es una consulta DISTINTA de la de
+    // sesiones, que sí funcionó; pero sin saber de quién es cada fila, esos
+    // minutos no significan nada, y mostrarlos es peor que no mostrarlos.
     const sesion: CheckInRow = {
       userId: 'u1',
       checkInAt: cr('2026-09-21T08:00:00'),
@@ -395,12 +401,26 @@ describe('TeamService.filas — degrada si la consulta de nombres rechaza', () =
 
     const [fila] = await makeService(ctx).filas(['u1'], 'day', cr('2026-09-21T10:00:00'));
 
-    // El nombre no se pudo leer, pero la sesión sí: no hay razón para que un
-    // fallo en NOMBRES apague el cálculo de minutos de la persona.
-    expect(fila.estado).toBe('con-registro');
-    expect(fila.totalMinutes).toBe(60);
+    expect(fila.estado).toBe('no-disponible');
+    expect(fila.totalMinutes).toBe(0);
     expect(fila.firstName).toBe('');
+    expect(fila.ultimoDisponible).toBe(false);
     expect(warn).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('TeamService.excepciones — sin UUIDs crudos cuando los nombres fallan (I1)', () => {
+  it('la franja de excepciones dice "no disponible" en vez de imprimir el userId', async () => {
+    const { ctx, warn } = makeCtx({
+      checkIns: [],
+      rejectUsers: new Error('pool agotado'),
+    });
+
+    const { sinMarcar30Dias } = await makeService(ctx).excepciones(['u1']);
+
+    expect(sinMarcar30Dias).toEqual([{ userId: 'u1', nombre: 'no disponible' }]);
+    expect(sinMarcar30Dias.some(p => p.nombre === 'u1')).toBe(false);
+    expect(warn).toHaveBeenCalled();
   });
 });
 

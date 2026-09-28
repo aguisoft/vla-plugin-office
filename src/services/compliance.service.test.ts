@@ -32,10 +32,20 @@ function makeCtx(opts: {
   rejectActiveUsers?: Error;
   ausenciasCount?: number;
   rejectAusencias?: Error;
+  /**
+   * Si se da, la SEGUNDA llamada a `ctx.prisma.user.findMany` rechaza -- esa
+   * es `nombresPorUsuario(...)` (I1), que `cumplimiento()` dispara DESPUÉS de
+   * `usuariosActivos()` (la primera llamada). Así se puede probar el fallo de
+   * nombres sin tocar la lista de activos, que ya funciona con el mismo mock.
+   */
+  rejectNombres?: Error;
 } = {}) {
   const warn = vi.fn();
+  let userFindManyCalls = 0;
   const userFindMany = vi.fn(async () => {
+    userFindManyCalls += 1;
     if (opts.rejectActiveUsers) throw opts.rejectActiveUsers;
+    if (opts.rejectNombres && userFindManyCalls === 2) throw opts.rejectNombres;
     return opts.activeUsers ?? [];
   });
   const absenceCount = vi.fn(async () => {
@@ -228,6 +238,30 @@ describe('ComplianceService.cumplimiento — cada fuente degrada sola', () => {
     // La lista en sí viene de `excepciones()`, que no falló -- solo la
     // columna de departamento de cada persona degrada a null.
     expect(out.sinMarcar30Dias).toEqual([{ userId: 'u2', nombre: 'Beto Solís', departamento: null }]);
+  });
+
+  it('si nombresPorUsuario falla (pero la lista de activos y el organigrama sí funcionan), sinJefe/sinDepartamento dicen "no disponible" y NO el userId crudo (I1)', async () => {
+    const { ctx } = makeCtx({ activeUsers: [{ id: 'u1' }], rejectNombres: new Error('pool agotado') });
+    const roster: RosterFake = new Map([
+      ['u1', { managerUserId: null, departmentId: null, departmentName: null }],
+    ]);
+
+    const svc = makeService(
+      ctx,
+      fakeTeam(),
+      fakeOrg({ roster, departments: [] }),
+      fakeHolidays(),
+      fakeTimesheet(),
+    );
+
+    const out = await svc.cumplimiento('week', ANCHOR);
+
+    // Las LISTAS siguen de pie (vienen de `roster()`, que no falló) -- lo
+    // único que degrada es el nombre de cada persona.
+    expect(out.sinJefe).toEqual([{ userId: 'u1', nombre: 'no disponible' }]);
+    expect(out.sinDepartamento).toEqual([{ userId: 'u1', nombre: 'no disponible' }]);
+    expect(out.sinJefe?.some(p => p.nombre === 'u1')).toBe(false);
+    expect(out.sinDepartamento?.some(p => p.nombre === 'u1')).toBe(false);
   });
 
   it('si el catálogo de departamentos falla, solo porDepartamento queda en null', async () => {
