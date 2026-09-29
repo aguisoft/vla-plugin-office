@@ -294,6 +294,14 @@ export interface TimesheetTeamResponse {
   filas: FilaEquipo[];
   excepciones: Excepciones;
   cobertura: Matriz;
+  /**
+   * `true` cuando el período consultado todavía no ocurrió (se llega
+   * navegando con «›»). Distinto de `filas: []`: sin esta bandera, la
+   * pantalla mostraría a todo el equipo como «sin registrar» en una semana
+   * futura — una afirmación sobre la conducta de gente en un período que
+   * no existe.
+   */
+  periodoFuturo?: boolean;
 }
 
 /**

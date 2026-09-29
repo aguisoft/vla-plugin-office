@@ -870,3 +870,75 @@ describe('TeamService.excepciones — RECHAZA en vez de inventar un vacío', () 
     expect(warn).not.toHaveBeenCalled();
   });
 });
+
+describe('TeamService.filas — N5: sin nombre no hay fila con números', () => {
+  it('una persona ausente del mapa de nombres sale no-disponible, no anónima con minutos', async () => {
+    // La consulta de nombres funcionó, pero no trajo a u2. Antes, u2 salía con
+    // firstName/lastName/email en blanco, estado con-registro y sus minutos
+    // reales: una fila anónima con números, que es el mismo defecto que I1
+    // cerró para el fallo TOTAL de la consulta, en pequeño. Sin saber de quién
+    // son, los minutos no significan nada.
+    const checkIns: CheckInRow[] = [
+      { userId: 'u1', checkInAt: cr('2026-09-21T08:00:00'), checkOutAt: cr('2026-09-21T12:00:00') },
+      { userId: 'u2', checkInAt: cr('2026-09-21T08:00:00'), checkOutAt: cr('2026-09-21T12:00:00') },
+    ];
+    const { ctx, warn } = makeCtx({
+      checkIns,
+      // u2 NO está en la lista de usuarios: la consulta respondió sin él.
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const filas = await makeService(ctx).filas(['u1', 'u2'], 'week', cr('2026-09-21T10:00:00'));
+
+    const conNombre = filas.find(f => f.userId === 'u1')!;
+    expect(conNombre.estado).toBe('con-registro');
+    expect(conNombre.totalMinutes).toBeGreaterThan(0);
+
+    const sinNombre = filas.find(f => f.userId === 'u2')!;
+    expect(sinNombre.estado).toBe('no-disponible');
+    expect(sinNombre.totalMinutes).toBe(0);
+    // Y deja rastro: el fallo por persona no puede pasar en silencio.
+    expect(warn).toHaveBeenCalled();
+  });
+});
+
+describe('TeamService.filasYCobertura — N4: un período futuro no afirma nada sobre nadie', () => {
+  const AHORA_N4 = cr('2026-09-25T12:00:00');
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(AHORA_N4);
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it('la semana siguiente devuelve cero filas y lo marca, no 22 «sin registrar»', async () => {
+    // Se llega con un clic en «›». Sin el corte, `efectivo` queda invertido,
+    // todo da cero y estadoRegistro devuelve `sin-registrar` para todo el
+    // mundo: la tabla afirmaría que nadie marcó entrada en una semana que aún
+    // no ocurrió.
+    const { ctx } = makeCtx({
+      checkIns: [{ userId: 'u1', checkInAt: cr('2026-09-24T08:00:00'), checkOutAt: cr('2026-09-24T12:00:00') }],
+      users: [
+        { id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' },
+        { id: 'u2', firstName: 'Beto', lastName: 'Solís', email: 'beto@vla.com' },
+      ],
+    });
+
+    const r = await makeService(ctx).filasYCobertura(['u1', 'u2'], 'week', cr('2026-10-05T10:00:00'));
+
+    expect(r.periodoFuturo).toBe(true);
+    expect(r.filas).toEqual([]);
+    expect(r.cobertura.fechas).toEqual([]);
+  });
+
+  it('la semana EN CURSO no se marca como futura', async () => {
+    const { ctx } = makeCtx({
+      users: [{ id: 'u1', firstName: 'Ana', lastName: 'Pérez', email: 'ana@vla.com' }],
+    });
+
+    const r = await makeService(ctx).filasYCobertura(['u1'], 'week', AHORA_N4);
+
+    expect(r.periodoFuturo).toBeUndefined();
+    expect(r.filas).toHaveLength(1);
+  });
+});

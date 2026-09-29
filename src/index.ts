@@ -954,7 +954,7 @@ const plugin: PluginDefinition = {
       }) as any[]).map(u => u.id);
 
       const bounds = periodBounds(anchor, period, tz());
-      const [{ filas, cobertura }, excepciones] = await Promise.all([
+      const [{ filas, cobertura, periodoFuturo }, excepciones] = await Promise.all([
         team.filasYCobertura(ids, period, anchor),
         // Task 9 cambió `excepciones()` para que RECHACE si la consulta
         // falla (antes degradaba sola a `{ sinMarcar30Dias: [], sesionesAbiertas: [] }`,
@@ -978,6 +978,10 @@ const plugin: PluginDefinition = {
         filas,
         excepciones,
         cobertura,
+        // N4: el período todavía no ocurrió. Va como bandera y no como lista
+        // vacía a secas, para que la pantalla diga «aún no ocurrió» en vez de
+        // «nadie marcó entrada» — que sería una afirmación sobre 22 personas.
+        periodoFuturo,
       });
     }));
 

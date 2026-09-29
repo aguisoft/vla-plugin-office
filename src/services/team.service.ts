@@ -307,7 +307,7 @@ export class TeamService {
    */
   async filasYCobertura(
     userIds: string[], period: Period, anchor: Date,
-  ): Promise<{ filas: FilaEquipo[]; cobertura: Matriz }> {
+  ): Promise<{ filas: FilaEquipo[]; cobertura: Matriz; periodoFuturo?: boolean }> {
     const sinCobertura: Matriz = { horaMin: 0, horaMax: 0, fechas: [], celdas: [] };
     if (userIds.length === 0) return { filas: [], cobertura: sinCobertura };
 
@@ -328,6 +328,20 @@ export class TeamService {
       start: currentBounds.start,
       end: currentBounds.end < ahora ? currentBounds.end : ahora,
     };
+
+    // N4: un período ENTERAMENTE futuro no admite ninguna afirmación sobre
+    // nadie. Se llega navegando con «›» más allá de hoy. Sin este corte,
+    // `efectivo` queda invertido (fin antes que inicio), todo da cero y
+    // `estadoRegistro` devuelve `sin-registrar` para todo el mundo: la tabla
+    // afirmaría que 22 personas «no marcaron entrada» en una semana que
+    // todavía no ocurrió.
+    //
+    // No se devuelven filas en `no-disponible` tampoco: ese estado dice «no se
+    // pudo leer el registro», y acá sí se pudo — simplemente no hay período del
+    // que hablar. La interfaz lo dice con esas palabras.
+    if (currentBounds.start > ahora) {
+      return { filas: [], cobertura: sinCobertura, periodoFuturo: true };
+    }
 
     // I4: cuánto ha transcurrido del período EN CURSO, en milisegundos reales
     // -- no un período de calendario. Se usa más abajo para acotar cada
@@ -430,6 +444,15 @@ export class TeamService {
       });
       const norma = computeNorm(totalesPrevios);
       const nombre = nombres.get(userId);
+      // N5: la consulta de nombres puede haber funcionado y aun así no traer a
+      // ESTA persona. Sin saber de quién son, sus minutos no significan nada: una
+      // fila anónima con números es el mismo defecto que I1 cerró para el fallo
+      // total, en pequeño. `excepciones` y `ComplianceService` ya tratan así este
+      // caso; `filas` era el único de los tres que no.
+      if (!nombre) {
+        this.ctx.logger.warn(`TeamService: sin nombre para ${userId}; su fila sale no-disponible`);
+        return this.filaSinNombres(userId, diasHabilesDe(userId).length);
+      }
       const primerasEntradas = [...(entradasPorDia.get(userId)?.values() ?? [])];
       // I6: `diasConRegistro` sigue contando TODOS los días con sesión
       // (correcto, no se esconde el fin de semana) -- acá se separa cuántos
@@ -439,9 +462,9 @@ export class TeamService {
 
       return {
         userId,
-        firstName: nombre?.firstName ?? '',
-        lastName: nombre?.lastName ?? '',
-        email: nombre?.email ?? '',
+        firstName: nombre.firstName,
+        lastName: nombre.lastName,
+        email: nombre.email,
         estado: estadoRegistro(sesiones, efectivo),
         totalMinutes: totalActual,
         openSessionCapped: acotadas.has(userId),

@@ -324,6 +324,16 @@ export function TimesheetScreen({ onClose, canManageOffice }: {
               <p className="py-12 text-center text-xs text-gray-400">Cargando…</p>
             ) : teamError ? null : (
               <div className="space-y-4">
+                {/* N4: un período que todavía no ocurrió no admite ninguna
+                    afirmación sobre nadie. Sin este corte la tabla mostraría a
+                    todo el equipo como «sin registrar» en una semana futura, que
+                    es una acusación sobre gente en un período inexistente. */}
+                {teamData?.periodoFuturo ? (
+                  <p className="py-12 text-center text-xs text-gray-400">
+                    Este período todavía no ha ocurrido.
+                  </p>
+                ) : (
+                  <>
                 <TeamTable
                   filas={teamData?.filas ?? []}
                   excepciones={teamData?.excepciones ?? { sinMarcar30Dias: [], sesionesAbiertas: [] }}
@@ -334,6 +344,8 @@ export function TimesheetScreen({ onClose, canManageOffice }: {
                     ninguna suma de la tabla contesta eso. Se omite sola si
                     `cobertura.fechas` viene vacío (ver CoverageMap). */}
                 {teamData && <CoverageMap matriz={teamData.cobertura} />}
+                  </>
+                )}
               </div>
             )
           ) : mostrarCumplimiento ? (
