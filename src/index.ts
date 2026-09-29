@@ -188,9 +188,9 @@ const plugin: PluginDefinition = {
      * que ya obligó al try/catch de `runTimemanSync` más abajo en este archivo,
      * ahí verificado en vivo (un POST a /timeman/sync mató el servidor).
      *
-     * DEUDA: las otras ~36 rutas del plugin arrastran el mismo agujero desde la
-     * Entrega 1; cerrarlo es envolver cada handler con `asyncRoute(...)`, un
-     * cambio de una línea por ruta.
+     * Desde 1.7.1 toda ruta asíncrona del plugin va envuelta: la auditoría que
+     * balancea paréntesis sobre este archivo no encuentra ninguna suelta. Si
+     * agregás una ruta `async`, envolvela — Express 4 no la va a atrapar.
      */
     function asyncRoute(handler: (req: Request, res: Response) => Promise<unknown>) {
       return async (req: Request, res: Response): Promise<void> => {
@@ -257,21 +257,21 @@ const plugin: PluginDefinition = {
 
     // ── Presencia ──────────────────────────────────────────────────────────────
 
-    ctx.router.get('/presence', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (_req, res) => {
+    ctx.router.get('/presence', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (_req, res) => {
       res.json(await presence.getAll());
-    });
+    }));
 
-    ctx.router.get('/presence/all', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (_req, res) => {
+    ctx.router.get('/presence/all', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (_req, res) => {
       res.json(await presence.getAllIncludingOffline());
-    });
+    }));
 
-    ctx.router.get('/presence/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+    ctx.router.get('/presence/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const record = await presence.getOne(req.params.userId);
       if (!record) return res.status(404).json({ message: 'Usuario no encontrado' });
       res.json(record);
-    });
+    }));
 
-    ctx.router.patch('/presence/status', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
+    ctx.router.patch('/presence/status', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
@@ -335,11 +335,11 @@ const plugin: PluginDefinition = {
         meetingId,
       });
       res.json(record);
-    });
+    }));
 
     // ── Check-in / Check-out manual ────────────────────────────────────────────
 
-    ctx.router.post('/checkin', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
+    ctx.router.post('/checkin', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
       await presence.setManualOverride(userId);
@@ -350,9 +350,9 @@ const plugin: PluginDefinition = {
           ctx.logger.log(`timeman.open bitrixId=${bid} → ${ok ? 'OK' : 'FAIL'}`));
       }).catch(e => ctx.logger.warn(`timeman.open lookup error: ${e}`));
       res.json(record);
-    });
+    }));
 
-    ctx.router.post('/checkout', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
+    ctx.router.post('/checkout', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
       await presence.setManualOverride(userId);
@@ -363,7 +363,7 @@ const plugin: PluginDefinition = {
           ctx.logger.log(`timeman.close bitrixId=${bid} → ${ok ? 'OK' : 'FAIL'}`));
       }).catch(e => ctx.logger.warn(`timeman.close lookup error: ${e}`));
       res.json({ ok: true });
-    });
+    }));
 
     // ── Ausencias (permiso, vacaciones, incapacidad) ───────────────────────────
     // El body.startAt/endAt cambia de forma según el type (AbsenceInput en
@@ -373,7 +373,7 @@ const plugin: PluginDefinition = {
     // gusto: es la corrección de la regresión donde el navegador convertía
     // esas dos fechas a instante con SU zona antes de mandarlas.
 
-    ctx.router.post('/absences', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
+    ctx.router.post('/absences', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
       const requesterId = (req as any).user?.sub;
       if (!requesterId) return res.status(401).json({ message: 'Unauthorized' });
 
@@ -392,13 +392,13 @@ const plugin: PluginDefinition = {
         });
       }
       res.status(201).json({ id: result.id });
-    });
+    }));
 
     // Ausencias de uno mismo (por defecto) o de ?userId= si quien pregunta es
     // su jefe directo o tiene office.manage. La justificación de PERMISO e
     // INCAPACIDAD (datos médicos/personales) se omite del payload si no
     // corresponde verla — nunca viaja vacía, el campo directamente no está.
-    ctx.router.get('/absences', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+    ctx.router.get('/absences', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const requesterId = (req as any).user?.sub;
       if (!requesterId) return res.status(401).json({ message: 'Unauthorized' });
 
@@ -419,23 +419,23 @@ const plugin: PluginDefinition = {
         }
         return a;
       }));
-    });
+    }));
 
-    ctx.router.delete('/absences/:id', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
+    ctx.router.delete('/absences/:id', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
       const requesterId = (req as any).user?.sub;
       if (!requesterId) return res.status(401).json({ message: 'Unauthorized' });
       const canManage = can(req, PERMS.MANAGE);
       const done = await absences.remove(req.params.id, requesterId, canManage);
       if (!done) return res.status(404).json({ message: 'Ausencia no encontrada' });
       res.status(204).end();
-    });
+    }));
 
     // ── Feriados (calendario por país + override personal) ────────────────────
 
-    ctx.router.get('/holidays', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+    ctx.router.get('/holidays', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const year = req.query.year ? Number(req.query.year) : undefined;
       res.json(await holidays.list(year, req.query.country as string | undefined));
-    });
+    }));
 
     ctx.router.post('/holidays', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (req, res) => {
       const { date, name, country } = req.body as { date: string; name: string; country: string };
@@ -453,21 +453,21 @@ const plugin: PluginDefinition = {
       }
     });
 
-    ctx.router.delete('/holidays/:id', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (req, res) => {
+    ctx.router.delete('/holidays/:id', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {
       const done = await holidays.remove(req.params.id);
       if (!done) return res.status(404).json({ message: 'Feriado no encontrado' });
       res.status(204).end();
-    });
+    }));
 
     // Feriados que el colaborador todavía puede mover
-    ctx.router.get('/holidays/movable', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+    ctx.router.get('/holidays/movable', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
       const country = await org.countryOf(userId);
       res.json(await holidays.movableForUser(userId, country));
-    });
+    }));
 
-    ctx.router.post('/holidays/:id/override', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
+    ctx.router.post('/holidays/:id/override', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
       const { newDate, justification } = req.body as { newDate: string; justification: string };
@@ -480,15 +480,15 @@ const plugin: PluginDefinition = {
       );
       if (!result.ok) return res.status(400).json({ message: 'Datos inválidos', errors: result.errors });
       res.status(201).json({ ok: true });
-    });
+    }));
 
-    ctx.router.delete('/holidays/:id/override', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
+    ctx.router.delete('/holidays/:id/override', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
       const done = await holidays.clearOverride(userId, req.params.id);
       if (!done) return res.status(404).json({ message: 'No hay override para ese feriado' });
       res.status(204).end();
-    });
+    }));
 
     // ── Invitaciones a reunión ──────────────────────────────────────────────
     // El anfitrión entra a la reunión de inmediato desde PATCH /presence/status
@@ -496,14 +496,14 @@ const plugin: PluginDefinition = {
     // ver sus invitaciones pendientes y responder. cancel es del anfitrión, no
     // se expone como endpoint del invitado — ver meeting-invites.ts.
 
-    ctx.router.get('/meetings/invites', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+    ctx.router.get('/meetings/invites', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
       res.json(await meetings.pendingFor(userId));
-    });
+    }));
 
     for (const action of ['accept', 'decline'] as const) {
-      ctx.router.post(`/meetings/invites/:id/${action}`, ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), async (req, res) => {
+      ctx.router.post(`/meetings/invites/:id/${action}`, ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
         const userId = (req as any).user?.sub;
         if (!userId) return res.status(401).json({ message: 'Unauthorized' });
 
@@ -537,7 +537,7 @@ const plugin: PluginDefinition = {
           });
         }
         res.json({ ok: true });
-      });
+      }));
     }
 
     // NO hay endpoint /leave. La salida voluntaria del invitado es simplemente
@@ -547,16 +547,16 @@ const plugin: PluginDefinition = {
 
     // ── Snapshot (users + presence + avatars + bitrix photos) ─────────────────
 
-    ctx.router.get('/snapshot', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+    ctx.router.get('/snapshot', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const snap = await snapshot.getAll({
         userId: (req as any).user.sub,
         hasManage: can(req, PERMS.MANAGE),
       });
       res.json(snap);
-    });
+    }));
 
     // ── Photo proxy (avoids browser CDN/CORS issues with Bitrix URLs) ──────────
-    ctx.router.get('/photo/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+    ctx.router.get('/photo/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const rawUrl = await bitrix.getPhotoUrl(req.params.userId);
       if (!rawUrl) return res.status(404).end();
       try {
@@ -571,19 +571,19 @@ const plugin: PluginDefinition = {
       } catch {
         res.status(500).end();
       }
-    });
+    }));
 
-    ctx.router.patch('/me/avatar', ctx.requireAuth(), async (req, res) => {
+    ctx.router.patch('/me/avatar', ctx.requireAuth(), asyncRoute(async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
       await snapshot.updateAvatar(userId, req.body);
       res.json({ ok: true });
-    });
+    }));
 
     // ── Bitrix24 ──────────────────────────────────────────────────────────────
 
     // Webhook entrante (check-in/out desde Bitrix)
-    ctx.router.post('/bitrix/webhook', async (req, res) => {
+    ctx.router.post('/bitrix/webhook', asyncRoute(async (req, res) => {
       const event = req.body?.event as string;
       const bitrixUserId = String(req.body?.data?.USER_ID ?? '');
       const secret = ctx.plugin.config?.bitrixWebhookSecret as string | undefined;
@@ -610,24 +610,24 @@ const plugin: PluginDefinition = {
       }
 
       res.json({ ok: true });
-    });
+    }));
 
     // Debug: timeman status por usuario (admin)
-    ctx.router.get('/bitrix/debug-timeman', ctx.requireAuth('ADMIN'), async (_req, res) => {
+    ctx.router.get('/bitrix/debug-timeman', ctx.requireAuth('ADMIN'), asyncRoute(async (_req, res) => {
       res.json(await bitrix.debugTimeman());
-    });
+    }));
 
     // Sincronización manual de fotos (admin)
-    ctx.router.post('/bitrix/sync', ctx.requireAuth('ADMIN'), async (_req, res) => {
+    ctx.router.post('/bitrix/sync', ctx.requireAuth('ADMIN'), asyncRoute(async (_req, res) => {
       const result = await bitrix.syncPhotos();
       res.json({ ok: true, ...result });
-    });
+    }));
 
     // Sincronización manual de timeman (admin)
-    ctx.router.post('/bitrix/sync-timeman', ctx.requireAuth('ADMIN'), async (_req, res) => {
+    ctx.router.post('/bitrix/sync-timeman', ctx.requireAuth('ADMIN'), asyncRoute(async (_req, res) => {
       const result = await runTimemanSync();
       res.json({ ok: true, ...result });
-    });
+    }));
 
     // ── Organigrama (jefe directo, país) ───────────────────────────────────────
 
@@ -641,9 +641,9 @@ const plugin: PluginDefinition = {
     // VA ANTES de '/org/:userId': Express resuelve por orden de registro, así
     // que la ruta paramétrica se traga cualquier literal declarado después y
     // devuelve el override de un usuario llamado "country-coverage".
-    ctx.router.get('/org/country-coverage', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (_req, res) => {
+    ctx.router.get('/org/country-coverage', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (_req, res) => {
       res.json(await bitrix.countryCoverageReport());
-    });
+    }));
 
     /**
      * Roster completo para la pantalla de feriados: cada colaborador con su
@@ -669,7 +669,7 @@ const plugin: PluginDefinition = {
       res.json({ departments: await org.departments() });
     }));
 
-    ctx.router.get('/org/roster', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (_req, res) => {
+    ctx.router.get('/org/roster', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (_req, res) => {
       const users = await ctx.prisma.user.findMany({
         where: { isActive: true },
         select: { id: true, firstName: true, lastName: true, email: true },
@@ -703,16 +703,16 @@ const plugin: PluginDefinition = {
           };
         }),
       });
-    });
+    }));
 
-    ctx.router.get('/org/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+    ctx.router.get('/org/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const { userId } = req.params;
       res.json({
         userId,
         managerUserId: await org.managerOf(userId),
         country: await org.countryOf(userId),
       });
-    });
+    }));
 
     ctx.router.put('/org/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {
       const { managerUserId, country, departmentId, zoneId } = req.body as {
@@ -786,40 +786,40 @@ const plugin: PluginDefinition = {
     // Diagnóstico: cuántos usuarios traen país/jefe de Bitrix (admin funcional).
     // syncOrgStructure() nunca lanza — si Bitrix está inalcanzable devuelve
     // { synced: 0, heads: 0, withCountry: 0 } y queda logueado como warning.
-    ctx.router.post('/org/sync', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (_req, res) => {
+    ctx.router.post('/org/sync', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (_req, res) => {
       res.json(await bitrix.syncOrgStructure());
-    });
+    }));
 
     // ── Layout ────────────────────────────────────────────────────────────────
 
-    ctx.router.get('/layout', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (_req, res) => {
+    ctx.router.get('/layout', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (_req, res) => {
       const active = await layout.getActive();
       const positions = await layout.getUserPositions();
       res.json({ layout: active, positions });
-    });
+    }));
 
-    ctx.router.get('/layout/all', ctx.requireAuth('ADMIN'), async (_req, res) => {
+    ctx.router.get('/layout/all', ctx.requireAuth('ADMIN'), asyncRoute(async (_req, res) => {
       res.json(await layout.getAll());
-    });
+    }));
 
-    ctx.router.post('/layout', ctx.requireAuth('ADMIN'), async (req, res) => {
+    ctx.router.post('/layout', ctx.requireAuth('ADMIN'), asyncRoute(async (req, res) => {
       const { name } = req.body as { name: string };
       if (!name) return res.status(400).json({ message: 'name is required' });
       res.status(201).json(await layout.create(name));
-    });
+    }));
 
-    ctx.router.post('/layout/:id/zones', ctx.requireAuth('ADMIN'), async (req, res) => {
+    ctx.router.post('/layout/:id/zones', ctx.requireAuth('ADMIN'), asyncRoute(async (req, res) => {
       const zone = await layout.addZone(req.params.id, req.body as any);
       res.status(201).json(zone);
-    });
+    }));
 
-    ctx.router.patch('/layout/position', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), async (req, res) => {
+    ctx.router.patch('/layout/position', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
       const { zoneId, x, y } = req.body as { zoneId: string; x: number; y: number };
       await layout.moveUser(userId, zoneId, x, y);
       res.json({ ok: true });
-    });
+    }));
 
     // ── Dashboard de tiempos ────────────────────────────────────────────────────
 
@@ -1223,9 +1223,9 @@ const plugin: PluginDefinition = {
 
     // Sincronización manual de timeman, disponible para quien administra la
     // oficina (no solo ADMIN) — es la que usa la verificación del blindaje.
-    ctx.router.post('/timeman/sync', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), async (_req, res) => {
+    ctx.router.post('/timeman/sync', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (_req, res) => {
       res.json(await runTimemanSync());
-    });
+    }));
 
     // ── Cron: sincronizar timeman de Bitrix cada 2 minutos ────────────────────
     ctx.cron('*/2 * * * *', async () => {
