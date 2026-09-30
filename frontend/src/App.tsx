@@ -20,6 +20,7 @@ import { HolidayOverrideModal } from './components/HolidayOverrideModal';
 import { MyAbsencesModal } from './components/MyAbsencesModal';
 import { HolidayManager } from './components/HolidayManager';
 import { TimesheetScreen } from './components/TimesheetScreen';
+import { OrgChart } from './components/OrgChart';
 import { Shell } from './components/modalParts';
 import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant, PendingInvite } from './types';
 import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
@@ -40,14 +41,17 @@ export default function App() {
   // /dashboard/office?view=tiempos abra directo ahí -- eso reemplaza a la
   // "ruta propia en el menú" que pedía la spec original, no alcanzable
   // porque un plugin declara una sola `route`.
-  const [view, setView] = useState<'oficina' | 'tiempos'>(
-    new URLSearchParams(window.location.search).get('view') === 'tiempos' ? 'tiempos' : 'oficina',
-  );
-  const irA = (v: 'oficina' | 'tiempos') => {
+  const [view, setView] = useState<'oficina' | 'tiempos' | 'organigrama'>(() => {
+    const v = new URLSearchParams(window.location.search).get('view');
+    return v === 'tiempos' || v === 'organigrama' ? v : 'oficina';
+  });
+  const irA = (v: 'oficina' | 'tiempos' | 'organigrama') => {
     setView(v);
     const url = new URL(window.location.href);
-    if (v === 'tiempos') url.searchParams.set('view', 'tiempos');
-    else url.searchParams.delete('view');
+    // `oficina` es el default y no lleva parámetro; las otras sí, para que
+    // /dashboard/office?view=organigrama sea un enlace que se pueda pasar.
+    if (v === 'oficina') url.searchParams.delete('view');
+    else url.searchParams.set('view', v);
     window.history.replaceState({}, '', url);
   };
 
@@ -480,6 +484,20 @@ export default function App() {
         </button>
       )}
 
+      {/* Visible para todos: es quién depende de quién, no un dato de
+          administración. El endpoint que lo alimenta (/org/chart) devuelve
+          solo nombre, jefe y departamento — sin correos ni el origen de cada
+          campo, que sí exigen office.manage en /org/roster. */}
+      <button onClick={() => irA('organigrama')}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] text-gray-500 hover:bg-gray-100 transition-colors"
+        title="Organigrama">
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v4m0 0H8a2 2 0 00-2 2v2m6-4h4a2 2 0 012 2v2M6 16h2a2 2 0 002-2v-2m8 4h-2a2 2 0 01-2-2v-2" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 2h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4z" />
+        </svg>
+        Organigrama
+      </button>
+
       {/* Sin gating por office.manage: es un reporte de lo propio, cualquiera
           lo puede ver (y quien tenga gente a cargo, también lo suyo). */}
       <button onClick={() => irA('tiempos')}
@@ -579,6 +597,8 @@ export default function App() {
             no un diálogo. Vive dentro del mismo PluginShell. */}
         {view === 'tiempos' ? (
           <TimesheetScreen onClose={() => irA('oficina')} canManageOffice={canManageHolidays} />
+        ) : view === 'organigrama' ? (
+          <OrgChart onClose={() => irA('oficina')} />
         ) : (
         <div className="h-full flex flex-col">
           <div className="flex-1 flex overflow-hidden">

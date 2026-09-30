@@ -144,8 +144,11 @@ function Historial({ solicitudes }: { solicitudes: SolicitudFeriado[] }) {
                 <p className="mt-0.5 text-[10px] text-gray-500">Motivo: {s.decisionNote}</p>
               )}
               {s.sinRevisor && (
+                /* Antes decía «no tenés jefe directo asignado», que para un
+                   gerente general se lee como un dato faltante y no como un
+                   hecho: no hay a quién pedírselo, y eso es correcto. */
                 <p className="mt-0.5 text-[10px] text-gray-400">
-                  Quedó aprobada sin revisión: no tenés jefe directo asignado.
+                  Quedó aprobada directamente: estás en la cima del organigrama.
                 </p>
               )}
             </li>

@@ -755,6 +755,43 @@ const plugin: PluginDefinition = {
       });
     }));
 
+    /**
+     * El organigrama, visible para CUALQUIER colaborador.
+     *
+     * Endpoint aparte de `/org/roster` —que exige `office.manage`— a
+     * propósito, y no por comodidad: el roster lleva el correo de cada
+     * persona y el ORIGEN de cada dato (`override` / `bitrix` / `default`),
+     * que son metadatos de administración. Acá va lo mínimo para dibujar la
+     * jerarquía. Reusar el roster habría significado o exponer todo eso a
+     * todos, o esconderle el organigrama a quien trabaja en él.
+     *
+     * Va ANTES de `/org/:userId`: la paramétrica se tragaría `/org/chart`.
+     */
+    ctx.router.get('/org/chart', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (_req, res) => {
+      const users = await ctx.prisma.user.findMany({
+        where: { isActive: true },
+        select: { id: true, firstName: true, lastName: true },
+        orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
+      });
+      const roster = await org.roster((users as any[]).map(u => u.id));
+
+      res.json({
+        personas: (users as any[]).map(u => {
+          const r = roster.get(u.id);
+          const nombre = `${u.firstName ?? ''} ${u.lastName ?? ''}`.trim();
+          return {
+            userId: u.id,
+            // `null` y no cadena vacía: una tarjeta en blanco en el
+            // organigrama no dice de quién habla, y la pantalla necesita
+            // poder decir «nombre no disponible» en vez de dibujar un hueco.
+            nombre: nombre || null,
+            managerUserId: r?.managerUserId ?? null,
+            departamento: r?.departmentName ?? null,
+          };
+        }),
+      });
+    }));
+
     ctx.router.get('/org/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const { userId } = req.params;
       res.json({

@@ -37,10 +37,19 @@ function IconoAviso({ className = '' }: { className?: string }) {
  * === null` es la fuente que falló: se ve distinto (ámbar, «no disponible»)
  * de `lista.length === 0`, que es un cero real -- de verdad no hay nadie.
  */
-function Contador({ titulo, lista, renderPersona }: {
+function Contador({ titulo, lista, renderPersona, nota }: {
   titulo: string;
   lista: Array<{ userId: string }> | null;
   renderPersona: (item: any) => ReactNode;
+  /**
+   * Aclaración cuando el contador NO es una lista de cosas por arreglar.
+   * «Sin jefe directo» es el caso: la gerencia general no tiene jefe y eso es
+   * correcto, pero mostrarlo entre «sin departamento» y «sin marcar en 30
+   * días» lo hacía leer como un defecto. Una excepción que nunca se puede
+   * resolver entrena a no mirar el reporte, y entonces no sirve el día que sí
+   * señala algo real.
+   */
+  nota?: string;
 }) {
   if (lista === null) {
     return (
@@ -61,6 +70,7 @@ function Contador({ titulo, lista, renderPersona }: {
     <div className="rounded-2xl border border-gray-100 p-4">
       <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">{titulo}</p>
       <p className="mt-1 text-lg font-bold text-gray-800">{lista.length}</p>
+      {nota && <p className="mt-0.5 text-[10px] leading-relaxed text-gray-400">{nota}</p>}
       {lista.length > 0 && (
         <details className="mt-2 group">
           <summary className="cursor-pointer list-none text-[11px] font-medium text-gray-500 hover:text-gray-700">
@@ -155,9 +165,10 @@ export function ComplianceTab({ data, loading, error, period, anchor }: {
           )}
         />
         <Contador
-          titulo="Sin jefe asignado"
+          titulo="Sin jefe directo"
           lista={data.sinJefe}
           renderPersona={(p: { nombre: string }) => p.nombre}
+          nota="La gerencia general no tiene jefe: acá se espera verla. Revisá solo si aparece alguien más."
         />
         <Contador
           titulo="Sin departamento asignado"

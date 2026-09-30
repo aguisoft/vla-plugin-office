@@ -3,6 +3,9 @@ import type {
   TimesheetOfficeResponse, TimesheetScope, TimesheetTeamResponse, Cumplimiento,
   SolicitudFeriado, EstadoSolicitud,
 } from './types';
+// La forma de una persona del organigrama la define el módulo que arma el
+// árbol, no `types.ts`: es él quien la consume y quien la tiene probada.
+import type { PersonaChart } from './lib/org-tree';
 
 const BASE = '/api/v1';
 
@@ -130,6 +133,14 @@ export const deleteHoliday = (id: string) => api.delete<void>(`${PLUGIN}/holiday
  */
 export const setHolidayOverride = (holidayId: string, body: { newDate: string; justification: string }) =>
   api.post<{ ok: true; status: EstadoSolicitud }>(`${PLUGIN}/holidays/${holidayId}/override`, body);
+
+/**
+ * El organigrama. Endpoint aparte de `/org/roster` (que exige office.manage)
+ * porque este lo puede ver cualquiera: trae solo nombre, jefe y
+ * departamento, sin correos ni el origen de cada dato.
+ */
+export const getOrgChart = () =>
+  api.get<{ personas: PersonaChart[] }>(`${PLUGIN}/org/chart`);
 
 export const listMisSolicitudesFeriado = () =>
   api.get<SolicitudFeriado[]>(`${PLUGIN}/holidays/overrides/mine`);
