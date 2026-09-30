@@ -8,6 +8,7 @@ import { TimesheetBreakdown } from './TimesheetBreakdown';
 import { TeamTable } from './TeamTable';
 import { CoverageMap } from './CoverageMap';
 import { ComplianceTab } from './ComplianceTab';
+import { HolidayRequestsPanel } from './HolidayRequestsPanel';
 import { cfgOf } from '../statusConfig';
 
 /**
@@ -70,6 +71,11 @@ export function TimesheetScreen({ onClose, canManageOffice }: {
   // `office.manage` sin gente a cargo igual necesita poder verla.
   const [vista, setVista] = useState<'equipo' | 'detalle' | 'cumplimiento'>('equipo');
   const [teamData, setTeamData] = useState<TimesheetTeamResponse | null>(null);
+  // Aprobar un feriado movido corre el denominador de esa persona, así que la
+  // tabla que está en pantalla queda vieja. Este contador la vuelve a pedir
+  // sin duplicar la lógica de carga del efecto de abajo.
+  const [recargaEquipo, setRecargaEquipo] = useState(0);
+  const recargarEquipo = () => setRecargaEquipo(n => n + 1);
   const [teamLoading, setTeamLoading] = useState(true);
   const [teamError, setTeamError] = useState<string | null>(null);
 
@@ -146,7 +152,7 @@ export function TimesheetScreen({ onClose, canManageOffice }: {
         setTeamLoading(false);
       });
     return () => { vivo = false; ctrl.abort(); };
-  }, [period, anchor, scope, soloUno]);
+  }, [period, anchor, scope, soloUno, recargaEquipo]);
 
   // Carga del reporte de cumplimiento (Task 10). Mismo patrón que el efecto
   // del equipo de arriba: dispara en cuanto hay permiso, sin esperar a que
@@ -324,6 +330,19 @@ export function TimesheetScreen({ onClose, canManageOffice }: {
               <p className="py-12 text-center text-xs text-gray-400">Cargando…</p>
             ) : teamError ? null : (
               <div className="space-y-4">
+                {/* Va FUERA del corte de período futuro: una solicitud
+                    pendiente no pertenece a la semana que se está mirando, y
+                    esconderla porque el jefe navegó a otro período la dejaría
+                    sin responder. Los nombres salen de `scope.users` y no de
+                    las filas justamente por eso: `filas` viene vacío en un
+                    período futuro, `scope` no. */}
+                <HolidayRequestsPanel
+                  nombreDe={id => {
+                    const u = scope?.users.find(x => x.id === id);
+                    return u ? `${u.firstName} ${u.lastName}`.trim() || null : null;
+                  }}
+                  onDecidido={recargarEquipo}
+                />
                 {/* N4: un período que todavía no ocurrió no admite ninguna
                     afirmación sobre nadie. Sin este corte la tabla mostraría a
                     todo el equipo como «sin registrar» en una semana futura, que

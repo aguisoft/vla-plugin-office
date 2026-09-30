@@ -54,6 +54,29 @@ export interface Holiday {
   country: string;
 }
 
+export type EstadoSolicitud = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+/**
+ * Una solicitud para tomar un feriado otro día. La aprueba el jefe directo;
+ * hasta entonces el feriado sigue en su fecha original.
+ */
+export interface SolicitudFeriado {
+  id: string;
+  userId: string;
+  holidayId: string;
+  /** `null` si el feriado fue borrado después de pedir el traslado. */
+  holidayName: string | null;
+  holidayDate: string | null;
+  newDate: string;
+  justification: string;
+  status: EstadoSolicitud;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+  /** Aprobada porque no hay jefe que la revise, no porque alguien dijera que sí. */
+  sinRevisor: boolean;
+}
+
 export interface PendingInvite {
   id: string;
   meetingId: string;

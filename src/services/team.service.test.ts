@@ -144,20 +144,37 @@ function fakeOrg(opts: { roster?: Map<string, Partial<RosterEntry>>; reject?: Er
  * `Holiday.date` es una columna DATE: Prisma la entrega a medianoche UTC, así
  * que el filtro se evalúa contra ese instante, igual que en la base real.
  */
-function fakeHolidays(opts: { porPais?: Map<string, Set<string>>; reject?: Error } = {}): HolidayService {
+function fakeHolidays(opts: {
+  porPais?: Map<string, Set<string>>;
+  /** Movimientos YA APROBADOS: usuario → (fecha nacional → fecha nueva). */
+  movidos?: Map<string, Map<string, string>>;
+  reject?: Error;
+} = {}): HolidayService {
   return {
-    datesByCountry: vi.fn(async (countries: string[], from: Date, to: Date) => {
+    effectiveDatesByUser: vi.fn(async (countryOf: Map<string, string>, from: Date, to: Date) => {
       if (opts.reject) throw opts.reject;
       const todos = opts.porPais ?? new Map<string, Set<string>>();
+      const movidos = opts.movidos ?? new Map<string, Map<string, string>>();
+
+      // El servicio real ensancha el rango a meses completos, porque un
+      // feriado movido puede caer dentro del período aunque el original quede
+      // fuera. El doble replica ese borde: si filtrara por [from, to] a secas,
+      // las pruebas verían un rango que la implementación no usa.
+      const desde = new Date(Date.UTC(from.getUTCFullYear(), from.getUTCMonth(), 1));
+      const hasta = new Date(Date.UTC(to.getUTCFullYear(), to.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+
       const out = new Map<string, Set<string>>();
-      for (const [pais, fechas] of todos) {
-        if (!countries.includes(pais)) continue;
-        const dentro = new Set<string>();
-        for (const fecha of fechas) {
+      for (const [userId, pais] of countryOf) {
+        const nacionales = todos.get(pais) ?? new Set<string>();
+        const suyos = movidos.get(userId) ?? new Map<string, string>();
+        const fechas = new Set<string>();
+        for (const fecha of nacionales) {
           const instante = new Date(`${fecha}T00:00:00Z`);
-          if (instante >= from && instante <= to) dentro.add(fecha);
+          if (instante < desde || instante > hasta) continue;
+          // Movido: descuenta la fecha nueva y suelta la original.
+          fechas.add(suyos.get(fecha) ?? fecha);
         }
-        if (dentro.size > 0) out.set(pais, dentro);
+        out.set(userId, fechas);
       }
       return out;
     }),

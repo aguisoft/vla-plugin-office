@@ -265,12 +265,18 @@ export default function App() {
   const applyHolidayOverride = async (holidayId: string, newDate: string, justification: string) => {
     setActionLoading(true);
     try {
-      await setHolidayOverride(holidayId, { newDate, justification });
+      const { status } = await setHolidayOverride(holidayId, { newDate, justification });
       await loadData();
       // newDate es el "YYYY-MM-DD" crudo del <input type="date"> de
       // HolidayOverrideModal, sin hora ni zona -- fmtDate lo leería como
       // medianoche UTC y nombraría el día anterior en Costa Rica.
-      setNotice(`Feriado movido al ${fmtDateOnly(newDate)}`);
+      //
+      // El aviso distingue los dos desenlaces porque confundirlos tiene un
+      // costo real: quien lee "movido" y todavía está PENDING podría no venir
+      // a trabajar un día que no tiene libre.
+      setNotice(status === 'APPROVED'
+        ? `Feriado movido al ${fmtDateOnly(newDate)}`
+        : `Pedido enviado a tu jefe: tomarlo el ${fmtDateOnly(newDate)}. Hasta que lo apruebe, el feriado sigue en su fecha original.`);
     } catch (e) {
       // Mismo patrón que applyAbsence: el 400 de mes-distinto ya lo frena el
       // DateField (min/max), así que lo que llega acá suele ser un choque de

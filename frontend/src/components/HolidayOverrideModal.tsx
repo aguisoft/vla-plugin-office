@@ -1,14 +1,19 @@
 import { useEffect, useState } from 'react';
-import { listMovableHolidays } from '../api';
+import { listMovableHolidays, listMisSolicitudesFeriado } from '../api';
 import { MIN_JUSTIFICATION } from '../statusConfig';
 import { fmtDateOnly, monthName } from '../format';
 import { Shell, DateField, Actions, missingLabel } from './modalParts';
-import type { Holiday } from '../types';
+import type { Holiday, SolicitudFeriado } from '../types';
 
 /**
- * El colaborador mueve un feriado que le corresponde a otra fecha del mismo
- * mes (p. ej. trabajar el 15 por cierre de mes y tomarlo el 25). El backend
- * exige que la fecha nueva caiga en el mismo mes que el feriado original;
+ * El colaborador PIDE tomar un feriado otro día del mismo mes (p. ej. trabajar
+ * el 15 por cierre de mes y tomarlo el 25). Es una solicitud, no un hecho: la
+ * aprueba su jefe directo, y hasta entonces el feriado sigue en su fecha
+ * original. Toda la redacción de esta pantalla sostiene esa diferencia — decir
+ * "listo" cuando todavía falta el visto bueno haría que alguien no viniera a
+ * trabajar un día que no tiene libre.
+ *
+ * El backend exige que la fecha nueva caiga en el mismo mes que el feriado;
  * `monthBounds` acota el `<input type="date">` a eso para que el 400 del
  * backend quede como red y no como la única defensa.
  */
@@ -17,6 +22,7 @@ export function HolidayOverrideModal({ onClose, onConfirm }: {
   onConfirm: (holidayId: string, newDate: string, justification: string) => void;
 }) {
   const [holidays, setHolidays] = useState<Holiday[] | null>(null);
+  const [solicitudes, setSolicitudes] = useState<SolicitudFeriado[]>([]);
   const [holidayId, setHolidayId] = useState('');
   const [newDate, setNewDate] = useState('');
   const [text, setText] = useState('');
@@ -26,6 +32,8 @@ export function HolidayOverrideModal({ onClose, onConfirm }: {
     // carga falla, el modal cae en el mismo estado vacío que "no hay
     // feriados" -- no hay nada mejor que mostrar de todas formas.
     void listMovableHolidays().then(setHolidays).catch(() => setHolidays([]));
+    // El historial es accesorio: si falla, el modal sigue sirviendo para pedir.
+    void listMisSolicitudesFeriado().then(setSolicitudes).catch(() => setSolicitudes([]));
   }, []);
 
   const chosen = holidays?.find(h => h.id === holidayId);
@@ -35,22 +43,26 @@ export function HolidayOverrideModal({ onClose, onConfirm }: {
   const ready = !!chosen && !!newDate && missing === 0;
 
   if (holidays && holidays.length === 0) {
-    // Dos causas distintas para la misma lista vacía -- ya movió todos los
-    // feriados de su país, o RRHH todavía no cargó el calendario -- y no hay
-    // forma de distinguirlas desde acá sin agregar una llamada nueva que este
-    // modal (que usa cualquier colaborador) puede no tener permiso de hacer.
+    // Tres causas distintas para la misma lista vacía -- ya pidió mover todos
+    // los feriados de su país, tiene solicitudes en curso, o RRHH todavía no
+    // cargó el calendario. El historial de abajo desambigua las dos primeras.
     return (
-      <Shell title="Feriado" onClose={onClose}>
+      <Shell title="Feriados" onClose={onClose}>
         <p className="text-xs text-gray-500">
-          No hay feriados disponibles para mover. Ya moviste todos los de tu país,
-          o RRHH todavía no cargó el calendario.
+          No hay feriados disponibles para pedir. Ya pediste mover todos los de
+          tu país, o RRHH todavía no cargó el calendario.
         </p>
+        <Historial solicitudes={solicitudes} />
       </Shell>
     );
   }
 
   return (
-    <Shell title="Mover un feriado" onClose={onClose}>
+    <Shell title="Pedir mover un feriado" onClose={onClose}>
+      <p className="mb-3 text-[10px] leading-relaxed text-gray-500">
+        Lo aprueba tu jefe directo. Hasta que responda, el feriado sigue en su
+        fecha original.
+      </p>
       <select
         value={holidayId}
         onChange={e => { setHolidayId(e.target.value); setNewDate(''); }}
@@ -87,10 +99,60 @@ export function HolidayOverrideModal({ onClose, onConfirm }: {
       <Actions
         onClose={onClose}
         disabled={!ready}
-        confirmLabel={missing > 0 ? missingLabel(missing) : 'Confirmar'}
+        confirmLabel={missing > 0 ? missingLabel(missing) : 'Enviar solicitud'}
         onConfirm={() => onConfirm(holidayId, newDate, text.trim())}
       />
+      <Historial solicitudes={solicitudes} />
     </Shell>
+  );
+}
+
+const ETIQUETA: Record<SolicitudFeriado['status'], { texto: string; clase: string }> = {
+  PENDING:  { texto: 'Esperando a tu jefe', clase: 'bg-amber-50 text-amber-700' },
+  APPROVED: { texto: 'Aprobada',            clase: 'bg-emerald-50 text-emerald-700' },
+  REJECTED: { texto: 'Rechazada',           clase: 'bg-rose-50 text-rose-700' },
+};
+
+/**
+ * Las solicitudes propias. Se muestra la nota del jefe solo cuando rechazó:
+ * quien se quedó sin mover su feriado tiene que poder leer por qué sin
+ * preguntar. Una aprobación no necesita defensa.
+ */
+function Historial({ solicitudes }: { solicitudes: SolicitudFeriado[] }) {
+  if (solicitudes.length === 0) return null;
+  return (
+    <div className="mt-4 border-t border-gray-100 pt-3">
+      <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-gray-400">
+        Tus solicitudes
+      </p>
+      <ul className="space-y-2">
+        {solicitudes.map(s => {
+          const e = ETIQUETA[s.status];
+          return (
+            <li key={s.id} className="text-[11px] text-gray-600">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="truncate">
+                  {/* El feriado pudo borrarse después de pedir el traslado: se
+                      dice, en vez de dejar un guion que no explica nada. */}
+                  {s.holidayName ?? 'Feriado que ya no existe'} → {fmtDateOnly(s.newDate)}
+                </span>
+                <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] ${e.clase}`}>
+                  {e.texto}
+                </span>
+              </div>
+              {s.status === 'REJECTED' && s.decisionNote && (
+                <p className="mt-0.5 text-[10px] text-gray-500">Motivo: {s.decisionNote}</p>
+              )}
+              {s.sinRevisor && (
+                <p className="mt-0.5 text-[10px] text-gray-400">
+                  Quedó aprobada sin revisión: no tenés jefe directo asignado.
+                </p>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }
 

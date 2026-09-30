@@ -8,9 +8,27 @@ export interface HolidayRow {
   name: string;
 }
 
+/**
+ * Mover un feriado es una SOLICITUD, no un hecho: la aprueba el jefe directo.
+ * Solo `APPROVED` corre la fecha. `PENDING` y `REJECTED` no mueven nada, y esa
+ * distinción es la que sostiene todo lo de abajo.
+ */
+export type OverrideStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
 export interface OverrideRow {
   holidayId: string;
   newDate: Date;
+  status: OverrideStatus;
+}
+
+/**
+ * Los únicos que corren una fecha. Se usa en las dos ramas de
+ * `isHolidayEffective` —conceder la fecha nueva y quitar la original— porque
+ * aplicarlo en una sola dejaría el peor estado posible: una solicitud sin
+ * aprobar que le borra el feriado real a quien la pidió.
+ */
+function aprobados(overrides: OverrideRow[]): OverrideRow[] {
+  return overrides.filter(o => o.status === 'APPROVED');
 }
 
 export interface HolidayEffectiveArgs {
@@ -40,9 +58,12 @@ export function isHolidayEffective(args: HolidayEffectiveArgs): boolean {
   const today = localDateString(now, tz);
 
   const byId = new Map(holidays.map(h => [h.id, h]));
-  const movedIds = new Set(overrides.map(o => o.holidayId));
+  // Solo un override aprobado mueve el feriado. Mientras el jefe no responde,
+  // la fecha original sigue siendo feriado: pedirlo no es tenerlo.
+  const vigentes = aprobados(overrides);
+  const movedIds = new Set(vigentes.map(o => o.holidayId));
 
-  for (const o of overrides) {
+  for (const o of vigentes) {
     if (dateOnly(o.newDate) !== today) continue;
     // Un override huérfano (feriado borrado) no concede nada.
     const h = byId.get(o.holidayId);
@@ -58,14 +79,53 @@ export function isHolidayEffective(args: HolidayEffectiveArgs): boolean {
   return false;
 }
 
-/** Feriados del país que el colaborador todavía puede mover. */
+/**
+ * Feriados del país que el colaborador todavía puede pedir mover.
+ *
+ * Se excluyen tanto los aprobados como los PENDIENTES: con una solicitud en
+ * curso no hay nada que volver a pedir, y ofrecerla otra vez invitaría a
+ * pisar la que el jefe está por mirar. Un RECHAZADO sí vuelve a la lista —
+ * ese es el camino para proponer otra fecha después de un "no".
+ */
 export function movableHolidays(
   holidays: HolidayRow[],
   overrides: OverrideRow[],
   country: string,
 ): HolidayRow[] {
-  const movedIds = new Set(overrides.map(o => o.holidayId));
-  return holidays.filter(h => h.country === country && !movedIds.has(h.id));
+  const tomados = new Set(
+    overrides.filter(o => o.status !== 'REJECTED').map(o => o.holidayId),
+  );
+  return holidays.filter(h => h.country === country && !tomados.has(h.id));
+}
+
+/**
+ * Fechas (`YYYY-MM-DD`) en que ESTA persona tiene feriado, ya corridas por sus
+ * overrides aprobados. Alimenta el denominador de días hábiles del tablero.
+ *
+ * Existe porque el denominador descontaba el feriado NACIONAL y nunca el
+ * movido, y eso castigaba justo a quien hizo lo correcto: quien corrió su
+ * feriado del martes al viernes aparecía trabajando el martes (fuera de días
+ * hábiles) y ausente el viernes, o sea un día menos. La regla del mismo mes
+ * mantiene el CONTEO correcto, pero el tablero mira el DÍA.
+ */
+export function effectiveHolidayDates(
+  holidays: HolidayRow[],
+  overrides: OverrideRow[],
+  country: string,
+): Set<string> {
+  const delPais = holidays.filter(h => h.country === country);
+  const byId = new Map(delPais.map(h => [h.id, h]));
+  // Un override de otro país (RRHH corrigió el país después de aprobarlo) no
+  // concede ni quita nada, igual que en isHolidayEffective.
+  const vigentes = aprobados(overrides).filter(o => byId.has(o.holidayId));
+  const movidos = new Set(vigentes.map(o => o.holidayId));
+
+  const fechas = new Set<string>();
+  for (const h of delPais) {
+    if (!movidos.has(h.id)) fechas.add(dateOnly(h.date));
+  }
+  for (const o of vigentes) fechas.add(dateOnly(o.newDate));
+  return fechas;
 }
 
 /**
@@ -77,6 +137,55 @@ export function movableHolidays(
  */
 export function holidayMatchesCountry(holiday: HolidayRow, country: string): boolean {
   return holiday.country === country;
+}
+
+export type DecisionReason = 'not_found' | 'not_yours' | 'not_pending';
+
+export interface SolicitudDecidible {
+  userId: string;
+  status: OverrideStatus;
+}
+
+/**
+ * ¿Puede este usuario decidir sobre esta solicitud?
+ *
+ * Mismas razones tipadas que `meeting-invites.respond`, y el endpoint las mapea
+ * a los mismos códigos (404 / 403 / 409) para que el plugin hable un solo
+ * idioma de errores.
+ *
+ * `esJefeDirecto` llega resuelto de `OrgService.isManagerOf`, que ya devuelve
+ * false cuando el que mira es el mismo que pidió. Igual se chequea acá la
+ * identidad: esta función es la que define la regla, y una regla que depende
+ * de que OTRO la haya chequeado antes es una regla que un día se rompe sola.
+ */
+export function puedeDecidir(
+  solicitud: SolicitudDecidible | null,
+  viewerId: string,
+  esJefeDirecto: boolean,
+): { ok: true } | { ok: false; reason: DecisionReason } {
+  if (!solicitud) return { ok: false, reason: 'not_found' };
+  if (solicitud.userId === viewerId) return { ok: false, reason: 'not_yours' };
+  if (!esJefeDirecto) return { ok: false, reason: 'not_yours' };
+  if (solicitud.status !== 'PENDING') return { ok: false, reason: 'not_pending' };
+  return { ok: true };
+}
+
+/**
+ * Rechazar exige nota. Aprobar no: el "sí" no necesita defensa, el "no" sí —
+ * quien se quedó sin mover su feriado tiene que poder leer por qué.
+ */
+export function validateDecision(
+  accion: 'approve' | 'reject',
+  nota: string,
+): ValidationError[] {
+  if (accion === 'approve') return [];
+  if ((nota ?? '').trim().length < MIN_JUSTIFICATION) {
+    return [{
+      field: 'decisionNote',
+      message: `Para rechazar hay que explicar por qué, con al menos ${MIN_JUSTIFICATION} caracteres`,
+    }];
+  }
+  return [];
 }
 
 export function validateOverrideInput(
@@ -126,4 +235,19 @@ export function dateOnly(d: Date): string {
 /** Año y mes (UTC) de una columna DATE, sin desplazar por zona. */
 function sameCalendarMonth(a: Date, b: Date): boolean {
   return a.toISOString().slice(0, 7) === b.toISOString().slice(0, 7);
+}
+
+/**
+ * Bordes del mes en UTC. Ensanchan el rango con que se piden los feriados,
+ * porque un override mueve la fecha DENTRO del mes y el período consultado
+ * puede partirlo (ver `HolidayService.effectiveDatesByUser`).
+ */
+export function inicioDeMes(d: Date): Date {
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), 1));
+}
+
+export function finDeMes(d: Date): Date {
+  // Día 0 del mes siguiente es el último del actual, y sirve para diciembre
+  // sin tratar el cambio de año como caso aparte.
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0, 23, 59, 59, 999));
 }

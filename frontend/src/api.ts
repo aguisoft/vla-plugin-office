@@ -1,6 +1,7 @@
 import type {
   Absence, Department, Holiday, MapZone, PendingInvite, RosterUser, UnavailableParticipant,
   TimesheetOfficeResponse, TimesheetScope, TimesheetTeamResponse, Cumplimiento,
+  SolicitudFeriado, EstadoSolicitud,
 } from './types';
 
 const BASE = '/api/v1';
@@ -122,8 +123,23 @@ export const createHoliday = (body: { date: string; name: string; country: strin
 
 export const deleteHoliday = (id: string) => api.delete<void>(`${PLUGIN}/holidays/${id}`);
 
+/**
+ * Pide mover un feriado. Devuelve el estado con que quedó: `PENDING` si tiene
+ * jefe que la revise, `APPROVED` si no lo tiene. La pantalla necesita saber
+ * cuál de los dos para no prometer una aprobación que nadie va a dar.
+ */
 export const setHolidayOverride = (holidayId: string, body: { newDate: string; justification: string }) =>
-  api.post<{ ok: true }>(`${PLUGIN}/holidays/${holidayId}/override`, body);
+  api.post<{ ok: true; status: EstadoSolicitud }>(`${PLUGIN}/holidays/${holidayId}/override`, body);
+
+export const listMisSolicitudesFeriado = () =>
+  api.get<SolicitudFeriado[]>(`${PLUGIN}/holidays/overrides/mine`);
+
+/** La bandeja del jefe: lo que su gente pidió y él no respondió. */
+export const listSolicitudesFeriadoPendientes = () =>
+  api.get<SolicitudFeriado[]>(`${PLUGIN}/holidays/overrides/pending`);
+
+export const decidirSolicitudFeriado = (id: string, accion: 'approve' | 'reject', note?: string) =>
+  api.post<{ ok: true }>(`${PLUGIN}/holidays/overrides/${id}/${accion}`, { note: note ?? '' });
 
 export const listInvites = () => api.get<PendingInvite[]>(`${PLUGIN}/meetings/invites`);
 

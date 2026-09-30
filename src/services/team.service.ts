@@ -235,11 +235,21 @@ export class TeamService {
       // los días que recorre.
       const desde = new Date(`${localDateString(currentBounds.start, this.tzOf())}T00:00:00Z`);
       const hasta = new Date(`${localDateString(currentBounds.end, this.tzOf())}T23:59:59.999Z`);
-      const porPais = await this.holidays.datesByCountry([...paises], desde, hasta);
-      const out = new Map<string, ReadonlySet<string>>();
+
+      // Por USUARIO y no por país: quien movió su feriado con el visto bueno
+      // de su jefe tiene que verlo descontado en SU fecha, no en la nacional.
+      // Con el reparto por país, esa persona figuraba trabajando el día del
+      // feriado (fuera de días hábiles) y ausente el día que sí descansó.
+      const countryOf = new Map<string, string>();
       for (const userId of userIds) {
         const pais = roster.get(userId)?.country;
-        out.set(userId, (pais && porPais.get(pais)) || new Set<string>());
+        if (pais) countryOf.set(userId, pais);
+      }
+      const porUsuario = await this.holidays.effectiveDatesByUser(countryOf, desde, hasta);
+
+      const out = new Map<string, ReadonlySet<string>>();
+      for (const userId of userIds) {
+        out.set(userId, porUsuario.get(userId) ?? new Set<string>());
       }
       return out;
     } catch (e) {

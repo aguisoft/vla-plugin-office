@@ -467,6 +467,52 @@ const plugin: PluginDefinition = {
       res.json(await holidays.movableForUser(userId, country));
     }));
 
+    // ── Solicitudes de feriado movido ─────────────────────────────────────
+    // Van ANTES de /holidays/:id/override: aunque hoy no colisionan (distinto
+    // número de segmentos), el orden literal-antes-que-paramétrico es la
+    // convención del archivo y lo que evita que la próxima ruta lo rompa.
+
+    /** Las solicitudes propias, con su estado y la respuesta del jefe. */
+    ctx.router.get('/holidays/overrides/mine', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      const userId = (req as any).user?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      res.json(await holidays.solicitudesDe(userId));
+    }));
+
+    /** La bandeja del jefe: lo que su gente pidió y él no ha respondido. */
+    ctx.router.get('/holidays/overrides/pending', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      const userId = (req as any).user?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const aCargo = await org.managedUserIds(userId);
+      res.json(await holidays.pendientesDe([...aCargo]));
+    }));
+
+    for (const accion of ['approve', 'reject'] as const) {
+      ctx.router.post(`/holidays/overrides/:id/${accion}`, ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
+        const userId = (req as any).user?.sub;
+        if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+        const { note } = req.body as { note?: string };
+
+        const result = await holidays.decidir(
+          req.params.id, userId, accion, note ?? '',
+          solicitanteId => org.isManagerOf(userId, solicitanteId),
+        );
+        if (result.ok) return res.json({ ok: true });
+
+        if ('errors' in result) {
+          return res.status(400).json({ message: 'Datos inválidos', errors: result.errors });
+        }
+        // Mismos códigos que las invitaciones a reunión, para que el plugin
+        // hable un solo idioma de errores.
+        const code = result.reason === 'not_found' ? 404
+                   : result.reason === 'not_yours' ? 403 : 409;
+        const mensaje = result.reason === 'not_found' ? 'Esa solicitud no existe'
+                      : result.reason === 'not_yours' ? 'Solo el jefe directo de quien la pidió puede responderla'
+                      : 'Esa solicitud ya fue respondida';
+        res.status(code).json({ message: mensaje });
+      }));
+    }
+
     ctx.router.post('/holidays/:id/override', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
@@ -475,11 +521,15 @@ const plugin: PluginDefinition = {
       // dato que venga del body: es la defensa en la escritura contra mover un
       // feriado que no le corresponde (ver holiday.service.ts).
       const country = await org.countryOf(userId);
+      // Sin jefe directo no hay quién apruebe; el servicio la registra ya
+      // aprobada pero sin revisor, y `status` en la respuesta le dice a la
+      // pantalla cuál de los dos casos mostrar.
+      const tieneJefe = (await org.managerOf(userId)) !== null;
       const result = await holidays.setOverride(
-        userId, req.params.id, new Date(newDate), justification ?? '', country, tz(),
+        userId, req.params.id, new Date(newDate), justification ?? '', country, tz(), tieneJefe,
       );
       if (!result.ok) return res.status(400).json({ message: 'Datos inválidos', errors: result.errors });
-      res.status(201).json({ ok: true });
+      res.status(201).json({ ok: true, status: result.status });
     }));
 
     ctx.router.delete('/holidays/:id/override', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {

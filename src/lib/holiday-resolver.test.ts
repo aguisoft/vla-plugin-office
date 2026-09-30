@@ -4,6 +4,11 @@ import {
   movableHolidays,
   validateOverrideInput,
   holidayMatchesCountry,
+  effectiveHolidayDates,
+  puedeDecidir,
+  validateDecision,
+  inicioDeMes,
+  finDeMes,
 } from './holiday-resolver';
 import { DEFAULT_TZ } from './local-date';
 
@@ -22,6 +27,13 @@ const mayDay = { id: 'h4', date: new Date('2026-05-01T00:00:00Z'), country: 'CR'
 const newYear = { id: 'h5', date: new Date('2026-01-01T00:00:00Z'), country: 'CR', name: 'Año Nuevo' };
 
 const noon = (iso: string) => new Date(iso);
+
+// Mover un feriado es una SOLICITUD: solo la aprobada corre la fecha. Los tres
+// constructores existen para que cada prueba diga en su cuerpo de qué estado
+// habla, en vez de esconderlo en un literal.
+const aprobado  = (holidayId: string, d: string) => ({ holidayId, newDate: new Date(d), status: 'APPROVED' as const });
+const pendiente = (holidayId: string, d: string) => ({ holidayId, newDate: new Date(d), status: 'PENDING'  as const });
+const rechazado = (holidayId: string, d: string) => ({ holidayId, newDate: new Date(d), status: 'REJECTED' as const });
 
 describe('isHolidayEffective', () => {
   it('aplica el feriado del país del colaborador', () => {
@@ -59,7 +71,7 @@ describe('isHolidayEffective', () => {
       now: noon('2026-09-15T18:00:00Z'),
       country: 'CR',
       holidays: [indep],
-      overrides: [{ holidayId: 'h1', newDate: new Date('2026-09-25T00:00:00Z') }],
+      overrides: [aprobado('h1', '2026-09-25T00:00:00Z')],
       tz: TZ,
     })).toBe(false);
   });
@@ -69,7 +81,7 @@ describe('isHolidayEffective', () => {
       now: noon('2026-09-25T18:00:00Z'),
       country: 'CR',
       holidays: [indep],
-      overrides: [{ holidayId: 'h1', newDate: new Date('2026-09-25T00:00:00Z') }],
+      overrides: [aprobado('h1', '2026-09-25T00:00:00Z')],
       tz: TZ,
     })).toBe(true);
   });
@@ -79,7 +91,7 @@ describe('isHolidayEffective', () => {
       now: noon('2026-12-01T18:00:00Z'),
       country: 'CR',
       holidays: [indep, abol],
-      overrides: [{ holidayId: 'h1', newDate: new Date('2026-09-25T00:00:00Z') }],
+      overrides: [aprobado('h1', '2026-09-25T00:00:00Z')],
       tz: TZ,
     })).toBe(true);
   });
@@ -101,7 +113,7 @@ describe('isHolidayEffective', () => {
       now: noon('2026-09-20T18:00:00Z'),
       country: 'CR',
       holidays: [niBattle],
-      overrides: [{ holidayId: 'h3', newDate: new Date('2026-09-20T00:00:00Z') }],
+      overrides: [aprobado('h3', '2026-09-20T00:00:00Z')],
       tz: TZ,
     })).toBe(false);
   });
@@ -111,7 +123,7 @@ describe('isHolidayEffective', () => {
       now: noon('2026-09-20T18:00:00Z'),
       country: 'CR',
       holidays: [],
-      overrides: [{ holidayId: 'borrado', newDate: new Date('2026-09-20T00:00:00Z') }],
+      overrides: [aprobado('borrado', '2026-09-20T00:00:00Z')],
       tz: TZ,
     })).toBe(false);
   });
@@ -193,5 +205,152 @@ describe('holidayMatchesCountry', () => {
 
   it('false cuando el feriado es de otro país', () => {
     expect(holidayMatchesCountry(niBattle, 'CR')).toBe(false);
+  });
+});
+
+describe('la solicitud sin aprobar no mueve nada', () => {
+  it('pendiente: la fecha nueva TODAVÍA no es feriado', () => {
+    expect(isHolidayEffective({
+      now: noon('2026-09-25T18:00:00Z'),
+      country: 'CR',
+      holidays: [indep],
+      overrides: [pendiente('h1', '2026-09-25T00:00:00Z')],
+      tz: TZ,
+    })).toBe(false);
+  });
+
+  /**
+   * El caso que justifica filtrar por estado en LAS DOS ramas. Si el filtro
+   * se aplicara solo al conceder la fecha nueva, pedir el traslado dejaría a
+   * la persona sin feriado en ningún lado: sin el 25 porque no está aprobado,
+   * y sin el 15 porque «lo movió». Pedir no es tener, pero tampoco es perder.
+   */
+  it('pendiente: la fecha ORIGINAL sigue siendo feriado', () => {
+    expect(isHolidayEffective({
+      now: noon('2026-09-15T18:00:00Z'),
+      country: 'CR',
+      holidays: [indep],
+      overrides: [pendiente('h1', '2026-09-25T00:00:00Z')],
+      tz: TZ,
+    })).toBe(true);
+  });
+
+  it('rechazado: la fecha nueva no es feriado', () => {
+    expect(isHolidayEffective({
+      now: noon('2026-09-25T18:00:00Z'),
+      country: 'CR',
+      holidays: [indep],
+      overrides: [rechazado('h1', '2026-09-25T00:00:00Z')],
+      tz: TZ,
+    })).toBe(false);
+  });
+
+  it('rechazado: la fecha original sigue siendo feriado', () => {
+    expect(isHolidayEffective({
+      now: noon('2026-09-15T18:00:00Z'),
+      country: 'CR',
+      holidays: [indep],
+      overrides: [rechazado('h1', '2026-09-25T00:00:00Z')],
+      tz: TZ,
+    })).toBe(true);
+  });
+});
+
+describe('movableHolidays con estados', () => {
+  it('con solicitud PENDIENTE, el feriado ya no se ofrece para mover', () => {
+    const r = movableHolidays([indep, abol], [pendiente('h1', '2026-09-25T00:00:00Z')], 'CR');
+    expect(r.map(h => h.id)).toEqual(['h2']);
+  });
+
+  it('con solicitud RECHAZADA, vuelve a ofrecerse: es el camino para proponer otra fecha', () => {
+    const r = movableHolidays([indep, abol], [rechazado('h1', '2026-09-25T00:00:00Z')], 'CR');
+    expect(r.map(h => h.id).sort()).toEqual(['h1', 'h2']);
+  });
+});
+
+describe('effectiveHolidayDates — el denominador sigue a la persona', () => {
+  it('sin overrides, son las fechas nacionales del país', () => {
+    expect([...effectiveHolidayDates([indep, abol, niBattle], [], 'CR')].sort())
+      .toEqual(['2026-09-15', '2026-12-01']);
+  });
+
+  it('aprobado: suelta la fecha original y toma la nueva', () => {
+    const r = effectiveHolidayDates([indep], [aprobado('h1', '2026-09-18T00:00:00Z')], 'CR');
+    expect([...r]).toEqual(['2026-09-18']);
+  });
+
+  it('pendiente: el denominador sigue descontando la fecha nacional', () => {
+    const r = effectiveHolidayDates([indep], [pendiente('h1', '2026-09-18T00:00:00Z')], 'CR');
+    expect([...r]).toEqual(['2026-09-15']);
+  });
+
+  it('el override de un feriado de OTRO país no mueve ni concede', () => {
+    const r = effectiveHolidayDates([indep, niBattle], [aprobado('h3', '2026-09-20T00:00:00Z')], 'CR');
+    expect([...r]).toEqual(['2026-09-15']);
+  });
+
+  it('nunca cuenta dos veces: un feriado movido aporta UNA fecha', () => {
+    const r = effectiveHolidayDates([indep, abol], [aprobado('h1', '2026-09-18T00:00:00Z')], 'CR');
+    expect(r.size).toBe(2);
+  });
+});
+
+describe('puedeDecidir', () => {
+  const suya = { userId: 'ana', status: 'PENDING' as const };
+
+  it('el jefe directo puede', () => {
+    expect(puedeDecidir(suya, 'jefe', true)).toEqual({ ok: true });
+  });
+
+  it('una solicitud que no existe da not_found', () => {
+    expect(puedeDecidir(null, 'jefe', true)).toEqual({ ok: false, reason: 'not_found' });
+  });
+
+  it('nadie se aprueba a sí mismo, ni aunque llegue esJefeDirecto en true', () => {
+    expect(puedeDecidir(suya, 'ana', true)).toEqual({ ok: false, reason: 'not_yours' });
+  });
+
+  it('quien no es su jefe no puede', () => {
+    expect(puedeDecidir(suya, 'otro', false)).toEqual({ ok: false, reason: 'not_yours' });
+  });
+
+  it('una ya respondida da not_pending', () => {
+    expect(puedeDecidir({ userId: 'ana', status: 'APPROVED' }, 'jefe', true))
+      .toEqual({ ok: false, reason: 'not_pending' });
+    expect(puedeDecidir({ userId: 'ana', status: 'REJECTED' }, 'jefe', true))
+      .toEqual({ ok: false, reason: 'not_pending' });
+  });
+});
+
+describe('validateDecision', () => {
+  it('aprobar no exige nota', () => {
+    expect(validateDecision('approve', '')).toEqual([]);
+  });
+
+  it('rechazar sin nota falla', () => {
+    expect(validateDecision('reject', '')).toHaveLength(1);
+  });
+
+  it('rechazar con una nota demasiado corta falla', () => {
+    expect(validateDecision('reject', 'no')).toHaveLength(1);
+  });
+
+  it('rechazar con una explicación real pasa', () => {
+    expect(validateDecision('reject', 'Ese viernes cerramos planilla')).toEqual([]);
+  });
+});
+
+describe('bordes de mes', () => {
+  it('inicioDeMes cae en el día 1', () => {
+    expect(inicioDeMes(new Date('2026-09-18T00:00:00Z')).toISOString().slice(0, 10)).toBe('2026-09-01');
+  });
+
+  it('finDeMes toma el último día real, no el 30 fijo', () => {
+    expect(finDeMes(new Date('2026-08-05T00:00:00Z')).toISOString().slice(0, 10)).toBe('2026-08-31');
+    expect(finDeMes(new Date('2026-02-05T00:00:00Z')).toISOString().slice(0, 10)).toBe('2026-02-28');
+  });
+
+  it('diciembre no se desborda al año siguiente', () => {
+    expect(finDeMes(new Date('2026-12-10T00:00:00Z')).toISOString().slice(0, 10)).toBe('2026-12-31');
   });
 });
