@@ -38,6 +38,31 @@ export interface SolicitudDetalle {
   sinRevisor: boolean;
 }
 
+/**
+ * Marcadores para un `IN (...)`.
+ *
+ * `= ANY($1)` NO sirve a través de `ctx.query`: el core la implementa sobre
+ * `$queryRawUnsafe`, que serializa un arreglo de JS como `"a,b,c"` y Postgres
+ * responde `malformed array literal: ... Array value must start with "{"`.
+ * Verificado en producción el 2026-09-30 — rompía la bandeja del jefe Y el
+ * denominador del tablero, este último en silencio, porque `TeamService`
+ * atrapa el fallo y sigue sin descontar ningún feriado.
+ *
+ * Ninguna prueba unitaria podía verlo: el doble de `ctx.query` no habla SQL.
+ */
+export function listaIn(cantidad: number, desde = 1): string {
+  return Array.from({ length: cantidad }, (_, i) => `$${desde + i}`).join(', ');
+}
+
+/**
+ * Una columna `date` no acepta el `toString()` de un `Date` de JS
+ * (`"Mon Dec 28 2026 00:00:00 GMT+0000 (...)"` → `invalid input syntax for
+ * type date`). Mismo origen que `listaIn`: el driver no tipa los parámetros.
+ */
+function fechaSql(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+
 function toOverrideRow(r: OverrideDbRow): OverrideRow {
   return { holidayId: r.holiday_id, newDate: r.new_date, status: r.status };
 }
@@ -126,8 +151,8 @@ export class HolidayService {
         `SELECT id, user_id, holiday_id, new_date, justification, status,
                 decided_by, decided_at, decision_note
            FROM office_holiday_overrides
-          WHERE status = 'APPROVED' AND user_id = ANY($1)`,
-        [userIds],
+          WHERE status = 'APPROVED' AND user_id IN (${listaIn(userIds.length)})`,
+        userIds,
       ),
     ]);
 
@@ -199,9 +224,9 @@ export class HolidayService {
               h.name AS holiday_name, h.date AS holiday_date
          FROM office_holiday_overrides o
          LEFT JOIN virtual_office."Holiday" h ON h.id = o.holiday_id
-        WHERE o.status = 'PENDING' AND o.user_id = ANY($1)
+        WHERE o.status = 'PENDING' AND o.user_id IN (${listaIn(subordinadoIds.length)})
         ORDER BY o.created_at ASC`,
-      [subordinadoIds],
+      subordinadoIds,
     );
     return rows.map(toDetalle);
   }
@@ -250,7 +275,8 @@ export class HolidayService {
          decided_by    = NULL,
          decision_note = NULL,
          created_at    = now()`,
-      [userId, holidayId, newDate, justification.trim(), status, decidedAt],
+      [userId, holidayId, fechaSql(newDate), justification.trim(), status,
+       decidedAt ? decidedAt.toISOString() : null],
     );
     return { ok: true, status: status as OverrideStatus };
   }
