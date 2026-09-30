@@ -137,9 +137,15 @@ const plugin: PluginDefinition = {
      * [1, 24]; fuera de ese rango vale el respaldo.
      *
      * No hay quién valide el rango antes: `validateConfig` del core solo mira el
-     * TIPO, y solo si el plugin declara un esquema de `settings` — el bloque que
-     * traía `min`/`max` se quitó porque tapaba la configuración de Bitrix en el
-     * panel admin, así que hoy cualquier número entra sin revisar.
+     * TIPO, y solo si el plugin declara un esquema de `settings`. Desde 1.10.0
+     * ese esquema EXISTE (`plugin.json` → `settings.sections` → «Jornada»,
+     * con `min: 1` y `max: 24`), así que el panel ya no deja escribir un
+     * número fuera de rango.
+     *
+     * Esta validación se queda igual y no es redundante: el esquema cubre lo
+     * que se escribe DESDE EL PANEL, y no lo que ya está guardado de antes ni
+     * lo que entre por `PATCH /plugins/office/config` directo. Es la defensa
+     * en la lectura, que es la única que corre siempre.
      *
      * Y un valor absurdo no se nota: con `MAX_OPEN_SESSION_HOURS: -5`,
      * `capOpenSession` devuelve un fin anterior al inicio, `clipSpan` descarta

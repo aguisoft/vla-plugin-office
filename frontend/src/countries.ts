@@ -14,6 +14,12 @@
  * Unidos está acá y no allá. No es un olvido — el +1 cubre EE.UU., Canadá y
  * buena parte del Caribe, así que no se puede inferir el país desde el
  * teléfono. Elegirlo a mano sí es un dato; adivinarlo desde un +1 no.
+ *
+ * ESTA LISTA ESTÁ ESPEJADA en `plugin.json`, en el desplegable de
+ * `DEFAULT_COUNTRY`: el manifiesto es JSON y no puede importar de acá. Si
+ * agregás un país, agregalo también allá — `plugin.json` es el contrato que
+ * dibuja el formulario del panel admin. La prueba
+ * `settings-manifest.test.ts` falla si las dos listas se separan.
  */
 
 export interface Country {

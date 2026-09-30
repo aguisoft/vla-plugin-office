@@ -1,6 +1,6 @@
 {
   "name": "office",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "description": "Presencia en tiempo real de trabajadores en la oficina virtual. Integración con Bitrix24.",
   "author": "VLA Team",
   "vlaMinVersion": "1.1.0",
@@ -40,6 +40,179 @@
       "office.user.status_changed",
       "office.user.moved",
       "office.absence.created"
+    ]
+  },
+  "settings": {
+    "sections": [
+      {
+        "title": "Zona horaria y país",
+        "description": "La zona horaria decide qué es \"hoy\" para TODO el plugin: los días hábiles, el corte de las sesiones abiertas y los períodos del tablero. Cambiarla recalcula la historia entera.",
+        "fields": [
+          {
+            "key": "TIMEZONE",
+            "type": "select",
+            "label": "Zona horaria de la operación",
+            "description": "Una sola para toda la oficina, no una por persona. El servidor corre en UTC; esta es la zona con la que se traduce.",
+            "default": "America/Costa_Rica",
+            "options": [
+              {
+                "value": "America/Costa_Rica",
+                "label": "Costa Rica (UTC−6)"
+              },
+              {
+                "value": "America/Managua",
+                "label": "Nicaragua (UTC−6)"
+              },
+              {
+                "value": "America/Guatemala",
+                "label": "Guatemala (UTC−6)"
+              },
+              {
+                "value": "America/Mexico_City",
+                "label": "Ciudad de México (UTC−6)"
+              },
+              {
+                "value": "America/Panama",
+                "label": "Panamá (UTC−5)"
+              },
+              {
+                "value": "America/Bogota",
+                "label": "Colombia (UTC−5)"
+              },
+              {
+                "value": "America/Lima",
+                "label": "Perú (UTC−5)"
+              },
+              {
+                "value": "America/Santiago",
+                "label": "Chile (UTC−4/−3)"
+              },
+              {
+                "value": "America/Argentina/Buenos_Aires",
+                "label": "Argentina (UTC−3)"
+              },
+              {
+                "value": "America/New_York",
+                "label": "Nueva York (UTC−5/−4)"
+              },
+              {
+                "value": "Europe/Madrid",
+                "label": "España (UTC+1/+2)"
+              }
+            ]
+          },
+          {
+            "key": "DEFAULT_COUNTRY",
+            "type": "select",
+            "label": "País por defecto",
+            "description": "Solo aplica a quien NO tenga país asignado. De él dependen los feriados que se le descuentan, así que conviene que nadie caiga acá: revisá \"Sin país\" en el reporte de cumplimiento.",
+            "default": "CR",
+            "options": [
+              {
+                "value": "CR",
+                "label": "🇨🇷 Costa Rica"
+              },
+              {
+                "value": "NI",
+                "label": "🇳🇮 Nicaragua"
+              },
+              {
+                "value": "PA",
+                "label": "🇵🇦 Panamá"
+              },
+              {
+                "value": "GT",
+                "label": "🇬🇹 Guatemala"
+              },
+              {
+                "value": "SV",
+                "label": "🇸🇻 El Salvador"
+              },
+              {
+                "value": "HN",
+                "label": "🇭🇳 Honduras"
+              },
+              {
+                "value": "BZ",
+                "label": "🇧🇿 Belice"
+              },
+              {
+                "value": "MX",
+                "label": "🇲🇽 México"
+              },
+              {
+                "value": "US",
+                "label": "🇺🇸 Estados Unidos"
+              },
+              {
+                "value": "CO",
+                "label": "🇨🇴 Colombia"
+              },
+              {
+                "value": "VE",
+                "label": "🇻🇪 Venezuela"
+              },
+              {
+                "value": "EC",
+                "label": "🇪🇨 Ecuador"
+              },
+              {
+                "value": "PE",
+                "label": "🇵🇪 Perú"
+              },
+              {
+                "value": "CL",
+                "label": "🇨🇱 Chile"
+              },
+              {
+                "value": "AR",
+                "label": "🇦🇷 Argentina"
+              },
+              {
+                "value": "ES",
+                "label": "🇪🇸 España"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "title": "Jornada",
+        "description": "Estos dos números entran en cálculos que nadie revisa a mano. Sin este esquema el core no validaba el rango, y un valor absurdo no fallaba: rompía la cuenta en silencio.",
+        "fields": [
+          {
+            "key": "WORKDAY_HOURS",
+            "type": "number",
+            "label": "Horas de la jornada",
+            "description": "La norma contra la que se compara el tiempo de cada quien en el tablero de equipo.",
+            "default": 8,
+            "min": 1,
+            "max": 24
+          },
+          {
+            "key": "MAX_OPEN_SESSION_HOURS",
+            "type": "number",
+            "label": "Tope de una sesión sin salida",
+            "description": "Quien marca entrada y nunca salida no puede sumar días enteros. Pasado este tope la sesión se acota y la pantalla lo avisa.",
+            "default": 12,
+            "min": 1,
+            "max": 24
+          }
+        ]
+      },
+      {
+        "title": "Bitrix24",
+        "description": "La conexión con Bitrix la provee el core (`ctx.bitrix`); acá solo va el secreto del webhook ENTRANTE, el que Bitrix usa para avisarle al plugin de una entrada o salida.",
+        "fields": [
+          {
+            "key": "bitrixWebhookSecret",
+            "type": "secret",
+            "label": "Secreto del webhook entrante",
+            "description": "Si está vacío, POST /bitrix/webhook acepta cualquier llamada. Con valor, exige la cabecera x-webhook-secret.",
+            "required": false
+          }
+        ]
+      }
     ]
   }
 }
