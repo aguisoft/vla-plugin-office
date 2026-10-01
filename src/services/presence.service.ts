@@ -291,6 +291,14 @@ export class PresenceService {
     this.broadcast({ type: 'absence:window', userIds });
   }
 
+  /**
+   * Hay una versión nueva de la app de escritorio: cada widget conectado la
+   * busca, verifica la firma y se actualiza. La web lo ignora.
+   */
+  anunciarActualizacionEscritorio(version: string): void {
+    this.broadcast({ type: 'app:update', version });
+  }
+
   /** Quiénes tienen ahora al menos una pantalla abierta (oficina o widget). */
   conectados(): string[] {
     const ids = new Set<string>();

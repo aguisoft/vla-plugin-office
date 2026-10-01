@@ -14,6 +14,7 @@ import { TeamService } from './services/team.service';
 import { ComplianceService } from './services/compliance.service';
 import { BitrixUserService } from './services/bitrix-user.service';
 import { MensajeriaService, SinBitrixError } from './services/mensajeria.service';
+import { EscritorioService } from './services/escritorio.service';
 import { dialogoValido, textoMensaje } from './lib/im-aviso';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { DEFAULT_TZ, localDateString } from './lib/local-date';
@@ -137,6 +138,10 @@ const plugin: PluginDefinition = {
     // Mensajería de Bitrix como cada persona (widget de escritorio).
     const bitrixUser = new BitrixUserService(ctx);
     const mensajeria = new MensajeriaService(ctx, bitrixUser, presence);
+    // Actualizaciones de la app de escritorio (OTA). Office solo sirve lo
+    // publicado; la firma la verifica cada app.
+    const escritorio = new EscritorioService(ctx);
+    escritorio.vigilar(version => presence.anunciarActualizacionEscritorio(version));
 
     // ── Helper: configuración en horas ────────────────────────────────────────
     /**
@@ -1265,6 +1270,27 @@ const plugin: PluginDefinition = {
       await rutaIm(userId => mensajeria.marcarLeido(userId, dialogId))(req, res);
     }));
 
+    // ── App de escritorio: versión publicada y descarga ───────────────────────
+    ctx.router.get('/escritorio/version', ...conVista, asyncRoute(async (_req, res) => {
+      const p = escritorio.leer();
+      if (!p || !escritorio.rutaInstalador(p)) {
+        res.status(404).json({ message: 'No hay una versión publicada de la app de escritorio' });
+        return;
+      }
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({ manifiesto: p.manifiesto, firma: p.firma });
+    }));
+
+    ctx.router.get('/escritorio/descarga', ...conVista, asyncRoute(async (_req, res) => {
+      const p = escritorio.leer();
+      const ruta = p ? escritorio.rutaInstalador(p) : null;
+      if (!p || !ruta) {
+        res.status(404).json({ message: 'No hay una versión publicada de la app de escritorio' });
+        return;
+      }
+      await new Promise<void>((resolve, reject) => res.download(ruta, p.meta.archivo, e => (e && !res.headersSent ? reject(e) : resolve())));
+    }));
+
     // ── Hooks ─────────────────────────────────────────────────────────────────
 
     ctx.hooks.registerAction('core.bitrix.user_authorized', async (payload: any) => {
@@ -1487,6 +1513,12 @@ const plugin: PluginDefinition = {
     // ── Cron: sincronizar timeman de Bitrix cada 2 minutos ────────────────────
     ctx.cron('*/2 * * * *', async () => {
       await runTimemanSync();
+    });
+
+    // ── Cron: publicación nueva de la app de escritorio ───────────────────────
+    // Respaldo de fs.watch, que en algunos volúmenes se pierde.
+    ctx.cron('* * * * *', async () => {
+      escritorio.revisar(version => presence.anunciarActualizacionEscritorio(version));
     });
 
     // ── Cron: mensajes nuevos de Bitrix (respaldo del aviso inmediato) ────────

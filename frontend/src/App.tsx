@@ -134,6 +134,8 @@ export default function App() {
       // Un mensaje de Bitrix no cambia a nadie en el mapa: avisar y nada más.
       try {
         const msg = JSON.parse(event.data) as { type?: string; de?: string; preview?: string; nuevos?: number };
+        // Es para la app de escritorio: la web no tiene nada que hacer.
+        if (msg.type === 'app:update') return;
         if (msg.type === 'im:new') {
           setNotice(msg.de
             ? `${msg.de} te escribió: ${msg.preview ?? ''}`
