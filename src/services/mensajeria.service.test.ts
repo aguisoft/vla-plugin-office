@@ -57,6 +57,18 @@ describe('MensajeriaService: el proxy habla como quien pregunta', () => {
     expect(JSON.stringify(callAsUser.mock.calls)).not.toContain('TOKEN-ANA');
   });
 
+  it('recientes pide diálogos y chats por separado y saca los chats de tareas', async () => {
+    const { svc, callAsUser } = armar();
+    callAsUser.mockImplementation(async (_t: string, _m: string, p: any) =>
+      p?.SKIP_CHAT ? [{ id: '1001', type: 'user' }] : [{ id: 'chat1', type: 'chat', chat: { type: 'general' } }, { id: 'chat9', type: 'chat', chat: { type: 'tasksTask' } }]);
+    const r = await svc.recientes('ana');
+    expect(r.map((i: any) => i.id)).toEqual(['1001', 'chat1']);
+    expect(callAsUser.mock.calls.map(c => c[2])).toEqual([
+      { SKIP_OPENLINES: 'Y', SKIP_CHAT: 'Y' },
+      { SKIP_OPENLINES: 'Y', SKIP_DIALOG: 'Y' },
+    ]);
+  });
+
   it('sin Bitrix conectado lanza SinBitrixError, nunca devuelve una lista vacía', async () => {
     const { svc, callAsUser } = armar({ tokens: { ana: null } });
     await expect(svc.recientes('ana')).rejects.toBeInstanceOf(SinBitrixError);

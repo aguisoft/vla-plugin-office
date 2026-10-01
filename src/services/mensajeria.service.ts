@@ -3,6 +3,7 @@ import type { BitrixUserService } from './bitrix-user.service';
 import {
   decidirAviso, registrarAvisoInmediato, saltosTrasFallos, totalSinLeer, vistaPrevia,
 } from '../lib/im-aviso';
+import { unirRecientes } from '../lib/im-recientes';
 
 /** La persona no conectó su Bitrix (o lo revocó). Las rutas lo traducen a 409. */
 export class SinBitrixError extends Error {
@@ -49,8 +50,14 @@ export class MensajeriaService {
     return this.ctx.bitrix.callAsUser<T>(token, method, params);
   }
 
-  recientes(userId: string) {
-    return this.llamar(userId, 'im.recent.get', { SKIP_OPENLINES: 'Y' });
+  /**
+   * Diálogos y chats por separado (de a uno, nunca en paralelo: el portal tiene
+   * ~2 llamadas/s) y sin chats de tareas, que llenaban la lista. Ver im-recientes.ts.
+   */
+  async recientes(userId: string) {
+    const dialogos = await this.llamar(userId, 'im.recent.get', { SKIP_OPENLINES: 'Y', SKIP_CHAT: 'Y' });
+    const chats = await this.llamar(userId, 'im.recent.get', { SKIP_OPENLINES: 'Y', SKIP_DIALOG: 'Y' });
+    return unirRecientes(dialogos, chats);
   }
 
   contadores(userId: string) {
