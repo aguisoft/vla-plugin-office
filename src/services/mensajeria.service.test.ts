@@ -15,7 +15,7 @@ function armar(opts: {
 } = {}) {
   const tokensPorUsuario = opts.tokens ?? { ana: 'TOKEN-ANA', beto: 'TOKEN-BETO' };
   const callAsUser = vi.fn(async (token: string, method: string, _params?: any) => {
-    if (method === 'im.counters.get') return opts.contadores ? opts.contadores(token) : { TYPE: { ALL: 0 } };
+    if (method === 'im.counters.get') return opts.contadores ? opts.contadores(token) : { TYPE: { DIALOG: 0 } };
     if (method === 'im.message.add') return 555;
     return [];
   });
@@ -102,7 +102,7 @@ describe('MensajeriaService: aviso inmediato', () => {
 describe('MensajeriaService: consulta de respaldo', () => {
   it('primera consulta en silencio; si sube el contador, avisa', async () => {
     let total = 3;
-    const { svc, avisos } = armar({ conectados: ['beto'], contadores: async () => ({ TYPE: { ALL: total } }) });
+    const { svc, avisos } = armar({ conectados: ['beto'], contadores: async () => ({ TYPE: { DIALOG: total } }) });
 
     await svc.consultarRespaldo();
     expect(avisos).toEqual([]);
@@ -114,7 +114,7 @@ describe('MensajeriaService: consulta de respaldo', () => {
 
   it('un mensaje ya avisado por el proxy no se vuelve a avisar en la consulta', async () => {
     let total = 0;
-    const { svc, avisos } = armar({ conectados: ['beto'], contadores: async () => ({ TYPE: { ALL: total } }) });
+    const { svc, avisos } = armar({ conectados: ['beto'], contadores: async () => ({ TYPE: { DIALOG: total } }) });
     await svc.consultarRespaldo(); // base 0
 
     await svc.enviar('ana', '1001', 'hola'); // aviso inmediato a Beto
@@ -134,7 +134,7 @@ describe('MensajeriaService: consulta de respaldo', () => {
     let falla = true;
     const { svc, callAsUser } = armar({
       conectados: ['ana'],
-      contadores: async () => { if (falla) throw new Error('fetch failed'); return { TYPE: { ALL: 0 } }; },
+      contadores: async () => { if (falla) throw new Error('fetch failed'); return { TYPE: { DIALOG: 0 } }; },
     });
     await svc.consultarRespaldo(); // falla 1 → saltea 1
     await svc.consultarRespaldo(); // salteada
@@ -155,7 +155,7 @@ describe('MensajeriaService: consulta de respaldo', () => {
   it('las personas se consultan de a una, nunca en paralelo', async () => {
     let enVuelo = 0; let maximo = 0;
     const { svc } = armar({
-      contadores: async () => { enVuelo++; maximo = Math.max(maximo, enVuelo); await new Promise(r => setTimeout(r, 5)); enVuelo--; return { TYPE: { ALL: 0 } }; },
+      contadores: async () => { enVuelo++; maximo = Math.max(maximo, enVuelo); await new Promise(r => setTimeout(r, 5)); enVuelo--; return { TYPE: { DIALOG: 0 } }; },
     });
     await svc.consultarRespaldo();
     expect(maximo).toBe(1);

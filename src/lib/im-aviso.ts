@@ -47,15 +47,18 @@ export function saltosTrasFallos(fallos: number): number {
 }
 
 /**
- * Total de no leídos a partir de la respuesta de `im.counters.get`.
- * Bitrix devuelve `TYPE.ALL`; si faltara, se suman los tipos. `null` si la
- * respuesta no tiene la forma esperada: mejor no decidir que inventar un 0.
+ * No leídos de CONVERSACIONES a partir de `im.counters.get`: directos, chats y
+ * canales abiertos.
+ *
+ * No se usa `TYPE.ALL`: en producción (1-oct-2026) valía 1165, de los cuales
+ * 979 eran tareas (`TASKS_TASK`) y 52 notificaciones. Con ALL, cada tarea que
+ * se mueve dispararía «mensajes nuevos». `null` si la respuesta no trae
+ * ninguno de los tres: mejor no decidir que inventar un 0.
  */
 export function totalSinLeer(respuesta: unknown): number | null {
   const tipo = (respuesta as any)?.TYPE;
   if (!tipo || typeof tipo !== 'object') return null;
-  if (typeof tipo.ALL === 'number') return tipo.ALL;
-  const partes = ['DIALOG', 'CHAT', 'NOTIFY', 'LINES'].map(k => tipo[k]).filter(v => typeof v === 'number');
+  const partes = ['DIALOG', 'CHAT', 'LINES'].map(k => tipo[k]).filter(v => typeof v === 'number');
   return partes.length ? partes.reduce((a: number, b: number) => a + b, 0) : null;
 }
 

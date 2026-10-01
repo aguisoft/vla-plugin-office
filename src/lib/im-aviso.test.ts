@@ -50,15 +50,24 @@ describe('saltosTrasFallos', () => {
 });
 
 describe('totalSinLeer', () => {
-  it('usa TYPE.ALL', () => {
-    expect(totalSinLeer({ TYPE: { ALL: 5, DIALOG: 3, CHAT: 2 } })).toBe(5);
+  /** La forma real de producción, 1-oct-2026. */
+  const REAL = { TYPE: { ALL: 1165, NOTIFY: 52, CHAT: 103, LINES: 0, DIALOG: 5, COPILOT: 0, COLLAB: 0, MESSENGER: 1113, TASKS_TASK: 979, VIBECODE_APP: 0 } };
+
+  it('suma solo conversaciones: directos, chats y canales abiertos', () => {
+    expect(totalSinLeer(REAL)).toBe(108);
   });
 
-  it('si no viene ALL, suma los tipos', () => {
-    expect(totalSinLeer({ TYPE: { DIALOG: 3, CHAT: 2, NOTIFY: 1 } })).toBe(6);
+  it('una tarea que se mueve no cuenta como mensaje', () => {
+    const conTareaNueva = { TYPE: { ...REAL.TYPE, ALL: 1166, TASKS_TASK: 980 } };
+    expect(totalSinLeer(conTareaNueva)).toBe(totalSinLeer(REAL));
   });
 
-  it.each([[null], [{}], [{ TYPE: {} }], ['x']])('una forma inesperada da null, no 0: %p', (r) => {
+  it('una notificación tampoco', () => {
+    const conAviso = { TYPE: { ...REAL.TYPE, ALL: 1166, NOTIFY: 53 } };
+    expect(totalSinLeer(conAviso)).toBe(108);
+  });
+
+  it.each([[null], [{}], [{ TYPE: {} }], [{ TYPE: { ALL: 5 } }], ['x']])('sin conversaciones en la respuesta da null, no 0: %p', (r) => {
     expect(totalSinLeer(r)).toBeNull();
   });
 });
