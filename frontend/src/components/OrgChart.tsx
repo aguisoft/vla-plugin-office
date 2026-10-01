@@ -5,6 +5,7 @@ import {
   type NodoOrg, type PersonaChart,
 } from '../lib/org-tree';
 import { STATUS_CFG, type ResolvedStatus } from '../statusConfig';
+import { OrgHealthModal } from './OrgHealthModal';
 
 /**
  * El organigrama. Lo ve cualquier colaborador.
@@ -31,7 +32,7 @@ import { STATUS_CFG, type ResolvedStatus } from '../statusConfig';
 /** Grises verificados contra el fondo #fafaf9: ninguno baja de 4.5:1. */
 const TINTA = { fuerte: '#111827', medio: '#4b5563', suave: '#6b7280' } as const;
 
-export function OrgChart({ onClose }: { onClose: () => void }) {
+export function OrgChart({ onClose, miUserId = null }: { onClose: () => void; miUserId?: string | null }) {
   const [personas, setPersonas] = useState<PersonaChart[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filtro, setFiltro] = useState('');
@@ -39,6 +40,17 @@ export function OrgChart({ onClose }: { onClose: () => void }) {
   const [cerrados, setCerrados] = useState<Set<string>>(new Set());
   const [elegido, setElegido] = useState<string | null>(null);
   const [ahora, setAhora] = useState(() => new Date());
+  const [verSalud, setVerSalud] = useState(false);
+  const [menuExport, setMenuExport] = useState(false);
+  const [aviso, setAviso] = useState<string | null>(null);
+
+  // El aviso se borra solo. Uno que se queda obliga a cerrarlo a mano y
+  // termina siendo ruido que nadie lee.
+  useEffect(() => {
+    if (!aviso) return;
+    const t = setTimeout(() => setAviso(null), 3200);
+    return () => clearTimeout(t);
+  }, [aviso]);
 
   useEffect(() => {
     getOrgChart()
@@ -141,9 +153,25 @@ export function OrgChart({ onClose }: { onClose: () => void }) {
     a.download = `organigrama-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
+    setMenuExport(false);
+    setAviso(`Organigrama exportado: ${filas.length - 1} personas en CSV`);
   };
 
-  const comun = { coincide, cerrados, alternar, elegido, setElegido, enCadena, ahora };
+  /**
+   * PDF por la vía de imprimir del navegador, y no con una librería.
+   *
+   * La maqueta ofrecía «PDF vectorial» y «PNG @2x», pero su función de
+   * exportar solo mostraba un aviso: no generaba nada. Ofrecer un botón que
+   * promete un PDF y no lo entrega es peor que no ofrecerlo. Imprimir sí
+   * produce un PDF real, sin sumar dependencias ni peso al paquete.
+   */
+  const imprimir = () => {
+    setMenuExport(false);
+    setCerrados(new Set()); // nadie quiere un PDF con la mitad del árbol plegada
+    setTimeout(() => window.print(), 120);
+  };
+
+  const comun = { coincide, cerrados, alternar, elegido, setElegido, enCadena, ahora, miUserId };
 
   return (
     <div className="flex h-full flex-col" style={{ background: '#fafaf9' }}>
@@ -167,22 +195,53 @@ export function OrgChart({ onClose }: { onClose: () => void }) {
             style={{ borderColor: '#e3e3e0', color: TINTA.medio }}>
             {cerrados.size > 0 ? 'Desplegar todo' : 'Plegar todo'}
           </button>
-          <button type="button" onClick={exportar} disabled={!personas}
-            className="rounded-lg border bg-white px-2.5 py-1 text-[11px] hover:bg-black/[0.03] disabled:opacity-40"
-            style={{ borderColor: '#e3e3e0', color: TINTA.medio }}>
-            Exportar
-          </button>
+          <div className="relative">
+            <button type="button" onClick={() => setMenuExport(v => !v)} disabled={!personas}
+              aria-expanded={menuExport}
+              className="rounded-lg border bg-white px-2.5 py-1 text-[11px] hover:bg-black/[0.03] disabled:opacity-40"
+              style={{ borderColor: '#e3e3e0', color: TINTA.medio }}>
+              Exportar ▾
+            </button>
+            {menuExport && (
+              <>
+                {/* Capa para cerrar al tocar fuera, sin escuchar clicks en todo
+                    el documento ni tener que limpiarlos después. */}
+                <button type="button" aria-label="Cerrar menú" className="fixed inset-0 z-10 cursor-default"
+                  onClick={() => setMenuExport(false)} />
+                <div className="absolute right-0 z-20 mt-1 w-56 rounded-lg border bg-white p-1 shadow-lg"
+                  style={{ borderColor: '#e3e3e0' }}>
+                  <button type="button" onClick={exportar}
+                    className="block w-full rounded px-2 py-1.5 text-left text-[11px] hover:bg-black/[0.04]"
+                    style={{ color: TINTA.fuerte }}>
+                    Datos en CSV
+                    <span className="block text-[10px]" style={{ color: TINTA.suave }}>
+                      Nombre, área, jefe, a cargo, estado y país
+                    </span>
+                  </button>
+                  <button type="button" onClick={imprimir}
+                    className="block w-full rounded px-2 py-1.5 text-left text-[11px] hover:bg-black/[0.04]"
+                    style={{ color: TINTA.fuerte }}>
+                    Imprimir o guardar como PDF
+                    <span className="block text-[10px]" style={{ color: TINTA.suave }}>
+                      Despliega todo el árbol antes de imprimir
+                    </span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
           {personas && (
             /* El estado de los datos, a la vista y no escondido en la barra
                lateral: si algo hay que corregir, que se vea sin buscarlo. */
-            <span className="rounded-lg border px-2.5 py-1 text-[11px]"
+            <button type="button" onClick={() => setVerSalud(true)}
+              className="rounded-lg border px-2.5 py-1 text-[11px] hover:brightness-95"
               style={{
                 borderColor: salud.sana ? '#d7e8dc' : '#f0d9b5',
                 background: salud.sana ? '#f2f9f4' : '#fdf6e9',
                 color: salud.sana ? '#166534' : '#92400e',
               }}>
               Salud: {salud.sana ? 'óptima' : 'revisar'}
-            </span>
+            </button>
           )}
         </div>
       </header>
@@ -315,6 +374,18 @@ export function OrgChart({ onClose }: { onClose: () => void }) {
           </div>
         )}
       </div>
+
+      {aviso && (
+        <div role="status" aria-live="polite"
+          className="fixed bottom-5 left-1/2 z-50 -translate-x-1/2 rounded-xl px-3.5 py-2 text-[11px] shadow-lg"
+          style={{ background: '#111827', color: '#fff' }}>
+          {aviso}
+        </div>
+      )}
+
+      {verSalud && personas && (
+        <OrgHealthModal salud={salud} total={personas.length} onClose={() => setVerSalud(false)} />
+      )}
     </div>
   );
 }
@@ -329,6 +400,7 @@ function Seccion({ titulo, children }: { titulo: string; children: React.ReactNo
 }
 
 interface Comun {
+  miUserId: string | null;
   coincide: ((p: PersonaChart) => boolean) | null;
   cerrados: Set<string>;
   alternar: (userId: string) => void;
@@ -420,6 +492,15 @@ function Rama({ nodo, nivel, esRaiz = false, ...c }: { nodo: NodoOrg; nivel: num
 
             {persona.departamento && (
               <span className="text-[11px]" style={{ color: TINTA.suave }}>{persona.departamento}</span>
+            )}
+
+            {c.miUserId === persona.userId && (
+              /* Encontrarse en un organigrama de 23 personas cuesta más de lo
+                 que parece, y es lo primero que mira cualquiera al abrirlo. */
+              <span className="rounded px-1.5 text-[9px] uppercase tracking-wider"
+                style={{ background: '#111827', color: '#fff' }}>
+                vos
+              </span>
             )}
 
             {esRaiz && (

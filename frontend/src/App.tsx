@@ -598,7 +598,7 @@ export default function App() {
         {view === 'tiempos' ? (
           <TimesheetScreen onClose={() => irA('oficina')} canManageOffice={canManageHolidays} />
         ) : view === 'organigrama' ? (
-          <OrgChart onClose={() => irA('oficina')} />
+          <OrgChart onClose={() => irA('oficina')} miUserId={currentUser?.id ?? null} />
         ) : (
         <div className="h-full flex flex-col">
           <div className="flex-1 flex overflow-hidden">
