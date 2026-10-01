@@ -113,8 +113,61 @@ export class MensajeriaService {
    * Manda el mensaje y, si el destinatario es del equipo, le avisa en el acto.
    * El aviso no forma parte de la respuesta: si falla, el mensaje igual salió.
    */
-  async enviar(userId: string, dialogId: string, texto: string): Promise<{ id: number }> {
-    const id = await this.llamar<number>(userId, 'im.message.add', { DIALOG_ID: dialogId, MESSAGE: texto });
+  /**
+   * El hilo con reacciones, archivos y respuestas: `im.v2.Chat.Message.list`
+   * trae todo junto (la API clásica no trae las reacciones que no son 👍).
+   */
+  hilo(userId: string, dialogId: string) {
+    return this.llamar(userId, 'im.v2.Chat.Message.list', { dialogId, limit: 50 });
+  }
+
+  borrar(userId: string, mensajeId: number) {
+    return this.llamar(userId, 'im.message.delete', { ID: mensajeId });
+  }
+
+  reaccionar(userId: string, mensajeId: number, reaccion: string, quitar: boolean) {
+    return this.llamar(userId, quitar ? 'im.v2.Chat.Message.Reaction.delete' : 'im.v2.Chat.Message.Reaction.add', { messageId: mensajeId, reaction: reaccion });
+  }
+
+  /**
+   * Sube un archivo al chat: carpeta del chat en el Disco de Bitrix, subida en
+   * base64 y publicación en el chat. Avisa al destinatario como un mensaje más.
+   */
+  async enviarArchivo(userId: string, dialogId: string, nombre: string, base64: string, texto?: string): Promise<{ id: number }> {
+    const dialogo = await this.llamar<any>(userId, 'im.dialog.get', { DIALOG_ID: dialogId });
+    const chatId = Number(dialogo?.id);
+    if (!chatId) throw new Error('[im.dialog.get] sin id de chat');
+    const carpeta = await this.llamar<any>(userId, 'im.disk.folder.get', { CHAT_ID: chatId });
+    const subido = await this.llamar<any>(userId, 'disk.folder.uploadfile', {
+      id: carpeta?.ID, data: { NAME: nombre }, fileContent: [nombre, base64], generateUniqueName: true,
+    });
+    const r = await this.llamar<any>(userId, 'im.disk.file.commit', { CHAT_ID: chatId, FILE_ID: subido?.ID, ...(texto ? { MESSAGE: texto } : {}) });
+    try {
+      await this.avisarInmediato(userId, dialogId, texto ? `📎 ${texto}` : `📎 ${nombre}`);
+    } catch (e) {
+      this.ctx.logger.warn(`Aviso inmediato de archivo falló: ${e}`);
+    }
+    return { id: Number(r?.MESSAGE_ID) || 0 };
+  }
+
+  /**
+   * Un archivo de Bitrix para mostrarlo o bajarlo. Las URLs que trae el chat
+   * piden la sesión de Bitrix del navegador; `disk.file.get` da una URL de
+   * descarga firmada para el token de quien pregunta (Bitrix controla el acceso).
+   */
+  async archivo(userId: string, fileId: number): Promise<{ nombre: string; respuesta: Response }> {
+    const f = await this.llamar<any>(userId, 'disk.file.get', { id: fileId });
+    if (!f?.DOWNLOAD_URL) throw new Error('[disk.file.get] sin URL de descarga');
+    const respuesta = await fetch(f.DOWNLOAD_URL);
+    if (!respuesta.ok || !respuesta.body) throw new Error(`[disk.file.get] descarga ${respuesta.status}`);
+    return { nombre: String(f.NAME ?? 'archivo'), respuesta };
+  }
+
+  async enviar(userId: string, dialogId: string, texto: string, replyId?: number): Promise<{ id: number }> {
+    // Responder enlazado solo existe en la API v2 (el REPLY_ID de im.message.add se ignora).
+    const id = replyId
+      ? Number((await this.llamar<any>(userId, 'im.v2.Chat.Message.send', { dialogId, fields: { message: texto, replyId } }))?.id) || 0
+      : await this.llamar<number>(userId, 'im.message.add', { DIALOG_ID: dialogId, MESSAGE: texto });
     try {
       await this.avisarInmediato(userId, dialogId, texto);
     } catch (e) {

@@ -17,6 +17,7 @@ import { MensajeriaService, SinBitrixError } from './services/mensajeria.service
 import { EscritorioService } from './services/escritorio.service';
 import { dialogoValido, textoMensaje } from './lib/im-aviso';
 import { armarContactos } from './lib/im-contactos';
+import { reaccionValida, idMensajeValido, bytesDeBase64, nombreArchivoSeguro, MAX_ARCHIVO_BYTES } from './lib/im-chat';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { DEFAULT_TZ, localDateString } from './lib/local-date';
 import { cumplimientoToCsv } from './lib/compliance-csv';
@@ -1270,7 +1271,82 @@ const plugin: PluginDefinition = {
         res.status(400).json({ message: 'El mensaje tiene que tener entre 1 y 2000 caracteres' });
         return;
       }
-      await rutaIm(userId => mensajeria.enviar(userId, dialogId, texto))(req, res);
+      const replyId = req.body?.replyId;
+      if (replyId != null && !idMensajeValido(replyId)) {
+        res.status(400).json({ message: 'Respuesta a un mensaje inválido' });
+        return;
+      }
+      await rutaIm(userId => mensajeria.enviar(userId, dialogId, texto, replyId != null ? Number(replyId) : undefined))(req, res);
+    }));
+
+    // ── Chat ampliado: hilo con reacciones, borrar, reaccionar, archivos ──────
+    ctx.router.get('/im/hilo/:dialogId', ...conVista, asyncRoute(async (req, res) => {
+      if (!dialogoValido(req.params.dialogId)) {
+        res.status(400).json({ message: 'Diálogo inválido' });
+        return;
+      }
+      await rutaIm(userId => mensajeria.hilo(userId, req.params.dialogId))(req, res);
+    }));
+
+    ctx.router.post('/im/message/:id/delete', ...conVista, asyncRoute(async (req, res) => {
+      if (!idMensajeValido(req.params.id)) {
+        res.status(400).json({ message: 'Mensaje inválido' });
+        return;
+      }
+      // Bitrix solo deja borrar los propios: si no es tuyo, responde con error (→ 502).
+      await rutaIm(userId => mensajeria.borrar(userId, Number(req.params.id)))(req, res);
+    }));
+
+    ctx.router.post('/im/message/:id/reaction', ...conVista, asyncRoute(async (req, res) => {
+      if (!idMensajeValido(req.params.id) || !reaccionValida(req.body?.reaction)) {
+        res.status(400).json({ message: 'Reacción inválida' });
+        return;
+      }
+      await rutaIm(userId => mensajeria.reaccionar(userId, Number(req.params.id), req.body.reaction, req.body?.quitar === true))(req, res);
+    }));
+
+    ctx.router.post('/im/archivo', ...conVista, asyncRoute(async (req, res) => {
+      const dialogId = req.body?.dialogId;
+      const nombre = nombreArchivoSeguro(req.body?.nombre);
+      const bytes = bytesDeBase64(req.body?.contenido);
+      const texto = req.body?.texto != null ? textoMensaje(req.body.texto) : undefined;
+      if (!dialogoValido(dialogId) || !nombre) {
+        res.status(400).json({ message: 'Falta a quién mandarlo o el nombre del archivo' });
+        return;
+      }
+      if (bytes === null || bytes === 0) {
+        res.status(400).json({ message: 'El archivo llegó vacío o dañado' });
+        return;
+      }
+      if (bytes > MAX_ARCHIVO_BYTES) {
+        res.status(413).json({ message: 'El archivo pesa más de 15 MB' });
+        return;
+      }
+      await rutaIm(userId => mensajeria.enviarArchivo(userId, dialogId, nombre, req.body.contenido, texto ?? undefined))(req, res);
+    }));
+
+    ctx.router.get('/im/archivo/:fileId', ...conVista, asyncRoute(async (req, res) => {
+      if (!idMensajeValido(req.params.fileId)) {
+        res.status(400).json({ message: 'Archivo inválido' });
+        return;
+      }
+      try {
+        const { nombre, respuesta } = await mensajeria.archivo((req as any).user?.sub, Number(req.params.fileId));
+        res.setHeader('Content-Type', respuesta.headers.get('content-type') || 'application/octet-stream');
+        const largo = respuesta.headers.get('content-length');
+        if (largo) res.setHeader('Content-Length', largo);
+        res.setHeader('Content-Disposition', `attachment; filename*=UTF-8''${encodeURIComponent(nombre)}`);
+        res.setHeader('Cache-Control', 'private, max-age=300');
+        const { Readable } = await import('stream');
+        Readable.fromWeb(respuesta.body as any).pipe(res);
+      } catch (e) {
+        if (e instanceof SinBitrixError) {
+          res.status(409).json({ message: e.message, conectar: '/api/v1/p/office/bitrix/oauth/start' });
+          return;
+        }
+        ctx.logger.warn(`No se pudo bajar el archivo ${req.params.fileId}: ${e}`);
+        if (!res.headersSent) res.status(502).json({ message: 'Bitrix no entregó el archivo.' });
+      }
     }));
 
     ctx.router.post('/im/read', ...conVista, asyncRoute(async (req, res) => {

@@ -209,3 +209,49 @@ describe('MensajeriaService: consulta de respaldo', () => {
     expect(maximo).toBe(1);
   });
 });
+
+describe('MensajeriaService: chat ampliado', () => {
+  /** El REPLY_ID de im.message.add se ignora en el portal: hay que usar la v2. */
+  it('responder va por la API v2 con replyId, con el token de quien escribe', async () => {
+    const { svc, callAsUser } = armar();
+    callAsUser.mockImplementation(async (_t: string, m: string) => (m === 'im.v2.Chat.Message.send' ? { id: 777 } : 555));
+    expect(await svc.enviar('ana', '1001', 'de acuerdo', 19731873)).toEqual({ id: 777 });
+    expect(callAsUser).toHaveBeenCalledWith('TOKEN-ANA', 'im.v2.Chat.Message.send', { dialogId: '1001', fields: { message: 'de acuerdo', replyId: 19731873 } });
+  });
+
+  it('sin respuesta sigue por im.message.add', async () => {
+    const { svc, callAsUser } = armar();
+    await svc.enviar('ana', '1001', 'hola');
+    expect(callAsUser).toHaveBeenCalledWith('TOKEN-ANA', 'im.message.add', { DIALOG_ID: '1001', MESSAGE: 'hola' });
+  });
+
+  it('reaccionar agrega o quita según se pida', async () => {
+    const { svc, callAsUser } = armar();
+    await svc.reaccionar('ana', 5, 'laugh', false);
+    await svc.reaccionar('ana', 5, 'laugh', true);
+    expect(callAsUser.mock.calls.map(c => c[1])).toEqual(['im.v2.Chat.Message.Reaction.add', 'im.v2.Chat.Message.Reaction.delete']);
+    expect(callAsUser.mock.calls[0][2]).toEqual({ messageId: 5, reaction: 'laugh' });
+  });
+
+  it('un archivo recorre chat → carpeta → subida → publicación, y avisa al destinatario', async () => {
+    const { svc, callAsUser, avisos } = armar();
+    callAsUser.mockImplementation(async (_t: string, m: string) => ({
+      'im.dialog.get': { id: 87399 },
+      'im.disk.folder.get': { ID: 1573295 },
+      'disk.folder.uploadfile': { ID: 1573297 },
+      'im.disk.file.commit': { MESSAGE_ID: 19733283 },
+    } as any)[m] ?? []);
+    expect(await svc.enviarArchivo('ana', '1001', 'informe.pdf', 'aG9sYQ==')).toEqual({ id: 19733283 });
+    expect(callAsUser.mock.calls.map(c => c[1])).toEqual(['im.dialog.get', 'im.disk.folder.get', 'disk.folder.uploadfile', 'im.disk.file.commit']);
+    expect(callAsUser.mock.calls[2][2]).toEqual({ id: 1573295, data: { NAME: 'informe.pdf' }, fileContent: ['informe.pdf', 'aG9sYQ=='], generateUniqueName: true });
+    expect(callAsUser.mock.calls[3][2]).toEqual({ CHAT_ID: 87399, FILE_ID: 1573297 });
+    expect(callAsUser.mock.calls.every(c => c[0] === 'TOKEN-ANA')).toBe(true);
+    expect(avisos).toEqual([{ userId: 'beto', payload: expect.objectContaining({ type: 'im:new', preview: '📎 informe.pdf' }) }]);
+  });
+
+  it('el hilo se pide con la API v2, que trae reacciones y archivos', async () => {
+    const { svc, callAsUser } = armar();
+    await svc.hilo('ana', 'chat77');
+    expect(callAsUser).toHaveBeenCalledWith('TOKEN-ANA', 'im.v2.Chat.Message.list', { dialogId: 'chat77', limit: 50 });
+  });
+});

@@ -89,6 +89,9 @@ describe('textoMensaje', () => {
 });
 
 describe('vistaPrevia', () => {
+  it('una mención se ve como @Nombre, sin BBCode', () => {
+    expect(vistaPrevia('hola [USER=13545]Ismael Ramos[/USER], mirá [b]esto[/b]')).toBe('hola @Ismael Ramos, mirá esto');
+  });
   it('junta líneas', () => expect(vistaPrevia('hola\n\ncómo  estás')).toBe('hola cómo estás'));
   it('corta largo con elipsis', () => {
     const v = vistaPrevia('a'.repeat(300));

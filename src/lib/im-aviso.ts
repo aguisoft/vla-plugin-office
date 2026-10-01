@@ -76,6 +76,10 @@ export function textoMensaje(texto: unknown): string | null {
 
 /** Vista previa para el aviso: una línea, corta. */
 export function vistaPrevia(texto: string, max = 120): string {
-  const una = texto.replace(/\s+/g, ' ').trim();
+  const una = texto
+    .replace(/\[USER=\d+\]([^[]*)\[\/USER\]/gi, '@$1')
+    .replace(/\[[^\]]{1,40}\]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
   return una.length <= max ? una : `${una.slice(0, max - 1)}…`;
 }
