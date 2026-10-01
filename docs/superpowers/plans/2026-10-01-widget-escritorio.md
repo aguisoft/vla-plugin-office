@@ -252,7 +252,7 @@ export function necesitaRefresco(expiresAt: number, ahora: number, margenMs = 60
 
 ### Tarea 9: Conectar mi Bitrix
 
-> **Backend hecho** (`4363e10`) y desplegado en 1.15.0 (19:51 UTC): `/start` redirige a Bitrix con `state=u.…`, `/estado` responde. Además `DELETE /bitrix/oauth`. **Falta la verificación en vivo con Carlos** (requiere su sesión de Bitrix).
+> **Backend hecho** (`4363e10`) y desplegado en 1.15.0 (19:51 UTC): `/start` redirige a Bitrix con `state=u.…`, `/estado` responde. Además `DELETE /bitrix/oauth`. **Verificado en vivo (20:01 UTC):** Carlos conectó su Bitrix; fila con `bitrix_user_id=949`; el token global siguió siendo de Carlos y con su propio vencimiento (no se pisó).
 
 **Endpoints:**
 - `GET /bitrix/oauth/start` (logueado) → `ctx.bitrix.userAuthorizeUrl(userId, '/dashboard/office?bitrix=conectado')` y redirige.
@@ -266,7 +266,7 @@ export function necesitaRefresco(expiresAt: number, ahora: number, margenMs = 60
 
 ### Tarea 10: Proxy de mensajería
 
-> **Hecho** (`4363e10`), desplegado: 409 sin conexión y 400 con diálogo inválido verificados en producción. **Ruling:** `/im/message` acepta `dialogId` (usuario o `chatN`) además de `toBitrixUserId`, para poder responder en grupos. Bitrix rechazando → 502. **Falta** el mensaje en vivo de Carlos a sí mismo y confirmar la forma real de `im.counters.get` (se asume `TYPE.ALL`).
+> **Hecho** (`4363e10`), desplegado: 409 sin conexión y 400 con diálogo inválido verificados en producción. **Ruling:** `/im/message` acepta `dialogId` (usuario o `chatN`) además de `toBitrixUserId`, para poder responder en grupos. Bitrix rechazando → 502. **Verificado en vivo:** mensaje por el proxy a 949, id 19731873, autor 949 (Carlos). **Hallazgo:** `TYPE.ALL` de `im.counters.get` incluye tareas (979 de 1165) y notificaciones; el respaldo ahora suma solo `DIALOG+CHAT+LINES` (1.15.1, `8b8e37e`, desplegado).
 
 | Endpoint | Traduce a |
 |---|---|
