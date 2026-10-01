@@ -217,6 +217,8 @@ modificar `auth.controller.ts` y `auth.module.ts`.
 
 ### Tarea 8: Tokens por usuario
 
+> **Hecho** (`98db0de`), 23 pruebas con sabotaje. Agregado: `bitrix_user_id` en la tabla, refresco de a uno por persona (Bitrix invalida el refresh al usarlo), y `validarConexion` contra el mapeo: si autorizó otra cuenta de Bitrix o no hay mapeo, no se guarda y queda el motivo 10 min en Redis.
+
 **Archivos:** Crear `migrations/004_bitrix_tokens.up.sql` y `.down.sql`,
 `src/lib/token-vigencia.ts` y su prueba, `src/services/bitrix-user.service.ts`.
 
@@ -250,6 +252,8 @@ export function necesitaRefresco(expiresAt: number, ahora: number, margenMs = 60
 
 ### Tarea 9: Conectar mi Bitrix
 
+> **Backend hecho** (`4363e10`) y desplegado en 1.15.0 (19:51 UTC): `/start` redirige a Bitrix con `state=u.…`, `/estado` responde. Además `DELETE /bitrix/oauth`. **Falta la verificación en vivo con Carlos** (requiere su sesión de Bitrix).
+
 **Endpoints:**
 - `GET /bitrix/oauth/start` (logueado) → `ctx.bitrix.userAuthorizeUrl(userId, '/dashboard/office?bitrix=conectado')` y redirige.
 - `GET /bitrix/oauth/estado` → `{ conectado: boolean, desde?: string }`.
@@ -261,6 +265,8 @@ export function necesitaRefresco(expiresAt: number, ahora: number, margenMs = 60
       igual (comparar `expiresAt` del global antes y después).
 
 ### Tarea 10: Proxy de mensajería
+
+> **Hecho** (`4363e10`), desplegado: 409 sin conexión y 400 con diálogo inválido verificados en producción. **Ruling:** `/im/message` acepta `dialogId` (usuario o `chatN`) además de `toBitrixUserId`, para poder responder en grupos. Bitrix rechazando → 502. **Falta** el mensaje en vivo de Carlos a sí mismo y confirmar la forma real de `im.counters.get` (se asume `TYPE.ALL`).
 
 | Endpoint | Traduce a |
 |---|---|
@@ -281,6 +287,8 @@ export function necesitaRefresco(expiresAt: number, ahora: number, margenMs = 60
       aparece firmado por Carlos en el Bitrix web. Borrarlo después.
 
 ### Tarea 11: Aviso de mensaje nuevo
+
+> **Hecho** (`4363e10`), 31 + 13 pruebas con sabotaje. Cron en minutos impares (`1-59/2`) para no coincidir con el sync de timeman.
 
 **Camino mixto (decidido 1-oct-2026).** Bitrix no expone `OnImMessageAdd` a
 apps REST (Tarea 1), pero los mensajes que salen por nuestro proxy ya nos dicen
@@ -317,6 +325,8 @@ El aviso sale siempre por:
       Verificar por sabotaje.
 
 ### Tarea 12: Pantallas en la oficina virtual
+
+> **Hecho** (`4a6b0ed`). Botón «Escritorio» en la cabecera (no hay menú de usuario) con los dos pasos. Verificado con Playwright en producción: 13/13, incluida una vinculación real con el usuario de Carlos (start → pending → confirmar en pantalla → token de Carlos → segundo canje 404). `im:new` muestra un aviso y no recarga el mapa.
 
 **Archivos:** frontend de office.
 
