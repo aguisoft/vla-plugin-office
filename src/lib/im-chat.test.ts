@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { reaccionValida, idMensajeValido, bytesDeBase64, nombreArchivoSeguro } from './im-chat';
+import { reaccionValida, idMensajeValido, bytesDeBase64, nombreArchivoSeguro, urlDeBitrix } from './im-chat';
 
 describe('reaccionValida', () => {
   it.each([['like'], ['laugh'], ['facepalm']])('acepta %s', (r) => expect(reaccionValida(r)).toBe(true));
@@ -45,4 +45,10 @@ describe('nombreArchivoSeguro', () => {
     expect(n.length).toBe(120);
     expect(n.endsWith('.pdf')).toBe(true);
   });
+});
+
+describe('urlDeBitrix', () => {
+  it('el portal sí', () => expect(urlDeBitrix('https://grupovla.bitrix24.com/rest/download.json?token=x')).toBe(true));
+  it.each([['http://grupovla.bitrix24.com/x'], ['https://bitrix24.com.malo.example/x'], ['https://malo.example/?h=bitrix24.com'], ['nada']])(
+    'otro dominio o sin https no: %s', (u) => expect(urlDeBitrix(u)).toBe(false));
 });

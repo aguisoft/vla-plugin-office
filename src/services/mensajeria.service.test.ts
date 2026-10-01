@@ -255,3 +255,25 @@ describe('MensajeriaService: chat ampliado', () => {
     expect(callAsUser).toHaveBeenCalledWith('TOKEN-ANA', 'im.v2.Chat.Message.list', { dialogId: 'chat77', limit: 50 });
   });
 });
+
+describe('MensajeriaService.archivo', () => {
+  it('baja con el token de quien pide, solo desde el portal', async () => {
+    const { svc, callAsUser } = armar();
+    callAsUser.mockImplementation(async () => ({ NAME: 'foto.png', DOWNLOAD_URL: 'https://grupovla.bitrix24.com/rest/download.json?token=disk%7Cx' }));
+    const visto: string[] = [];
+    const original = globalThis.fetch;
+    globalThis.fetch = (async (u: any) => { visto.push(String(u)); return { ok: true, body: {}, headers: new Headers() } as any; }) as any;
+    try {
+      const r = await svc.archivo('beto', 5);
+      expect(r.nombre).toBe('foto.png');
+      expect(visto[0]).toContain('auth=TOKEN-BETO');
+      expect(visto[0].startsWith('https://grupovla.bitrix24.com/')).toBe(true);
+    } finally { globalThis.fetch = original; }
+  });
+
+  it('una URL de descarga fuera del portal no recibe el token', async () => {
+    const { svc, callAsUser } = armar();
+    callAsUser.mockImplementation(async () => ({ NAME: 'x', DOWNLOAD_URL: 'https://malo.example/robar' }));
+    await expect(svc.archivo('beto', 5)).rejects.toThrow('fuera del portal');
+  });
+});

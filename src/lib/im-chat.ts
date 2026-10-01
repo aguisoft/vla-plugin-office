@@ -41,3 +41,14 @@ export function nombreArchivoSeguro(nombre: unknown): string | null {
   if (!base || base === '.' || base === '..') return null;
   return base.length > 120 ? base.slice(base.length - 120) : base;
 }
+
+/** ¿La URL es del portal de Bitrix? Para no mandarle el token de nadie a otro dominio. */
+export function urlDeBitrix(u: unknown): boolean {
+  if (typeof u !== 'string') return false;
+  try {
+    const x = new URL(u);
+    return x.protocol === 'https:' && /(^|\.)bitrix24\.[a-z.]{2,10}$/i.test(x.hostname);
+  } catch {
+    return false;
+  }
+}

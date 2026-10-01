@@ -3,6 +3,7 @@ import type { BitrixUserService } from './bitrix-user.service';
 import {
   decidirAviso, registrarAvisoInmediato, saltosTrasFallos, totalSinLeer, vistaPrevia,
 } from '../lib/im-aviso';
+import { urlDeBitrix } from '../lib/im-chat';
 import { unirRecientes, completarSinLeer, idsSinLeerFaltantes, cuentaActiva, ajustarContadores } from '../lib/im-recientes';
 
 /** La persona no conectó su Bitrix (o lo revocó). Las rutas lo traducen a 409. */
@@ -158,7 +159,14 @@ export class MensajeriaService {
   async archivo(userId: string, fileId: number): Promise<{ nombre: string; respuesta: Response }> {
     const f = await this.llamar<any>(userId, 'disk.file.get', { id: fileId });
     if (!f?.DOWNLOAD_URL) throw new Error('[disk.file.get] sin URL de descarga');
-    const respuesta = await fetch(f.DOWNLOAD_URL);
+    // La URL de descarga también pide el token (sin él, 401: visto el 1-oct-2026).
+    // Solo se le agrega si apunta al portal de Bitrix: el token no sale a otro dominio.
+    if (!urlDeBitrix(f.DOWNLOAD_URL)) throw new Error('[disk.file.get] URL de descarga fuera del portal');
+    const token = await this.tokens.obtenerVigente(userId);
+    if (!token) throw new SinBitrixError();
+    const url = new URL(f.DOWNLOAD_URL);
+    url.searchParams.set('auth', token);
+    const respuesta = await fetch(url);
     if (!respuesta.ok || !respuesta.body) throw new Error(`[disk.file.get] descarga ${respuesta.status}`);
     return { nombre: String(f.NAME ?? 'archivo'), respuesta };
   }
