@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { buildOrgTree, type PersonaChart } from './org-tree';
+import { buildOrgTree, cadenaDeMando, saludOrg, horaLocalDe, type PersonaChart } from './org-tree';
 
 const p = (
   userId: string, nombre: string | null, managerUserId: string | null = null, departamento: string | null = null,
@@ -129,5 +129,99 @@ describe('buildOrgTree — bordes', () => {
     const t = buildOrgTree([p('a', 'Ana', 'a')]);
     expect(t.cima.concat(t.huerfanos).some(n => n.equipo.length > 0)).toBe(false);
     expect(t.ciclos.length + t.huerfanos.length).toBeGreaterThan(0);
+  });
+});
+
+describe('cadenaDeMando', () => {
+  const equipo = [
+    p('jr', 'Josué'), p('dd', 'Daniela', 'jr'), p('jl', 'José', 'dd'), p('fc', 'Facundo', 'jl'),
+  ];
+
+  it('va de la raíz hasta la persona, en orden', () => {
+    expect(cadenaDeMando(equipo, 'fc').map(x => x.nombre)).toEqual(['Josué', 'Daniela', 'José', 'Facundo']);
+  });
+
+  it('para una raíz, la cadena es ella sola', () => {
+    expect(cadenaDeMando(equipo, 'jr').map(x => x.nombre)).toEqual(['Josué']);
+  });
+
+  it('un id que no existe da cadena vacía', () => {
+    expect(cadenaDeMando(equipo, 'nadie')).toEqual([]);
+  });
+
+  it('corta donde el jefe ya no está, sin inventar el resto', () => {
+    const sueltos = [p('x', 'Equis', 'inactivo')];
+    expect(cadenaDeMando(sueltos, 'x').map(n => n.nombre)).toEqual(['Equis']);
+  });
+
+  /** Sin el corte por visitados, un ciclo deja este bucle girando para siempre. */
+  it('un ciclo no cuelga el recorrido', () => {
+    const ciclo = [p('a', 'Ana', 'b'), p('b', 'Beto', 'a')];
+    const r = cadenaDeMando(ciclo, 'a');
+    expect(r.length).toBeLessThanOrEqual(2);
+    expect(r.map(x => x.nombre)).toContain('Ana');
+  });
+});
+
+describe('saludOrg', () => {
+  it('un organigrama correcto se declara sano', () => {
+    const gente = [p('jr', 'Josué', null, 'Grupo VLA'), p('dd', 'Daniela', 'jr', 'Finanzas')];
+    const s = saludOrg(gente, buildOrgTree(gente));
+    expect(s.sana).toBe(true);
+    expect(s.sueltos).toEqual([]);
+  });
+
+  /**
+   * El caso real: Verónica es gerenta general, sin jefe y sin equipo. La regla
+   * mecánica la marcaría como suelta; declararla raíz legítima la salva.
+   */
+  it('una raíz declarada no figura como suelta aunque no tenga equipo', () => {
+    const gente = [p('vv', 'Verónica', null, 'RRHH'), p('jr', 'Josué', null, 'Grupo VLA'), p('x', 'Equis', 'jr', 'Ventas')];
+    expect(saludOrg(gente, buildOrgTree(gente), new Set(['vv'])).sueltos).toEqual([]);
+    // Sin declararla, sí aparece: la regla no adivina quién manda.
+    expect(saludOrg(gente, buildOrgTree(gente)).sueltos.map(x => x.nombre)).toEqual(['Verónica']);
+  });
+
+  it('quien no tiene jefe pero sí equipo es cima, no un problema', () => {
+    const gente = [p('jr', 'Josué', null, 'Grupo VLA'), p('x', 'Equis', 'jr', 'Ventas')];
+    expect(saludOrg(gente, buildOrgTree(gente)).sueltos).toEqual([]);
+  });
+
+  it('señala a quien quedó sin jefe activo', () => {
+    const gente = [p('b', 'Beto', 'inactivo', 'Ventas')];
+    const s = saludOrg(gente, buildOrgTree(gente));
+    expect(s.huerfanos.map(x => x.nombre)).toEqual(['Beto']);
+    expect(s.sana).toBe(false);
+  });
+
+  it('señala los ciclos y a quien no tiene departamento', () => {
+    const gente = [p('a', 'Ana', 'b', 'Ventas'), p('b', 'Beto', 'a', null)];
+    const s = saludOrg(gente, buildOrgTree(gente));
+    expect(s.ciclos).toHaveLength(1);
+    expect(s.sinDepartamento.map(x => x.nombre)).toEqual(['Beto']);
+    expect(s.sana).toBe(false);
+  });
+});
+
+describe('horaLocalDe', () => {
+  const instante = new Date('2026-10-01T18:00:00Z');
+
+  it('convierte a la zona del país', () => {
+    expect(horaLocalDe('CR', instante)).toBe('12:00');  // UTC-6
+    expect(horaLocalDe('CO', instante)).toBe('13:00');  // UTC-5
+    expect(horaLocalDe('AR', instante)).toBe('15:00');  // UTC-3
+  });
+
+  it('sin país no inventa una hora', () => {
+    expect(horaLocalDe(null, instante)).toBeNull();
+    expect(horaLocalDe(undefined, instante)).toBeNull();
+  });
+
+  it('un país fuera del catálogo tampoco inventa', () => {
+    expect(horaLocalDe('ZZ', instante)).toBeNull();
+  });
+
+  it('acepta el ISO en minúsculas', () => {
+    expect(horaLocalDe('ar', instante)).toBe('15:00');
   });
 });

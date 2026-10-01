@@ -779,7 +779,28 @@ const plugin: PluginDefinition = {
         select: { id: true, firstName: true, lastName: true },
         orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
       });
-      const roster = await org.roster((users as any[]).map(u => u.id));
+      const ids = (users as any[]).map(u => u.id);
+
+      // El estado sale de `SnapshotService` y no de `PresenceStatus` crudo: ahí
+      // vive la resolución real (un feriado del país gana sobre el estado del
+      // día, una ausencia vigente gana sobre todo). Duplicar esa lógica acá
+      // daría dos verdades sobre la misma persona.
+      //
+      // `hasManage: false` a propósito: ese parámetro decide si el snapshot
+      // adjunta las justificaciones AJENAS, y el organigrama lo ve cualquiera.
+      // Acá solo se usa el estado, nunca su motivo.
+      const [roster, presencia] = await Promise.all([
+        org.roster(ids),
+        snapshot.getAll({ userId: (_req as any).user?.sub ?? '', hasManage: false })
+          .catch(e => {
+            // Degrada: sin estados el organigrama sigue sirviendo para lo que
+            // es —quién depende de quién—, que es su razón de ser.
+            ctx.logger.warn(`/org/chart: no se pudieron leer los estados: ${e}`);
+            return [] as Array<{ userId: string; status: string }>;
+          }),
+      ]);
+      const estadoDe = new Map((presencia as any[]).map(p => [p.userId, p.status as string]));
+      const paisDe = await org.countryByUserId(ids);
 
       res.json({
         personas: (users as any[]).map(u => {
@@ -793,6 +814,11 @@ const plugin: PluginDefinition = {
             nombre: nombre || null,
             managerUserId: r?.managerUserId ?? null,
             departamento: r?.departmentName ?? null,
+            // `null` y no 'OFFLINE' cuando la consulta de estados falló: decir
+            // que alguien está desconectado es una afirmación sobre esa
+            // persona, y acá no se sabe. La pantalla lo muestra sin estado.
+            estado: estadoDe.get(u.id) ?? null,
+            pais: paisDe.get(u.id) ?? null,
           };
         }),
       });
