@@ -245,24 +245,39 @@ export function necesitaRefresco(expiresAt: number, ahora: number, margenMs = 60
 
 ### Tarea 11: Aviso de mensaje nuevo
 
-**Tarea 1 cerrada: camino bucle.** Bitrix no expone `OnImMessageAdd` a apps
-REST; descartado el camino eventos.
+**Camino mixto (decidido 1-oct-2026).** Bitrix no expone `OnImMessageAdd` a
+apps REST (Tarea 1), pero los mensajes que salen por nuestro proxy ya nos dicen
+quién es el destinatario.
 
-En cualquiera de los dos caminos, el aviso sale por:
+El aviso sale siempre por:
 - `presence.broadcastToUser(userId, { type: 'im:new', dialogId, preview })`
 - `ctx.hooks.doAction('core.push.send', { userId, title, body, url })`
 
-- ~~**Camino eventos:**~~ descartado (ver Tarea 1).
-- [ ] **Presupuesto de llamadas:** `batch` no sirve (un token por usuario). Con
-      23 personas cada 30 s son ~0,8 llamadas/s, compartiendo el límite del
-      portal (~2/s) con cobros. Por eso: intervalo 30 s, y solo se consulta a
-      quien tiene el widget o la oficina abierta (conexión SSE viva).
-- [ ] **Camino bucle:** cron que recorre a los conectados **de a uno**, con
-      pausa entre llamadas y retroceso exponencial ante error; compara
-      `im.counters.get` contra el valor anterior y avisa si subió. Lógica de
-      comparación en `src/lib/` con pruebas, como `compararVentana`.
-- [ ] En ambos: el primer tick tras arrancar solo fija la línea base, igual que
-      en `absence-window.ts`.
+- [ ] **1. Aviso inmediato** dentro de `POST /im/message`: si `im.message.add`
+      responde bien y el destinatario es usuario VLA (vía `BitrixUserMapping`),
+      avisarle al instante. El remitente no se avisa a sí mismo. Si el aviso
+      falla, el mensaje igual cuenta como enviado (el aviso no es parte de la
+      respuesta).
+- [ ] **2. Consulta de respaldo cada 2 minutos** para lo que no pasa por
+      nosotros: Bitrix web o celular, chats grupales, gente fuera del equipo,
+      notificaciones del sistema. Cron que recorre **de a uno** solo a quien
+      tiene una conexión SSE viva (widget u oficina abierta), con pausa entre
+      llamadas y retroceso exponencial ante error. Compara `im.counters.get`
+      contra el valor anterior y avisa si subió. Presupuesto: 23 personas cada
+      120 s ≈ 0,2 llamadas/s, frente al límite del portal (~2/s) compartido con
+      cobros. `batch` no sirve: un token por usuario.
+- [ ] **3. Sin doble aviso:** cuando el camino 1 avisa, sube en uno la línea
+      base guardada del destinatario, para que la siguiente consulta no vea
+      ese mensaje como nuevo. Si la consulta encuentra el contador **por debajo**
+      de la base (la persona leyó), la base baja al valor real y no se avisa.
+- [ ] El primer tick tras arrancar solo fija la línea base, igual que en
+      `absence-window.ts`.
+- [ ] Lógica pura en `src/lib/im-aviso.ts` con pruebas (como
+      `compararVentana`): `decidirAviso(base|null, contador)` y
+      `registrarAvisoInmediato(base)`. Casos mínimos: primer tick, subió,
+      igual, bajó, aviso inmediato seguido de consulta sin mensajes nuevos
+      (no avisa), aviso inmediato más otro mensaje por Bitrix (avisa uno).
+      Verificar por sabotaje.
 
 ### Tarea 12: Pantallas en la oficina virtual
 
