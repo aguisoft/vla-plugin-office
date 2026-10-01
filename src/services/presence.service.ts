@@ -269,6 +269,28 @@ export class PresenceService {
     }
   }
 
+  /**
+   * Avisa a todas las pantallas de un cambio que NO nació de una acción.
+   *
+   * Todo lo demás que se difunde ocurre porque alguien hizo algo: marcó
+   * entrada, cambió de estado, se movió. Las ausencias programadas y los
+   * feriados no: empiezan y terminan por reloj. A esa hora no hay nada que
+   * emitir, así que la pantalla se queda con el estado viejo hasta que otra
+   * persona haga algo y dispare una recarga de rebote.
+   *
+   * Eso ya se vio en producción: un permiso de 10:00 a 10:20, creado a las
+   * 09:57. El evento de creación refrescó la pantalla a las 09:57 —cuando el
+   * permiso todavía no había empezado, así que seguía diciendo «Disponible»—
+   * y a las 10:00 no se disparó nada. En una ausencia de veinte minutos eso
+   * se come media ventana.
+   *
+   * El método es público y acotado a este caso; `broadcast` sigue privado
+   * para que nadie difunda cualquier cosa desde afuera.
+   */
+  anunciarCambioPorReloj(userIds: string[]): void {
+    this.broadcast({ type: 'absence:window', userIds });
+  }
+
   /** Manda solo a las conexiones de ese usuario. Para invitaciones dirigidas. */
   broadcastToUser(userId: string, payload: object): void {
     const data = `data: ${JSON.stringify(payload)}\n\n`;

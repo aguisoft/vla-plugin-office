@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
 import type { PluginDefinition } from '@vla/plugin-sdk';
+import { compararVentana } from './lib/absence-window';
 import { PresenceService } from './services/presence.service';
 import { LayoutService } from './services/layout.service';
 import { SnapshotService } from './services/snapshot.service';
@@ -1206,9 +1207,55 @@ const plugin: PluginDefinition = {
       description: 'Un usuario se movió a otra zona del layout',
       payload: { userId: 'string', zoneId: 'string', x: 'number', y: 'number' },
     });
+    ctx.hooks.declareHook('office.absence.window_changed', {
+      description: 'Una ausencia o feriado entró en vigencia o terminó (por reloj, no por una acción)',
+      payload: { entraron: 'string[]', salieron: 'string[]' },
+    });
     ctx.hooks.declareHook('office.absence.created', {
       description: 'Se registró una ausencia (permiso, vacaciones o incapacidad)',
       payload: { userId: 'string', type: 'PERMISO | VACACIONES | INCAPACIDAD', startAt: 'Date', endAt: 'Date' },
+    });
+
+    /**
+     * Cron: avisar cuando una ausencia o un feriado EMPIEZA o TERMINA.
+     *
+     * Todo lo demás que refresca las pantallas ocurre porque alguien hizo
+     * algo. Las ausencias programadas no: entran en vigencia por reloj. A esa
+     * hora no hay evento, y la pantalla se queda con el estado viejo hasta que
+     * otra persona haga cualquier cosa y dispare una recarga de rebote.
+     *
+     * Pasó en producción: un permiso de 10:00 a 10:20 creado a las 09:57. El
+     * evento de creación refrescó a las 09:57, cuando todavía decía
+     * «Disponible» con razón, y a las 10:00 no se disparó nada. La colaboradora
+     * reportó que «su estado no cambió». El dato estaba bien —el backend ya la
+     * resolvía como PERMISO— pero nadie se lo había contado a su navegador.
+     *
+     * Corre cada minuto porque un permiso puede durar veinte: con el tick de
+     * cinco minutos del cron de inactividad se perdería un cuarto de la
+     * ventana. `absentUserIds` ya resuelve ausencias Y feriados, así que el
+     * mismo tick cubre los dos.
+     */
+    let ausentesPrevios: Set<string> | null = null;
+    ctx.cron('* * * * *', async () => {
+      try {
+        const ahora = await absentUserIds(new Date());
+
+        const cambio = compararVentana(ausentesPrevios, ahora);
+        ausentesPrevios = ahora;
+        if (!cambio) return;
+
+        const { entraron, salieron } = cambio;
+        presence.anunciarCambioPorReloj([...entraron, ...salieron]);
+        await ctx.hooks.doAction('office.absence.window_changed', { entraron, salieron });
+        ctx.logger.log(
+          `Ventana de ausencia: ${entraron.length} entraron, ${salieron.length} salieron`,
+        );
+      } catch (e) {
+        // Que falle un tick no puede tumbar el cron ni el proceso: el siguiente
+        // minuto vuelve a intentar, y mientras tanto la pantalla sigue
+        // refrescándose de rebote como lo hacía antes de existir esto.
+        ctx.logger.warn(`Cron ventana de ausencia: ${e}`);
+      }
     });
 
     // ── Cron: auto-checkout por inactividad (>8h) ─────────────────────────────

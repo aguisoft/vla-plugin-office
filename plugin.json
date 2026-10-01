@@ -1,6 +1,6 @@
 {
   "name": "office",
-  "version": "1.13.0",
+  "version": "1.14.0",
   "description": "Presencia en tiempo real de trabajadores en la oficina virtual. Integración con Bitrix24.",
   "author": "VLA Team",
   "vlaMinVersion": "1.1.0",
@@ -39,7 +39,8 @@
       "office.user.checked_out",
       "office.user.status_changed",
       "office.user.moved",
-      "office.absence.created"
+      "office.absence.created",
+      "office.absence.window_changed"
     ]
   },
   "settings": {
