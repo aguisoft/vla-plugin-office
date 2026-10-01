@@ -190,6 +190,8 @@ modificar `auth.controller.ts` y `auth.module.ts`.
 
 ### Tarea 6: Desplegar el core
 
+> **Desplegado 1-oct-2026 19:33 UTC.** 18 archivos (sin `apps/api/package.json`, para no invalidar la caché de `npm ci`), hashes verificados, respaldo en `/var/www/sites/respaldo-core-20261001-1331.tgz` (los 12 que existían). Verificado: arranque en 9 s, los 5 plugins cargados (office v1.14.0), `/auth/device/start` responde, `/device/token` con basura da 404, callback con `state=prueba` rechazado sin canjear, `/authorize` admin trae `state=a.…`, token global de Bitrix OK (Carlos 949), login con Google redirige, web 200. Senders: 0 errores de sesión antes y después; Ventas DG ya estaba en `pending_qr` antes.
+
 - [ ] Correr las pruebas del core localmente sobre la carpeta de trabajo.
 - [ ] **Medir los senders de WhatsApp** antes de tocar nada.
 - [ ] Subir los archivos modificados uno por uno y comparar el hash de cada uno
