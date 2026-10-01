@@ -128,3 +128,48 @@ describe('forma del catálogo', () => {
     for (const k of ausencias) expect(STATUS_CFG[k].icon, `${k} sin icon`).toBeTruthy();
   });
 });
+
+/**
+ * Contraste de las ETIQUETAS de estado sobre fondo blanco.
+ *
+ * Esta prueba nace de una medición, no de una sospecha: siete de los once
+ * `text-*` no llegaban al 4.5:1 que exige WCAG AA para texto normal. El peor
+ * era «Desconectado» a 2.54, poco más de la mitad del mínimo, y «Disponible»
+ * —la etiqueta más frecuente de todo el plugin— estaba en 3.30.
+ *
+ * Estas clases se usan en todas las pantallas, así que el fallo no era de una
+ * vista sino del catálogo. Un tono elegido «porque se ve bien» en un monitor
+ * bueno es exactamente el error que una prueba atrapa y un ojo no.
+ *
+ * Solo aplica a `text`. `color` y `dot` pintan anillos y puntos, que son
+ * elementos no textuales y rigen por otra regla (3:1).
+ */
+describe('las etiquetas de estado se pueden leer', () => {
+  /** Los hex de Tailwind que usa el catálogo. */
+  const TW: Record<string, string> = {
+    'text-green-700': '#15803d', 'text-blue-600': '#2563eb', 'text-purple-600': '#9333ea',
+    'text-violet-700': '#6d28d9', 'text-orange-700': '#c2410c', 'text-yellow-700': '#a16207',
+    'text-gray-500': '#6b7280', 'text-slate-600': '#475569', 'text-sky-700': '#0369a1',
+    'text-red-600': '#dc2626', 'text-amber-700': '#b45309',
+  };
+
+  const luminancia = (hex: string) => {
+    const c = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255)
+      .map(v => (v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)));
+    return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2];
+  };
+  /** Contra blanco, que es el fondo de las pantallas del plugin. */
+  const contraste = (hex: string) => (1 + 0.05) / (luminancia(hex) + 0.05);
+
+  it('todas las clases usadas están mapeadas acá', () => {
+    for (const k of CLAVES) {
+      expect(TW[STATUS_CFG[k].text], `falta el hex de ${STATUS_CFG[k].text} (${k})`).toBeDefined();
+    }
+  });
+
+  it.each(CLAVES)('%s alcanza 4.5:1 sobre blanco', k => {
+    const hex = TW[STATUS_CFG[k].text];
+    const r = contraste(hex);
+    expect(r, `${STATUS_CFG[k].label} (${STATUS_CFG[k].text}) está en ${r.toFixed(2)}`).toBeGreaterThanOrEqual(4.5);
+  });
+});

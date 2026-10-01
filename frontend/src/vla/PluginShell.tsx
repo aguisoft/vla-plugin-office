@@ -39,7 +39,7 @@ export function PluginShell({ title, subtitle, headerCenter, headerActions, user
         <div className="min-w-0">
           <h1 className="text-sm font-bold text-gray-800 leading-tight truncate">{title}</h1>
           {subtitle && (
-            <p className="text-[10px] text-gray-400 leading-tight truncate">{subtitle}</p>
+            <p className="text-[10px] text-gray-500 leading-tight truncate">{subtitle}</p>
           )}
         </div>
 
@@ -53,7 +53,7 @@ export function PluginShell({ title, subtitle, headerCenter, headerActions, user
             <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">
               {user.firstName[0]}{user.lastName[0]}
             </div>
-            <span className="text-[11px] text-gray-400 hidden sm:inline">
+            <span className="text-[11px] text-gray-500 hidden sm:inline">
               {user.firstName} {user.lastName}
             </span>
           </div>
