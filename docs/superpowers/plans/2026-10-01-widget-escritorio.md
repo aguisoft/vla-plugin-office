@@ -50,13 +50,17 @@ Valen para todas las tareas. Cada una viene de un fallo real ya ocurrido.
 Decide la Tarea 11. Con webhook dio `WRONG_AUTH_TYPE`; hay que probar con el
 token OAuth de la aplicación, que el core ya tiene.
 
-- [ ] Script de un solo uso **dentro del contenedor del API**, usando el cliente
-      de Bitrix del core para no extraer credenciales: `event.get`, y si
-      responde, `event.bind` de `OnImMessageAdd` hacia una URL de prueba.
-- [ ] Mandarse un mensaje a sí mismo y confirmar que la URL de prueba recibe el
-      evento.
-- [ ] `event.unbind` al terminar. No dejar suscripciones colgadas.
-- [ ] **Registrar el resultado en este documento**, en la Tarea 11.
+- [x] Script de un solo uso **dentro del contenedor del API** (lo corrió
+      Carlos: el clasificador bloquea leer el token de producción).
+      `event.get` con el token OAuth de la app responde 200 (5 eventos ya
+      registrados: ONAPPINSTALL y los 4 CRM de cobros).
+- [x] `events` lista solo eventos IM de **conectores abiertos** y de **bots**
+      (`ONIMCONNECTOR*`, `ONIMBOT*`, `ONIMBOTV2*`). `event.bind` de
+      `OnImMessageAdd` → `ERROR_EVENT_NOT_FOUND`. No se mandó el mensaje de
+      prueba ni quedó nada registrado.
+- [x] **Resultado (1-oct-2026): no hay evento de mensaje entre personas.**
+      Un bot solo ve mensajes dirigidos a él o a chats donde lo agreguen, no
+      los mensajes directos entre colaboradores. Tarea 11 = camino bucle.
 
 **Si funciona:** Tarea 11 = receptor de eventos. **Si no:** Tarea 11 =
 consulta en bucle con freno. No se escribe código de la 11 antes de saberlo.
@@ -241,14 +245,18 @@ export function necesitaRefresco(expiresAt: number, ahora: number, margenMs = 60
 
 ### Tarea 11: Aviso de mensaje nuevo
 
-**Según el resultado de la Tarea 1.** Se completa al cerrarla.
+**Tarea 1 cerrada: camino bucle.** Bitrix no expone `OnImMessageAdd` a apps
+REST; descartado el camino eventos.
 
 En cualquiera de los dos caminos, el aviso sale por:
 - `presence.broadcastToUser(userId, { type: 'im:new', dialogId, preview })`
 - `ctx.hooks.doAction('core.push.send', { userId, title, body, url })`
 
-- [ ] **Camino eventos:** endpoint receptor con validación del `application_token`
-      de Bitrix; traducir el `OnImMessageAdd` al usuario VLA destinatario.
+- ~~**Camino eventos:**~~ descartado (ver Tarea 1).
+- [ ] **Presupuesto de llamadas:** `batch` no sirve (un token por usuario). Con
+      23 personas cada 30 s son ~0,8 llamadas/s, compartiendo el límite del
+      portal (~2/s) con cobros. Por eso: intervalo 30 s, y solo se consulta a
+      quien tiene el widget o la oficina abierta (conexión SSE viva).
 - [ ] **Camino bucle:** cron que recorre a los conectados **de a uno**, con
       pausa entre llamadas y retroceso exponencial ante error; compara
       `im.counters.get` contra el valor anterior y avisa si subió. Lógica de
