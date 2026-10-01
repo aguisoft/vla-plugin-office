@@ -16,6 +16,7 @@ import { BitrixUserService } from './services/bitrix-user.service';
 import { MensajeriaService, SinBitrixError } from './services/mensajeria.service';
 import { EscritorioService } from './services/escritorio.service';
 import { dialogoValido, textoMensaje } from './lib/im-aviso';
+import { armarContactos } from './lib/im-contactos';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { DEFAULT_TZ, localDateString } from './lib/local-date';
 import { cumplimientoToCsv } from './lib/compliance-csv';
@@ -1238,6 +1239,17 @@ const plugin: PluginDefinition = {
 
     ctx.router.get('/im/recent', ...conVista, rutaIm(userId => mensajeria.recientes(userId)));
     ctx.router.get('/im/counters', ...conVista, rutaIm(userId => mensajeria.contadores(userId)));
+
+    // Compañeros para empezar una conversación. No llama a Bitrix: sale de la
+    // base, así que funciona aunque la persona todavía no conectó su Bitrix.
+    ctx.router.get('/im/contactos', ...conVista, asyncRoute(async (req, res) => {
+      const yo = (req as any).user?.sub;
+      const [personas, mapeos] = await Promise.all([
+        snapshot.getAll({ userId: yo, hasManage: false }),
+        ctx.prisma.bitrixUserMapping.findMany({ select: { userId: true, bitrixUserId: true } }),
+      ]);
+      res.json(armarContactos(personas as any[], mapeos as any[], yo));
+    }));
 
     ctx.router.get('/im/dialog/:dialogId', ...conVista, asyncRoute(async (req, res) => {
       if (!dialogoValido(req.params.dialogId)) {
