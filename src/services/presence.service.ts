@@ -291,6 +291,13 @@ export class PresenceService {
     this.broadcast({ type: 'absence:window', userIds });
   }
 
+  /** Quiénes tienen ahora al menos una pantalla abierta (oficina o widget). */
+  conectados(): string[] {
+    const ids = new Set<string>();
+    for (const uid of this.clients.values()) if (uid) ids.add(uid);
+    return [...ids];
+  }
+
   /** Manda solo a las conexiones de ese usuario. Para invitaciones dirigidas. */
   broadcastToUser(userId: string, payload: object): void {
     const data = `data: ${JSON.stringify(payload)}\n\n`;

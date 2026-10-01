@@ -12,6 +12,9 @@ import { MeetingService } from './services/meeting.service';
 import { TimesheetService } from './services/timesheet.service';
 import { TeamService } from './services/team.service';
 import { ComplianceService } from './services/compliance.service';
+import { BitrixUserService } from './services/bitrix-user.service';
+import { MensajeriaService, SinBitrixError } from './services/mensajeria.service';
+import { dialogoValido, textoMensaje } from './lib/im-aviso';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { DEFAULT_TZ, localDateString } from './lib/local-date';
 import { cumplimientoToCsv } from './lib/compliance-csv';
@@ -131,6 +134,9 @@ const plugin: PluginDefinition = {
     // repetir sus consultas -- ver compliance.service.ts para el detalle de
     // qué se reusó y qué se decidió escribir aparte.
     const compliance = new ComplianceService(ctx, tz, team, org, holidays, timesheet);
+    // Mensajería de Bitrix como cada persona (widget de escritorio).
+    const bitrixUser = new BitrixUserService(ctx);
+    const mensajeria = new MensajeriaService(ctx, bitrixUser, presence);
 
     // ── Helper: configuración en horas ────────────────────────────────────────
     /**
@@ -1178,7 +1184,92 @@ const plugin: PluginDefinition = {
       res.json({ viewerId, isAdmin, users });
     }));
 
+    // ── Bitrix por persona ────────────────────────────────────────────────────
+    // Bitrix ignora el redirect_uri y siempre vuelve al callback del core, que
+    // canjea el código y nos entrega los tokens por core.bitrix.user_authorized.
+    // Por eso acá no hay callback: solo el arranque y el estado.
+    ctx.router.get('/bitrix/oauth/start', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      if (!ctx.bitrix) {
+        res.status(503).json({ message: 'Bitrix no está configurado en el sistema' });
+        return;
+      }
+      const userId = (req as any).user?.sub;
+      res.redirect(await ctx.bitrix.userAuthorizeUrl(userId, '/dashboard/office'));
+    }));
+
+    ctx.router.get('/bitrix/oauth/estado', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      res.json(await bitrixUser.estado((req as any).user?.sub));
+    }));
+
+    ctx.router.delete('/bitrix/oauth', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      await bitrixUser.desconectar((req as any).user?.sub);
+      res.json({ ok: true });
+    }));
+
+    // ── Mensajería (proxy a Bitrix con el token de quien pregunta) ────────────
+    /**
+     * Sin Bitrix conectado responde 409 con el camino para conectarlo. Nunca una
+     * lista vacía: el widget la leería como «no tenés mensajes».
+     */
+    function rutaIm(handler: (userId: string, req: Request) => Promise<unknown>) {
+      return asyncRoute(async (req, res) => {
+        try {
+          res.json(await handler((req as any).user?.sub, req));
+        } catch (e) {
+          if (e instanceof SinBitrixError) {
+            res.status(409).json({ message: e.message, conectar: '/api/v1/p/office/bitrix/oauth/start' });
+            return;
+          }
+          if (e instanceof Error && e.message.startsWith('[im.')) {
+            ctx.logger.warn(`Bitrix rechazó ${req.method} ${req.originalUrl}: ${e.message}`);
+            res.status(502).json({ message: 'Bitrix no respondió como se esperaba. Intentá de nuevo en un momento.' });
+            return;
+          }
+          throw e;
+        }
+      });
+    }
+    const conVista = [ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW)];
+
+    ctx.router.get('/im/recent', ...conVista, rutaIm(userId => mensajeria.recientes(userId)));
+    ctx.router.get('/im/counters', ...conVista, rutaIm(userId => mensajeria.contadores(userId)));
+
+    ctx.router.get('/im/dialog/:dialogId', ...conVista, asyncRoute(async (req, res) => {
+      if (!dialogoValido(req.params.dialogId)) {
+        res.status(400).json({ message: 'Diálogo inválido' });
+        return;
+      }
+      await rutaIm(userId => mensajeria.dialogo(userId, req.params.dialogId))(req, res);
+    }));
+
+    ctx.router.post('/im/message', ...conVista, asyncRoute(async (req, res) => {
+      const dialogId = req.body?.dialogId ?? (req.body?.toBitrixUserId != null ? String(req.body.toBitrixUserId) : undefined);
+      const texto = textoMensaje(req.body?.text);
+      if (!dialogoValido(dialogId)) {
+        res.status(400).json({ message: 'Falta a quién mandar el mensaje' });
+        return;
+      }
+      if (!texto) {
+        res.status(400).json({ message: 'El mensaje tiene que tener entre 1 y 2000 caracteres' });
+        return;
+      }
+      await rutaIm(userId => mensajeria.enviar(userId, dialogId, texto))(req, res);
+    }));
+
+    ctx.router.post('/im/read', ...conVista, asyncRoute(async (req, res) => {
+      const dialogId = req.body?.dialogId;
+      if (!dialogoValido(dialogId)) {
+        res.status(400).json({ message: 'Diálogo inválido' });
+        return;
+      }
+      await rutaIm(userId => mensajeria.marcarLeido(userId, dialogId))(req, res);
+    }));
+
     // ── Hooks ─────────────────────────────────────────────────────────────────
+
+    ctx.hooks.registerAction('core.bitrix.user_authorized', async (payload: any) => {
+      await bitrixUser.alAutorizar(payload);
+    });
 
     ctx.hooks.registerAction('core.user.created', async ({ user }: { user: { id: string } }) => {
       await ctx.prisma.presenceStatus.upsert({
@@ -1396,6 +1487,16 @@ const plugin: PluginDefinition = {
     // ── Cron: sincronizar timeman de Bitrix cada 2 minutos ────────────────────
     ctx.cron('*/2 * * * *', async () => {
       await runTimemanSync();
+    });
+
+    // ── Cron: mensajes nuevos de Bitrix (respaldo del aviso inmediato) ────────
+    // Minutos impares, para no coincidir con el sync de timeman de arriba.
+    ctx.cron('1-59/2 * * * *', async () => {
+      try {
+        await mensajeria.consultarRespaldo();
+      } catch (e) {
+        ctx.logger.warn(`Consulta de mensajes de respaldo falló: ${e}`);
+      }
     });
   },
 

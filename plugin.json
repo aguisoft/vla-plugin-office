@@ -1,6 +1,6 @@
 {
   "name": "office",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "description": "Presencia en tiempo real de trabajadores en la oficina virtual. Integración con Bitrix24.",
   "author": "VLA Team",
   "vlaMinVersion": "1.1.0",
@@ -32,7 +32,8 @@
   ],
   "hooks": {
     "listens": [
-      "core.user.created"
+      "core.user.created",
+      "core.bitrix.user_authorized"
     ],
     "emits": [
       "office.user.checked_in",
