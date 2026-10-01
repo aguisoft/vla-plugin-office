@@ -260,14 +260,15 @@ describe('MensajeriaService.archivo', () => {
   it('baja con el token de quien pide, solo desde el portal', async () => {
     const { svc, callAsUser } = armar();
     callAsUser.mockImplementation(async () => ({ NAME: 'foto.png', DOWNLOAD_URL: 'https://grupovla.bitrix24.com/rest/download.json?token=disk%7Cx' }));
-    const visto: string[] = [];
+    const visto: Array<{ url: string; auth?: string }> = [];
     const original = globalThis.fetch;
-    globalThis.fetch = (async (u: any) => { visto.push(String(u)); return { ok: true, body: {}, headers: new Headers() } as any; }) as any;
+    globalThis.fetch = (async (u: any, init: any) => { visto.push({ url: String(u), auth: init?.headers?.Authorization }); return { ok: true, body: {}, headers: new Headers() } as any; }) as any;
     try {
       const r = await svc.archivo('beto', 5);
       expect(r.nombre).toBe('foto.png');
-      expect(visto[0]).toContain('auth=TOKEN-BETO');
-      expect(visto[0].startsWith('https://grupovla.bitrix24.com/')).toBe(true);
+      // Probado en el portal: la descarga funciona con el token en el encabezado.
+      expect(visto[0].auth).toBe('Bearer TOKEN-BETO');
+      expect(visto[0].url.startsWith('https://grupovla.bitrix24.com/')).toBe(true);
     } finally { globalThis.fetch = original; }
   });
 

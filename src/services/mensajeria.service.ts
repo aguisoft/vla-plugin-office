@@ -164,11 +164,22 @@ export class MensajeriaService {
     if (!urlDeBitrix(f.DOWNLOAD_URL)) throw new Error('[disk.file.get] URL de descarga fuera del portal');
     const token = await this.tokens.obtenerVigente(userId);
     if (!token) throw new SinBitrixError();
-    const url = new URL(f.DOWNLOAD_URL);
-    url.searchParams.set('auth', token);
-    const respuesta = await fetch(url);
-    if (!respuesta.ok || !respuesta.body) throw new Error(`[disk.file.get] descarga ${respuesta.status}`);
-    return { nombre: String(f.NAME ?? 'archivo'), respuesta };
+    const original = new URL(f.DOWNLOAD_URL);
+    // Dos formas de autenticar la descarga; se prueba en orden y se registra (sin el
+    // token) qué contestó Bitrix, porque el 1-oct-2026 la URL sola daba 401.
+    const intentos: Array<{ nombre: string; url: URL; headers: Record<string, string> }> = [
+      { nombre: 'bearer', url: original, headers: { Authorization: `Bearer ${token}` } },
+      { nombre: 'auth', url: (() => { const u = new URL(original); u.searchParams.set('auth', token); return u; })(), headers: {} },
+    ];
+    let ultimo = 0;
+    for (const i of intentos) {
+      const respuesta = await fetch(i.url, { headers: i.headers });
+      if (respuesta.ok && respuesta.body) return { nombre: String(f.NAME ?? 'archivo'), respuesta };
+      ultimo = respuesta.status;
+      const cuerpo = (await respuesta.text().catch(() => '')).replace(/[A-Za-z0-9]{32,}/g, '<largo>').slice(0, 160);
+      this.ctx.logger.warn(`Descarga de Bitrix (${i.nombre}) dio ${respuesta.status}; parámetros de la URL: ${[...original.searchParams.keys()].join(',')}; respuesta: ${cuerpo}`);
+    }
+    throw new Error(`[disk.file.get] descarga ${ultimo}`);
   }
 
   async enviar(userId: string, dialogId: string, texto: string, replyId?: number): Promise<{ id: number }> {
