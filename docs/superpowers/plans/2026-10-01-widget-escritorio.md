@@ -70,12 +70,22 @@ consulta en bucle con freno. No se escribe código de la 11 antes de saberlo.
 El callback por usuario apunta a `/api/v1/p/office/bitrix/oauth/callback`, no
 al callback de administración que Bitrix ya conoce.
 
-- [ ] Armar a mano la URL de authorize con ese `redirect_uri` y abrirla con el
-      usuario de Carlos.
-- [ ] Confirmar que Bitrix redirige con `code`, o anotar el error exacto.
+- [x] URL de authorize armada a mano con `client_id` del core y ese
+      `redirect_uri`; la abrió Carlos con su usuario.
+- [x] **Resultado (1-oct-2026): Bitrix ignora el `redirect_uri`.** Mandó el
+      `code` al callback de administración registrado en la app, y el core lo
+      canjeó como token **global** (`/dashboard/admin?tab=integrations&bitrix=connected`).
+      Sin daño: el token global ya era de Carlos (949).
+- [x] **Hallazgo de seguridad:** el callback de administración es público (tiene
+      que serlo) y **no valida `state`**: aceptó `state=prueba`. Cualquier
+      persona del portal que complete un authorize de esta app reemplaza el
+      token global por el suyo, y cobros, office y dashboards pasan a correr con
+      sus permisos. Hoy basta con que alguien abra un enlace armado; con el
+      widget, cada «Conectar mi Bitrix» lo haría. **Se corrige en la Tarea 3,
+      antes de que exista el botón.**
 
-**Si Bitrix lo rechaza:** el callback por usuario pasa a vivir en el core,
-junto al de administración, y reenvía al plugin. Cambia la Tarea 3 y la 9.
+**Consecuencia:** el callback por usuario vive en el core, en el mismo
+endpoint de administración, y distingue por `state`. Cambian la Tarea 3 y la 9.
 
 ---
 
@@ -84,6 +94,7 @@ junto al de administración, y reenvía al plugin. Cambia la Tarea 3 y la 9.
 ### Tarea 3: OAuth por usuario en el cliente de Bitrix
 
 **Archivos (en el servidor, `/var/www/sites/system-somosvla`):**
+- Modificar: `apps/api/src/core/integrations/bitrix/bitrix.controller.ts`
 - Modificar: `apps/api/src/core/integrations/bitrix/bitrix.service.ts`
 - Modificar: `apps/api/src/core/integrations/bitrix/bitrix.types.ts`
 - Modificar: `packages/plugin-sdk/src/types.ts`
@@ -100,17 +111,35 @@ export interface BitrixUserTokens {
   expiresAt: number;
 }
 
-userAuthorizeUrl(redirectUri: string, state: string): string;
-exchangeUserCode(code: string, redirectUri: string): Promise<BitrixUserTokens>;
+/** Crea el state en Redis (10 min, un solo uso) y devuelve la URL de authorize. */
+userAuthorizeUrl(userId: string, returnTo: string): Promise<string>;
 refreshUserToken(refreshToken: string): Promise<BitrixUserTokens>;
 callAsUser<T = any>(accessToken: string, method: string, params?: Record<string, unknown>): Promise<T>;
 ```
 
-- [ ] **Respaldar** los cuatro archivos en el servidor con sufijo de fecha.
+**Callback único, que distingue por `state`** (Bitrix siempre vuelve al de
+administración, Tarea 2):
+
+| `state` recibido | Qué hace |
+|---|---|
+| `a.<aleatorio>` creado por `/authorize` (admin) y vigente | canjea y guarda como token **global**, como hoy |
+| `u.<aleatorio>` creado por `userAuthorizeUrl` y vigente | canjea, dispara `core.bitrix.user_authorized` `{ userId, tokens }`, redirige a `returnTo` |
+| ausente, desconocido, vencido o ya usado | **no canjea**; redirige con `bitrix=error&msg=state` |
+
+- [ ] `/authorize` (admin) pasa a crear su `state` `a.…` en Redis, 10 min.
+- [ ] El `state` se borra al leerlo (`GETDEL`): un solo uso.
+- [ ] `returnTo` solo puede ser una ruta relativa que empiece con `/` (no
+      `//`): sin eso es un redirect abierto.
+- [ ] Prueba clave, por sabotaje: un callback con `state` `u.…` **jamás**
+      toca el token global; uno sin `state` no canjea nada.
+- [ ] Antes de editar, comparar el controlador del servidor con la copia local
+      (la local está desfasada; la que manda es la del servidor).
+- [ ] **Respaldar** los archivos en el servidor con sufijo de fecha.
 - [ ] Bajar esos cuatro archivos a una carpeta de trabajo local. **No** editar
       la copia del repo local: está desfasada.
 - [ ] Pruebas primero: `userAuthorizeUrl` arma la URL con `client_id`,
-      `redirect_uri` codificado y `state`; `exchangeUserCode` y
+      el `redirect_uri` de administración codificado y un `state` `u.…`
+      guardado en Redis con `{ userId, returnTo }`; el canje y
       `refreshUserToken` mapean la respuesta de `oauth.bitrix.info` a
       `BitrixUserTokens`; `callAsUser` manda el token recibido y **nunca** el
       global.
@@ -212,16 +241,14 @@ export function necesitaRefresco(expiresAt: number, ahora: number, margenMs = 60
 ### Tarea 9: Conectar mi Bitrix
 
 **Endpoints:**
-- `GET /bitrix/oauth/start` (logueado) → redirige al authorize de Bitrix.
-- `GET /bitrix/oauth/callback?code&state` → canjea, guarda, redirige a la
-  oficina con un aviso.
+- `GET /bitrix/oauth/start` (logueado) → `ctx.bitrix.userAuthorizeUrl(userId, '/dashboard/office?bitrix=conectado')` y redirige.
 - `GET /bitrix/oauth/estado` → `{ conectado: boolean, desde?: string }`.
-
-- [ ] `state` firmado y de un solo uso, guardado en Redis 10 minutos: sin él,
-      cualquiera podría hacerle conectar a otra persona una cuenta ajena.
-- [ ] Prueba: un callback con `state` desconocido o ya usado se rechaza.
-- [ ] Prueba: el callback guarda los tokens del usuario del `state`, no del que
-      tenga la cookie.
+- **Sin callback propio:** Bitrix no lo respeta (Tarea 2). El plugin escucha
+  `core.bitrix.user_authorized` y guarda con `BitrixUserService.guardar`.
+- [ ] Declarar `core.bitrix.user_authorized` en `hooks.listens` del manifiesto.
+- [ ] Prueba: el handler guarda los tokens del `userId` del evento, no de otro.
+- [ ] Verificación en vivo: Carlos conecta su Bitrix y el token global sigue
+      igual (comparar `expiresAt` del global antes y después).
 
 ### Tarea 10: Proxy de mensajería
 
