@@ -172,6 +172,18 @@ export function OrgChart({ onClose }: { onClose: () => void }) {
             style={{ borderColor: '#e3e3e0', color: TINTA.medio }}>
             Exportar
           </button>
+          {personas && (
+            /* El estado de los datos, a la vista y no escondido en la barra
+               lateral: si algo hay que corregir, que se vea sin buscarlo. */
+            <span className="rounded-lg border px-2.5 py-1 text-[11px]"
+              style={{
+                borderColor: salud.sana ? '#d7e8dc' : '#f0d9b5',
+                background: salud.sana ? '#f2f9f4' : '#fdf6e9',
+                color: salud.sana ? '#166534' : '#92400e',
+              }}>
+              Salud: {salud.sana ? 'óptima' : 'revisar'}
+            </span>
+          )}
         </div>
       </header>
 
@@ -182,6 +194,19 @@ export function OrgChart({ onClose }: { onClose: () => void }) {
         {personas && (
           <div className="mx-auto flex max-w-[1400px] flex-col gap-8 px-4 py-6 md:flex-row md:px-8">
             <main className="min-w-0 flex-1">
+              <div className="mb-6 border-b pb-4" style={{ borderColor: '#ececea' }}>
+                <h1 className="text-[22px] tracking-tight" style={{ color: TINTA.fuerte }}>
+                  Estructura y líneas de mando
+                </h1>
+                <div className="mt-1 flex flex-wrap items-baseline gap-x-4 text-[11px]" style={{ color: TINTA.suave }}>
+                  <span>Quién depende de quién, con el estado y la hora local de cada persona.</span>
+                  <span className="cifras-tabulares ml-auto">
+                    {arbol.cima.length} {arbol.cima.length === 1 ? 'raíz' : 'raíces'}
+                    {' · '}{departamentos.length} departamentos
+                    {' · '}{personas.length} personas
+                  </span>
+                </div>
+              </div>
               {arbol.ciclos.length > 0 && (
                 <div className="mb-5 rounded-xl border p-3 text-[11px]" style={{ borderColor: '#fecaca', background: '#fef2f2', color: '#991b1b' }}>
                   <p className="font-medium">Hay jefaturas circulares y no se pueden dibujar</p>
@@ -219,7 +244,7 @@ export function OrgChart({ onClose }: { onClose: () => void }) {
               )}
 
               <ul>
-                {arbol.cima.map(n => <Rama key={n.persona.userId} nodo={n} nivel={0} {...comun} />)}
+                {arbol.cima.map(n => <Rama key={n.persona.userId} nodo={n} nivel={0} esRaiz {...comun} />)}
               </ul>
 
               {arbol.huerfanos.length > 0 && (
@@ -313,7 +338,14 @@ interface Comun {
   ahora: Date;
 }
 
-function Rama({ nodo, nivel, ...c }: { nodo: NodoOrg; nivel: number } & Comun) {
+/** Iniciales a partir del nombre. Vacío si no hay nombre: no se inventa. */
+function iniciales(nombre: string | null): string {
+  if (!nombre) return '';
+  const partes = nombre.trim().split(/\s+/);
+  return ((partes[0]?.[0] ?? '') + (partes[1]?.[0] ?? '')).toUpperCase();
+}
+
+function Rama({ nodo, nivel, esRaiz = false, ...c }: { nodo: NodoOrg; nivel: number; esRaiz?: boolean } & Comun) {
   const { persona, equipo, totalAbajo } = nodo;
   const plegado = c.cerrados.has(persona.userId);
   const resaltado = c.coincide ? c.coincide(persona) : false;
@@ -323,18 +355,28 @@ function Rama({ nodo, nivel, ...c }: { nodo: NodoOrg; nivel: number } & Comun) {
   const cfg = persona.estado ? STATUS_CFG[persona.estado as ResolvedStatus] : undefined;
   const hora = horaLocalDe(persona.pais, c.ahora);
 
-  // El nombre pierde peso a medida que baja el nivel: la jerarquía se lee por
+  // El nombre pierde cuerpo a medida que baja el nivel: la jerarquía se lee por
   // tamaño además de por indentación.
-  const escala = nivel === 0 ? 'text-[15px] font-medium' : nivel === 1 ? 'text-[13.5px]' : 'text-[12.5px]';
+  const escala = nivel === 0 ? 'text-[15px] font-medium' : nivel === 1 ? 'text-[13.5px] font-medium' : 'text-[12.5px]';
+  const avatar = nivel === 0 ? 30 : nivel === 1 ? 26 : 22;
 
   return (
-    <li>
+    <li className="relative">
+      {/* Conector en L hacia el padre. Decorativo y de bajo contraste: la
+          jerarquía ya se lee por indentación, esto solo la refuerza. */}
+      {nivel > 0 && (
+        <span aria-hidden className="pointer-events-none absolute" style={{
+          left: `${(nivel - 1) * 26 + 14}px`, top: 0, width: '12px', height: '22px',
+          borderLeft: '1px solid #e2e2df', borderBottom: '1px solid #e2e2df', borderBottomLeftRadius: '6px',
+        }} />
+      )}
+
       <div
         style={{
-          paddingLeft: `${nivel * 22}px`,
-          background: esElegido ? 'rgba(0,0,0,.055)' : resaltado ? '#fdf6e3' : enLinea ? 'rgba(0,0,0,.025)' : undefined,
+          paddingLeft: `${nivel * 26}px`,
+          background: esElegido ? 'rgba(0,0,0,.05)' : resaltado ? '#fdf6e3' : enLinea ? 'rgba(0,0,0,.022)' : undefined,
         }}
-        className="flex items-baseline gap-2 rounded-lg py-1.5 pr-2"
+        className="flex items-start gap-2 rounded-lg py-1.5 pr-2"
       >
         {equipo.length > 0 ? (
           <button
@@ -342,42 +384,75 @@ function Rama({ nodo, nivel, ...c }: { nodo: NodoOrg; nivel: number } & Comun) {
             onClick={() => c.alternar(persona.userId)}
             aria-expanded={!plegado}
             aria-label={plegado ? `Mostrar el equipo de ${persona.nombre ?? 'esta persona'}` : `Ocultar el equipo de ${persona.nombre ?? 'esta persona'}`}
-            className="w-4 shrink-0 text-[10px]"
+            className="mt-2 w-4 shrink-0 text-[10px]"
             style={{ color: TINTA.suave }}
           >
             {plegado ? '▸' : '▾'}
           </button>
         ) : <span className="w-4 shrink-0" />}
 
-        <button
-          type="button"
-          onClick={() => c.setElegido(esElegido ? null : persona.userId)}
-          className={`truncate text-left tracking-tight ${escala}`}
-          style={{ color: persona.nombre ? TINTA.fuerte : TINTA.suave, fontStyle: persona.nombre ? undefined : 'italic' }}
+        {/* Chip de iniciales. Sin foto a propósito: el organigrama responde de
+            quién depende cada quien, y una cuadrícula de caras compite con eso. */}
+        <span
+          aria-hidden
+          className="shrink-0 rounded-lg border text-center font-medium"
+          style={{
+            width: avatar, height: avatar, lineHeight: `${avatar - 2}px`,
+            fontSize: nivel === 0 ? 11 : 10,
+            borderColor: '#e6e6e3', background: '#fff', color: TINTA.medio,
+          }}
         >
-          {/* El backend manda null cuando no hay nombre: un hueco en blanco no
-              diría de quién habla la fila. */}
-          {persona.nombre ?? 'Nombre no disponible'}
-        </button>
+          {iniciales(persona.nombre)}
+        </span>
 
-        {persona.departamento && (
-          <span className="shrink-0 text-[11px]" style={{ color: TINTA.suave }}>{persona.departamento}</span>
-        )}
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+            <button
+              type="button"
+              onClick={() => c.setElegido(esElegido ? null : persona.userId)}
+              className={`truncate text-left tracking-tight ${escala}`}
+              style={{ color: persona.nombre ? TINTA.fuerte : TINTA.suave, fontStyle: persona.nombre ? undefined : 'italic' }}
+            >
+              {/* El backend manda null cuando no hay nombre: un hueco en blanco
+                  no diría de quién habla la fila. */}
+              {persona.nombre ?? 'Nombre no disponible'}
+            </button>
 
-        <span className="ml-auto flex shrink-0 items-baseline gap-2.5 text-[11px]">
-          {cfg && (
-            <span className="flex items-center gap-1" style={{ color: TINTA.medio }} title={cfg.label}>
-              <span style={{ color: cfg.color }}>{cfg.glifo}</span>
-              {cfg.label}
+            {persona.departamento && (
+              <span className="text-[11px]" style={{ color: TINTA.suave }}>{persona.departamento}</span>
+            )}
+
+            {esRaiz && (
+              <span className="rounded border px-1.5 text-[9px] uppercase tracking-wider"
+                style={{ borderColor: '#e0e0dd', color: TINTA.suave }}>
+                Raíz
+              </span>
+            )}
+          </div>
+
+          {/* Segunda línea: estado y hora local. Separarla del nombre deja que
+              el nombre sea lo único que se barre al buscar a alguien. */}
+          <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5 text-[11px]">
+            {cfg && (
+              <span className="flex items-center gap-1" style={{ color: TINTA.medio }}>
+                <span style={{ color: cfg.color }}>{cfg.glifo}</span>
+                {cfg.label}
+              </span>
+            )}
+            {hora && (
+              <span className="cifras-tabulares" style={{ color: TINTA.suave }}>
+                {persona.pais} {hora}
+              </span>
+            )}
+          </div>
+        </div>
+
+        <span className="mt-0.5 shrink-0 text-[11px]" style={{ color: TINTA.suave }}>
+          {totalAbajo > 0 ? (
+            <span className="cifras-tabulares">
+              {totalAbajo} {totalAbajo === 1 ? 'persona' : 'personas'}{plegado && ' ocultas'}
             </span>
-          )}
-          {hora && <span style={{ color: TINTA.suave }}>{persona.pais} {hora}</span>}
-          {totalAbajo > 0 && (
-            <span style={{ color: TINTA.suave }}>
-              {totalAbajo} {totalAbajo === 1 ? 'persona' : 'personas'}
-              {plegado && ' ocultas'}
-            </span>
-          )}
+          ) : 'Sin equipo'}
         </span>
       </div>
 
