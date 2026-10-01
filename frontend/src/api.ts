@@ -227,3 +227,25 @@ export const complianceExportUrl = (period: string, anchor: string) => {
   const qs = new URLSearchParams({ period, anchor });
   return `${BASE}${PLUGIN}/timesheet/export?${qs}`;
 };
+
+// ── Bitrix por persona y app de escritorio ───────────────────────────────────
+
+export interface EstadoBitrix {
+  conectado: boolean;
+  desde?: string;
+  rechazo?: 'otra_cuenta' | 'sin_mapeo';
+}
+
+export const getEstadoBitrix = () => api.get<EstadoBitrix>(`${PLUGIN}/bitrix/oauth/estado`);
+export const desconectarBitrix = () => api.delete<{ ok: true }>(`${PLUGIN}/bitrix/oauth`);
+
+/**
+ * Se navega, no se pide por fetch: termina en la pantalla de Bitrix. Va en la
+ * ventana de arriba porque la oficina corre dentro de un iframe y Bitrix no se
+ * deja mostrar enmarcado.
+ */
+export const conectarBitrixUrl = `${BASE}${PLUGIN}/bitrix/oauth/start`;
+
+/** Ruta del core, no del plugin: es el core quien emite el token del escritorio. */
+export const confirmarDispositivo = (userCode: string) =>
+  api.post<{ ok: true }>('/auth/device/confirm', { userCode });

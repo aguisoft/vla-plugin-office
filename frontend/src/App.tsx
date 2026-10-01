@@ -21,6 +21,8 @@ import { MyAbsencesModal } from './components/MyAbsencesModal';
 import { HolidayManager } from './components/HolidayManager';
 import { TimesheetScreen } from './components/TimesheetScreen';
 import { OrgChart } from './components/OrgChart';
+import { EscritorioModal } from './components/EscritorioModal';
+import { resultadoBitrix, type ResultadoBitrix } from './lib/escritorio';
 import { Shell } from './components/modalParts';
 import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant, PendingInvite } from './types';
 import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
@@ -65,6 +67,15 @@ export default function App() {
   const [myStatus, setMyStatus]           = useState('OFFLINE');
   const [showAvatarModal, setShowAvatarModal]       = useState(false);
   const [showBitrixSettings, setShowBitrixSettings] = useState(false);
+  // Al volver de Bitrix el core redirige a /dashboard/office?bitrix=…; se abre
+  // la pantalla de escritorio para mostrar cómo salió. El parámetro puede estar
+  // en la URL del iframe o en la de la página que lo contiene.
+  const [vueltaBitrix] = useState<ResultadoBitrix | null>(() => {
+    let dePadre: string | null = null;
+    try { dePadre = window.parent !== window ? window.parent.location.search : null; } catch { /* otro origen */ }
+    return resultadoBitrix(window.location.search, dePadre);
+  });
+  const [showEscritorio, setShowEscritorio] = useState(vueltaBitrix !== null);
   const [showHolidayAdmin, setShowHolidayAdmin]     = useState(false);
   const [showAbsences, setShowAbsences]             = useState(false);
   const [usePhotos, setUsePhotos] = useState(() => localStorage.getItem('vla-use-photos') !== 'false');
@@ -120,6 +131,17 @@ export default function App() {
     es.onopen  = () => { setConnected(true); loadData(); };
     es.onerror = () => setConnected(false);
     es.onmessage = (event) => {
+      // Un mensaje de Bitrix no cambia a nadie en el mapa: avisar y nada más.
+      try {
+        const msg = JSON.parse(event.data) as { type?: string; de?: string; preview?: string; nuevos?: number };
+        if (msg.type === 'im:new') {
+          setNotice(msg.de
+            ? `${msg.de} te escribió: ${msg.preview ?? ''}`
+            : msg.nuevos === 1 ? 'Tenés 1 mensaje nuevo en Bitrix' : `Tenés ${msg.nuevos ?? 'varios'} mensajes nuevos en Bitrix`);
+          return;
+        }
+      } catch { /* no es JSON: sigue el refresco de siempre */ }
+
       api.get<UserSnapshot[]>('/p/office/snapshot')
         .then(data => setUsers(data))
         .catch(() => {});
@@ -498,6 +520,15 @@ export default function App() {
         Organigrama
       </button>
 
+      <button onClick={() => setShowEscritorio(true)}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] text-gray-500 hover:bg-gray-100 transition-colors"
+        title="App de escritorio y mensajes de Bitrix">
+        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5h16a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zM8 20h8m-4-4v4" />
+        </svg>
+        Escritorio
+      </button>
+
       {/* Sin gating por office.manage: es un reporte de lo propio, cualquiera
           lo puede ver (y quien tenga gente a cargo, también lo suyo). */}
       <button onClick={() => irA('tiempos')}
@@ -547,6 +578,18 @@ export default function App() {
     <>
       {showAvatarModal && (
         <AvatarModal current={myUser?.avatar ?? null} onSave={handleSaveAvatar} onClose={() => setShowAvatarModal(false)} />
+      )}
+      {showEscritorio && (
+        <EscritorioModal resultado={vueltaBitrix} onClose={() => {
+          setShowEscritorio(false);
+          // Que recargar no vuelva a abrirla con el resultado viejo.
+          for (const w of [window, window.parent]) {
+            try {
+              const u = new URL(w.location.href);
+              if (u.searchParams.has('bitrix')) { u.searchParams.delete('bitrix'); w.history.replaceState({}, '', u); }
+            } catch { /* otro origen */ }
+          }
+        }} />
       )}
       {showBitrixSettings && (
         <BitrixSettings onClose={() => setShowBitrixSettings(false)} />
