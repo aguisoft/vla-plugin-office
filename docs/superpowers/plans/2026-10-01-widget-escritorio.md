@@ -404,6 +404,10 @@ El aviso sale siempre por:
 
 ---
 
+### Tarea 18b: Actualizaciones al aire (pedida el 1-oct-2026)
+
+> **Hecho.** Office 1.16.0 (`939ddb4`) sirve `/escritorio/version` y `/escritorio/descarga` desde `storage/plugins/.escritorio` y avisa `app:update` por SSE al publicarse (fs.watch + cron por minuto; la primera lectura tras arrancar no avisa). Widget 0.2.0 (`2104661`): firma Ed25519 con clave privada fuera del servidor (`%USERPROFILE%\.vla-widget\firma-privada.pem`), verifica firma + sha512 + que la versión sea mayor, instala NSIS en silencio (`/S --updated --force-run`), espera si el panel está en uso, busca también al arrancar y cada 4 h. `npm run publicar`. Prueba contra producción: publicar 0.2.0 → widget conectado verificado en 42 s. **Falta** probar la instalación silenciosa real, que solo se puede con la app instalada (piloto: instalar 0.2.0 y publicar 0.2.1).
+
 ## Fase D — Despliegue
 
 ### Tarea 19: Piloto
