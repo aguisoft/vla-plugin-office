@@ -67,7 +67,7 @@ consulta en bucle con freno. No se escribe código de la 11 antes de saberlo.
 
 ### Tarea 2: ¿Bitrix acepta un `redirect_uri` del plugin?
 
-El callback por usuario apunta a `/api/v1/p/office/bitrix/oauth/callback`, no
+Se probó si el callback por usuario podía apuntar a `/api/v1/p/office/bitrix/oauth/callback`, no
 al callback de administración que Bitrix ya conoce.
 
 - [x] URL de authorize armada a mano con `client_id` del core y ese

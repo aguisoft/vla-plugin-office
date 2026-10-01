@@ -127,14 +127,22 @@ SDK antes de planificar.
 `call`, `callRaw` y `callAll`, todos con el token global de la aplicación, y —
 correctamente— nunca el `clientSecret`. Sin el secreto el plugin no puede
 canjear un código de autorización por tokens. El cliente de Bitrix del core gana
-cuatro métodos, expuestos en `ctx.bitrix`:
+tres métodos, expuestos en `ctx.bitrix`:
 
 ```ts
-userAuthorizeUrl(redirectUri: string, state: string): string;
-exchangeUserCode(code: string, redirectUri: string): Promise<BitrixUserTokens>;
+userAuthorizeUrl(userId: string, returnTo: string): Promise<string>;
 refreshUserToken(refreshToken: string): Promise<BitrixUserTokens>;
 callAsUser<T>(accessToken: string, method: string, params?: Record<string, unknown>): Promise<T>;
 ```
+
+**Corrección del 1-oct-2026 (compuerta 2):** Bitrix ignora el `redirect_uri`
+y siempre vuelve al callback de administración registrado en la app. Por eso
+el canje no lo hace el plugin: el callback del core distingue por `state`
+(`a.…` administración, `u.…` usuario, cualquier otro se rechaza) y, en el caso
+de usuario, entrega los tokens al plugin con el hook
+`core.bitrix.user_authorized { userId, tokens }`. De paso se cierra un hueco:
+ese callback no validaba `state`, así que cualquiera que completara un
+authorize reemplazaba el token global.
 
 El secreto se queda en el core. Los tokens de cada persona viven en el plugin
 (Pieza 1). Es la división correcta: el cliente de Bitrix es responsabilidad del
