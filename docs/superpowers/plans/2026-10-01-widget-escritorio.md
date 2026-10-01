@@ -354,7 +354,7 @@ El aviso sale siempre por:
 
 ### Tarea 14: Vinculación y guardado del token
 
-> **Hecho.** `safeStorage` (DPAPI); sin cifrado disponible la sesión vive solo en memoria. Verificado: el archivo no contiene el JWT. **Deuda:** el JWT dura 7 días, así que cada persona revincula una vez por semana; hace falta un `/auth/device/refresh` en el core.
+> **Hecho.** `safeStorage` (DPAPI); sin cifrado disponible la sesión vive solo en memoria. Verificado: el archivo no contiene el JWT. **Renovación automática (1-oct-2026):** core `454e816` agrega `POST /auth/device/refresh`, que solo renueva tokens con `dispositivo: true` (los que emite la vinculación), recalcula permisos y rechaza cuentas inactivas y suplantaciones; desplegado 20:45 UTC (respaldo `respaldo-core-20261001-1444.tgz`), verificado: token web → 403, token de escritorio → nuevo token de 7 días que sirve en core y office. El widget 0.1.1 (`renovacion.ts`) renueva con menos de 2 días por delante, revisando al arrancar y cada 6 h.
 
 - [ ] Primera apertura: pide código a `/auth/device/start`, lo muestra grande,
       consulta `/auth/device/token` cada 3 s hasta 5 minutos.
