@@ -117,14 +117,63 @@ escribió.
 
 Solo conversaciones **uno a uno** en esta versión.
 
-### Pieza 3 — Hook genérico de push en el core
+### Pieza 3 — Dos cambios al core
 
-`PushService` gana un `registerAction('core.push.send', …)` que cualquier
-plugin pueda disparar con `{ userId, title, body, url }`.
+**Corrección de la primera versión de este documento**, que decía que el único
+cambio al core era el hook de push. No es cierto, y se descubrió al revisar el
+SDK antes de planificar.
 
-Es el **único cambio al core**, y es aditivo. Importa decirlo porque el core se
-compila en el servidor (`build: context: .`): desplegarlo obliga a reconstruir
-la imagen del API, bastante más pesado que subir un `.vla.zip`.
+**3a. OAuth por usuario en el cliente de Bitrix.** El SDK le expone al plugin
+`call`, `callRaw` y `callAll`, todos con el token global de la aplicación, y —
+correctamente— nunca el `clientSecret`. Sin el secreto el plugin no puede
+canjear un código de autorización por tokens. El cliente de Bitrix del core gana
+cuatro métodos, expuestos en `ctx.bitrix`:
+
+```ts
+userAuthorizeUrl(redirectUri: string, state: string): string;
+exchangeUserCode(code: string, redirectUri: string): Promise<BitrixUserTokens>;
+refreshUserToken(refreshToken: string): Promise<BitrixUserTokens>;
+callAsUser<T>(accessToken: string, method: string, params?: Record<string, unknown>): Promise<T>;
+```
+
+El secreto se queda en el core. Los tokens de cada persona viven en el plugin
+(Pieza 1). Es la división correcta: el cliente de Bitrix es responsabilidad del
+core según el CLAUDE.md, y los datos de cada usuario son del plugin que los usa.
+
+**3b. Hook genérico de push.** `PushService` gana un
+`registerAction('core.push.send', …)` que cualquier plugin pueda disparar con
+`{ userId, title, body, url }`.
+
+**3c. Autorización de dispositivo.** La vinculación por código (Pieza 6)
+termina emitiendo un JWT para la app de escritorio, y **un plugin no puede
+emitir tokens**: el SDK solo le da `requireAuth`, que verifica. Así que el
+flujo vive en el módulo de autenticación del core, que es además su lugar. Es
+el patrón estándar de *device authorization grant* (RFC 8628):
+
+| Endpoint | Auth | Qué hace |
+|---|---|---|
+| `POST /auth/device/start` | pública | Devuelve `userCode` (6 caracteres), `deviceCode` (secreto, largo) y vencimiento |
+| `POST /auth/device/confirm` | logueado | La persona confirma un `userCode` desde la web |
+| `POST /auth/device/token` | pública | La app canjea su `deviceCode`: `pending` hasta que se confirme, después el JWT **una sola vez** |
+
+Estado en Redis con vencimiento de 5 minutos. La pantalla para teclear el
+código va en el frontend de office, que llama al endpoint del core con la
+cookie de la persona: así no se toca `apps/web`.
+
+Ninguno de los tres necesita tablas nuevas en el core. Pero los dos tocan el
+core, y eso pesa por tres razones verificadas:
+
+- El core se compila en el servidor (`build: context: .`): desplegar obliga a
+  reconstruir la imagen del API.
+- **El código del core en el servidor no es un repositorio git.** No hay
+  historial que permita revertir: cada archivo se respalda antes de tocarlo.
+- **El árbol local del core está desfasado** respecto del servidor desde antes
+  del 29-abr, y sincronizarlo completo ya rompió el login una vez. Los cambios
+  se hacen archivo por archivo, bajando del servidor, editando y subiendo —
+  nunca copiando el árbol local entero.
+
+El SDK, además, está **vendorizado** en cada plugin (`vendor/plugin-sdk/`):
+tras cambiar sus tipos hay que recopiarlo en office para que compile.
 
 ### Pieza 4 — Cómo nos enteramos de un mensaje nuevo
 
@@ -161,12 +210,14 @@ plugin. Para 23 personas en red interna, 150 MB no es un problema real.
 ### Pieza 6 — Autenticación del escritorio
 
 El equipo entra con Google, y el flujo de Google redirige a la web, no a una
-app de escritorio. **Código de vinculación**, el patrón de los televisores:
+app de escritorio. **Código de vinculación**, el patrón de los televisores,
+implementado en el core (ver 3c):
 
-1. La app pide un código: `POST /desktop/pair` → devuelve 6 caracteres y queda
-   esperando.
+1. La app pide un código: `POST /auth/device/start` → 6 caracteres a la vista
+   y un `deviceCode` secreto que se queda en la app.
 2. La persona abre la oficina virtual, ya logueada, y teclea el código.
-3. La web confirma; la espera de la app devuelve un token.
+3. La web confirma; la app, que consulta `/auth/device/token` cada pocos
+   segundos, recibe su JWT.
 
 Se eligió sobre las alternativas: el **webview embebido** obliga a leer una
 cookie httpOnly desde el proceso nativo, frágil y difícil de depurar; la
@@ -192,7 +243,8 @@ El código vive **5 minutos**, es de un solo uso, y se invalida al usarlo.
 | Los eventos de Bitrix podrían no estar disponibles | Primera tarea del plan: verificarlo. Si fallan, se cae al bucle con freno, que sabemos que funciona pero exige cuidado |
 | Saturar Bitrix con consultas | Serializado y con retroceso. Precedente real: 3 pagos varados el 3-ago-2026 |
 | 23 personas tienen que autorizar su Bitrix | Sin eso no hay mensajería a su nombre. Hay que acompañarlo con instrucciones, y el widget debe explicar el 409 en vez de mostrarse vacío |
-| El cambio al core obliga a reconstruir la imagen del API | Es aditivo y chico. Se despliega una vez, antes del plugin |
+| Los cambios al core obligan a reconstruir la imagen del API, sobre un código que no está en git y un árbol local desfasado | Respaldo de cada archivo antes de tocarlo, cambios archivo por archivo, despliegue único antes del plugin. Nunca sincronizar el árbol local completo |
+| El `redirect_uri` por usuario apunta al plugin, no al callback que Bitrix ya conoce | Bitrix valida el dominio del redirect contra la aplicación registrada. Hay que verificarlo antes de construir el flujo: es la segunda tarea del plan |
 | Primer empaquetado de escritorio del proyecto | Nunca se hizo acá. El primer instalador siempre trae sorpresas; presupuestar holgura |
 | 23 credenciales de Bitrix en una tabla en texto plano | Sigue la práctica del core. Queda anotado como deuda explícita, no escondido |
 
