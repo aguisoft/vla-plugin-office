@@ -1306,7 +1306,10 @@ const plugin: PluginDefinition = {
     // ── Hooks ─────────────────────────────────────────────────────────────────
 
     ctx.hooks.registerAction('core.bitrix.user_authorized', async (payload: any) => {
-      await bitrixUser.alAutorizar(payload);
+      const veredicto = await bitrixUser.alAutorizar(payload);
+      // El widget de esa persona recarga los mensajes sin que tenga que hacer
+      // nada: antes se quedaba en «Conectá tu Bitrix» hasta cerrar sesión.
+      if (veredicto === 'ok') presence.broadcastToUser(payload.userId, { type: 'bitrix:conectado' });
     });
 
     ctx.hooks.registerAction('core.user.created', async ({ user }: { user: { id: string } }) => {

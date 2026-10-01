@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  normalizarCodigo, problemaDelCodigo, mensajeDeVinculacion, resultadoBitrix, textoEstadoBitrix,
+  normalizarCodigo, problemaDelCodigo, mensajeDeVinculacion, resultadoBitrix, textoEstadoBitrix, enlaceEscritorio,
 } from './escritorio';
 
 describe('normalizarCodigo', () => {
@@ -81,4 +81,18 @@ describe('textoEstadoBitrix', () => {
   it('sin conectar explica para qué sirve', () => {
     expect(textoEstadoBitrix({ conectado: false })).toMatch(/No conectado/);
   });
+});
+
+describe('enlaceEscritorio', () => {
+  it('un código válido se precarga, normalizado', () => {
+    expect(enlaceEscritorio('?escritorio=k7p-3qx')).toEqual({ tipo: 'codigo', codigo: 'K7P3QX' });
+  });
+  it('«bitrix» lleva a conectar', () => {
+    expect(enlaceEscritorio('', '?view=oficina&escritorio=bitrix')).toEqual({ tipo: 'bitrix' });
+  });
+  it('un código mal formado se ignora', () => {
+    expect(enlaceEscritorio('?escritorio=K7P3Q0')).toBeNull();
+    expect(enlaceEscritorio('?escritorio=<script>')).toBeNull();
+  });
+  it('sin parámetro, nada', () => expect(enlaceEscritorio('?view=tiempos', null)).toBeNull());
 });

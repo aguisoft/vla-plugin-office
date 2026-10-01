@@ -68,3 +68,24 @@ export function textoEstadoBitrix(estado: { conectado: boolean; desde?: string; 
   }
   return 'No conectado. Sin esto, el widget no puede mostrar ni mandar tus mensajes.';
 }
+
+export type EnlaceEscritorio = { tipo: 'codigo'; codigo: string } | { tipo: 'bitrix' };
+
+/**
+ * Lo que pide el widget al abrir la oficina: `?escritorio=K7P3QX` (vincular con
+ * ese código ya escrito) o `?escritorio=bitrix` (ir directo a conectar Bitrix).
+ *
+ * El código solo se PRECARGA: vincular sigue pidiendo tocar «Vincular». Si se
+ * confirmara solo, cualquiera podría mandarle a otra persona un enlace con SU
+ * código y quedarse con una sesión de esa persona con un clic.
+ */
+export function enlaceEscritorio(...busquedas: Array<string | null | undefined>): EnlaceEscritorio | null {
+  for (const b of busquedas) {
+    if (!b) continue;
+    const v = new URLSearchParams(b).get('escritorio');
+    if (!v) continue;
+    if (v.toLowerCase() === 'bitrix') return { tipo: 'bitrix' };
+    if (!problemaDelCodigo(v)) return { tipo: 'codigo', codigo: normalizarCodigo(v) };
+  }
+  return null;
+}

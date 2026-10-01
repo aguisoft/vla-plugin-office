@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Shell } from './modalParts';
 import {
   ApiError, conectarBitrixUrl, confirmarDispositivo, desconectarBitrix, getEstadoBitrix, type EstadoBitrix,
@@ -8,22 +8,28 @@ import {
 } from '../lib/escritorio';
 
 /**
- * Lo que la app de escritorio necesita de esta pantalla, en el orden en que
- * se hace la primera vez: conectar el Bitrix propio (para los mensajes) y
- * vincular la app con el código que muestra.
+ * La puesta en marcha de la app de escritorio, en el orden en que se hace:
+ * 1) vincular la app con el código que muestra, 2) conectar el Bitrix propio
+ * para los mensajes. El widget abre esta pantalla con el código ya escrito
+ * (`?escritorio=CODIGO`) o directo al paso 2 (`?escritorio=bitrix`).
  */
-export function EscritorioModal({ onClose, resultado }: {
+export function EscritorioModal({ onClose, resultado, codigoInicial, autoConectar }: {
   onClose: () => void;
   /** Viene de la vuelta de Bitrix (`?bitrix=listo|error`), si la hubo. */
   resultado: ResultadoBitrix | null;
+  /** Código que mandó el widget: se precarga, pero vincular sigue pidiendo un clic. */
+  codigoInicial?: string | null;
+  /** El widget pidió conectar Bitrix: se va directo a Bitrix si falta. */
+  autoConectar?: boolean;
 }) {
   const [estado, setEstado] = useState<EstadoBitrix | null>(null);
   const [errorEstado, setErrorEstado] = useState(false);
-  const [codigo, setCodigo] = useState('');
+  const [codigo, setCodigo] = useState(codigoInicial ?? '');
   const [tocado, setTocado] = useState(false);
   const [enviando, setEnviando] = useState(false);
   const [vinculado, setVinculado] = useState(false);
   const [errorVinculo, setErrorVinculo] = useState<string | null>(null);
+  const yaRedirigio = useRef(false);
 
   const cargarEstado = () => {
     setErrorEstado(false);
@@ -39,6 +45,14 @@ export function EscritorioModal({ onClose, resultado }: {
       window.location.href = conectarBitrixUrl;
     }
   }
+
+  // Desde el widget («Conectar mi Bitrix»): si todavía no está, directo a Bitrix.
+  useEffect(() => {
+    if (autoConectar && estado && !estado.conectado && !yaRedirigio.current) {
+      yaRedirigio.current = true;
+      conectar();
+    }
+  }, [autoConectar, estado]);
 
   async function desconectar() {
     await desconectarBitrix().catch(() => undefined);
@@ -63,42 +77,38 @@ export function EscritorioModal({ onClose, resultado }: {
     }
   }
 
+  const bitrixListo = !!estado?.conectado;
+  const Paso = ({ n, hecho, titulo }: { n: number; hecho: boolean; titulo: string }) => (
+    <h3 className="mb-1 flex items-center gap-2 text-xs font-semibold text-gray-700">
+      <span className={`flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-bold ${hecho ? 'bg-green-500 text-white' : 'bg-gray-200 text-gray-600'}`}>
+        {hecho ? '✓' : n}
+      </span>
+      {titulo}
+    </h3>
+  );
+
   return (
     <Shell title="App de escritorio" onClose={onClose}>
-      {resultado === 'listo' && estado?.conectado && (
-        <p className="mb-3 rounded-xl bg-green-50 px-3 py-2 text-xs text-green-700">Bitrix conectado. Ya podés usar la mensajería.</p>
+      {resultado === 'listo' && bitrixListo && (
+        <p className="mb-3 rounded-xl bg-green-50 px-3 py-2 text-xs text-green-700">Bitrix conectado. Ya podés ver y mandar tus mensajes desde la app.</p>
       )}
       {resultado === 'error' && (
         <p className="mb-3 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">Bitrix no completó la conexión. Volvé a intentarlo.</p>
       )}
 
       <section className="mb-4">
-        <h3 className="mb-1 text-xs font-semibold text-gray-700">1. Tu Bitrix</h3>
-        <p className="mb-2 text-xs text-gray-500" data-testid="estado-bitrix">
-          {errorEstado ? 'No se pudo consultar el estado.' : textoEstadoBitrix(estado)}
-        </p>
-        {estado && !estado.conectado && (
-          <button onClick={conectar}
-            className="w-full rounded-xl bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-700">
-            Conectar mi Bitrix
-          </button>
-        )}
-        {estado?.conectado && (
-          <button onClick={desconectar} className="text-[11px] text-gray-500 underline hover:text-gray-700">
-            Desconectar
-          </button>
-        )}
-      </section>
-
-      <section>
-        <h3 className="mb-1 text-xs font-semibold text-gray-700">2. Vincular la app</h3>
+        <Paso n={1} hecho={vinculado} titulo="Vincular la app" />
         {vinculado ? (
           <p className="rounded-xl bg-green-50 px-3 py-2 text-xs text-green-700" data-testid="vinculado">
             Listo: la app de escritorio ya entró con tu cuenta.
           </p>
         ) : (
           <>
-            <p className="mb-2 text-xs text-gray-500">Abrí la app en tu computadora: te muestra un código de 6 caracteres.</p>
+            <p className="mb-2 text-xs text-gray-500">
+              {codigoInicial
+                ? 'Revisá que sea el mismo código que muestra la app en tu computadora y tocá Vincular.'
+                : 'Abrí la app en tu computadora: te muestra un código de 6 caracteres.'}
+            </p>
             <div className="flex gap-2">
               <input
                 value={codigo}
@@ -122,6 +132,30 @@ export function EscritorioModal({ onClose, resultado }: {
           </>
         )}
       </section>
+
+      <section>
+        <Paso n={2} hecho={bitrixListo} titulo="Conectar tu Bitrix" />
+        <p className="mb-2 text-xs text-gray-500" data-testid="estado-bitrix">
+          {errorEstado ? 'No se pudo consultar el estado.' : textoEstadoBitrix(estado)}
+        </p>
+        {estado && !estado.conectado && (
+          <button onClick={conectar}
+            className={`w-full rounded-xl px-3 py-2 text-xs font-semibold text-white ${vinculado ? 'bg-green-600 hover:bg-green-700' : 'bg-gray-900 hover:bg-gray-700'}`}>
+            {vinculado ? 'Siguiente: conectar mi Bitrix' : 'Conectar mi Bitrix'}
+          </button>
+        )}
+        {bitrixListo && (
+          <button onClick={desconectar} className="text-[11px] text-gray-500 underline hover:text-gray-700">
+            Desconectar
+          </button>
+        )}
+      </section>
+
+      {bitrixListo && vinculado && (
+        <p className="mt-4 rounded-xl bg-green-50 px-3 py-2 text-center text-xs font-semibold text-green-700">
+          Todo listo. Ya podés cerrar esto: la app muestra tus mensajes sola.
+        </p>
+      )}
     </Shell>
   );
 }

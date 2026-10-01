@@ -22,7 +22,7 @@ import { HolidayManager } from './components/HolidayManager';
 import { TimesheetScreen } from './components/TimesheetScreen';
 import { OrgChart } from './components/OrgChart';
 import { EscritorioModal } from './components/EscritorioModal';
-import { resultadoBitrix, type ResultadoBitrix } from './lib/escritorio';
+import { resultadoBitrix, enlaceEscritorio, type ResultadoBitrix, type EnlaceEscritorio } from './lib/escritorio';
 import { Shell } from './components/modalParts';
 import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant, PendingInvite } from './types';
 import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
@@ -75,7 +75,13 @@ export default function App() {
     try { dePadre = window.parent !== window ? window.parent.location.search : null; } catch { /* otro origen */ }
     return resultadoBitrix(window.location.search, dePadre);
   });
-  const [showEscritorio, setShowEscritorio] = useState(vueltaBitrix !== null);
+  // El widget abre la oficina con ?escritorio=CODIGO o ?escritorio=bitrix.
+  const [enlace] = useState<EnlaceEscritorio | null>(() => {
+    let dePadre: string | null = null;
+    try { dePadre = window.parent !== window ? window.parent.location.search : null; } catch { /* otro origen */ }
+    return enlaceEscritorio(window.location.search, dePadre);
+  });
+  const [showEscritorio, setShowEscritorio] = useState(vueltaBitrix !== null || enlace !== null);
   const [showHolidayAdmin, setShowHolidayAdmin]     = useState(false);
   const [showAbsences, setShowAbsences]             = useState(false);
   const [usePhotos, setUsePhotos] = useState(() => localStorage.getItem('vla-use-photos') !== 'false');
@@ -135,7 +141,7 @@ export default function App() {
       try {
         const msg = JSON.parse(event.data) as { type?: string; de?: string; preview?: string; nuevos?: number };
         // Es para la app de escritorio: la web no tiene nada que hacer.
-        if (msg.type === 'app:update') return;
+        if (msg.type === 'app:update' || msg.type === 'bitrix:conectado') return;
         if (msg.type === 'im:new') {
           setNotice(msg.de
             ? `${msg.de} te escribió: ${msg.preview ?? ''}`
@@ -582,16 +588,21 @@ export default function App() {
         <AvatarModal current={myUser?.avatar ?? null} onSave={handleSaveAvatar} onClose={() => setShowAvatarModal(false)} />
       )}
       {showEscritorio && (
-        <EscritorioModal resultado={vueltaBitrix} onClose={() => {
-          setShowEscritorio(false);
-          // Que recargar no vuelva a abrirla con el resultado viejo.
-          for (const w of [window, window.parent]) {
-            try {
-              const u = new URL(w.location.href);
-              if (u.searchParams.has('bitrix')) { u.searchParams.delete('bitrix'); w.history.replaceState({}, '', u); }
-            } catch { /* otro origen */ }
-          }
-        }} />
+        <EscritorioModal resultado={vueltaBitrix}
+          codigoInicial={enlace?.tipo === 'codigo' ? enlace.codigo : null}
+          autoConectar={enlace?.tipo === 'bitrix'}
+          onClose={() => {
+            setShowEscritorio(false);
+            // Que recargar no vuelva a abrirla con el resultado viejo.
+            for (const w of [window, window.parent]) {
+              try {
+                const u = new URL(w.location.href);
+                let cambio = false;
+                for (const p of ['bitrix', 'escritorio']) if (u.searchParams.has(p)) { u.searchParams.delete(p); cambio = true; }
+                if (cambio) w.history.replaceState({}, '', u);
+              } catch { /* otro origen */ }
+            }
+          }} />
       )}
       {showBitrixSettings && (
         <BitrixSettings onClose={() => setShowBitrixSettings(false)} />
