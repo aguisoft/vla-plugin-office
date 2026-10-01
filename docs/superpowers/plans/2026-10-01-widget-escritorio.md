@@ -93,6 +93,8 @@ endpoint de administración, y distingue por `state`. Cambian la Tarea 3 y la 9.
 
 ### Tarea 3: OAuth por usuario en el cliente de Bitrix
 
+> **Hecho 1-oct-2026** en `core-servidor-trabajo/` (copia del servidor con git propio), commit `563cef0`. 49 pruebas; sabotaje de la guarda del state (6 fallan) y del token en callAsUser (1 falla). Además de lo planeado: `bitrixUserId` en el payload para que el plugin compare con su mapeo, y `RedisService.getDel` con MULTI.
+
 **Archivos (en el servidor, `/var/www/sites/system-somosvla`):**
 - Modificar: `apps/api/src/core/integrations/bitrix/bitrix.controller.ts`
 - Modificar: `apps/api/src/core/integrations/bitrix/bitrix.service.ts`
@@ -149,6 +151,8 @@ administración, Tarea 2):
 
 ### Tarea 4: Hook genérico de push
 
+> **Hecho 1-oct-2026** en `core-servidor-trabajo/` (copia del servidor con git propio), commit `33f66e4`. 11 pruebas; `url` solo interna. Se arregló una prueba de `subscribe` que ya fallaba en el servidor.
+
 **Archivos:** Modificar `apps/api/src/core/push/push.service.ts`, prueba en
 `push.service.spec.ts`.
 
@@ -160,6 +164,8 @@ administración, Tarea 2):
       existe.
 
 ### Tarea 5: Autorización de dispositivo
+
+> **Hecho 1-oct-2026** en `core-servidor-trabajo/` (copia del servidor con git propio), commit `9ca01d2`. 18 pruebas con sabotaje. **Ruling:** detrás del proxy no hay IP real (sin `trust proxy`), así que el freno de @Throttle es global por ruta: `/token` va sin freno (deviceCode de 256 bits), `/start` 30/min global. `/confirm` se niega durante una suplantación. Claves con prefijo `core:device:`. Se corrigió el `moduleNameMapper` de jest (apuntaba a `apps/packages`). `auth.service.spec` tiene 4 fallas previas (mock sin `customRole`), sin tocar.
 
 **Archivos:** Crear `apps/api/src/core/auth/device.service.ts` y su prueba;
 modificar `auth.controller.ts` y `auth.module.ts`.
@@ -195,6 +201,8 @@ modificar `auth.controller.ts` y `auth.module.ts`.
       mentalmente antes de empezar, no durante el incidente.
 
 ### Tarea 7: Vendorizar el SDK en office
+
+> **Hecho 1-oct-2026** en `core-servidor-trabajo/` (copia del servidor con git propio), commit `c198744` en office; tsc limpio, 527 pruebas.
 
 - [ ] Copiar la salida compilada de `packages/plugin-sdk` a
       `vla-plugin-office/vendor/plugin-sdk/`.
