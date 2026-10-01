@@ -254,6 +254,35 @@ export interface PluginBitrixClient {
     }>;
     /** Auto-paginating call that follows the `next` cursor and returns all results */
     callAll<T = any>(method: string, params?: Record<string, unknown>): Promise<T[]>;
+    /**
+     * URL de authorize para que UNA persona conecte su Bitrix. Al volver, el core
+     * dispara `core.bitrix.user_authorized` ({@link BitrixUserAuthorizedPayload})
+     * y redirige a `returnTo`, que tiene que ser una ruta interna (`/dashboard/…`).
+     */
+    userAuthorizeUrl(userId: string, returnTo: string): Promise<string>;
+    /** Refresca el par de una persona. Si el error menciona `invalid_grant`, revocó el acceso. */
+    refreshUserToken(refreshToken: string): Promise<BitrixUserTokens>;
+    /** Llamada con el token de una persona. Nunca usa ni refresca el token global. */
+    callAsUser<T = any>(accessToken: string, method: string, params?: Record<string, unknown>): Promise<T>;
+}
+/** Tokens de una persona. Los guarda el plugin que los pidió; el core no. */
+export interface BitrixUserTokens {
+    accessToken: string;
+    refreshToken: string;
+    /** Instante absoluto, en milisegundos. */
+    expiresAt: number;
+}
+/** Payload del hook `core.bitrix.user_authorized`. */
+export interface BitrixUserAuthorizedPayload {
+    /** Usuario VLA que inició la conexión. */
+    userId: string;
+    /**
+     * Usuario de Bitrix que autorizó de verdad. Puede no corresponder a `userId`
+     * si en ese navegador había otra sesión de Bitrix: compararlo con el mapeo
+     * antes de guardar.
+     */
+    bitrixUserId: string | null;
+    tokens: BitrixUserTokens;
 }
 export interface PluginAiClient {
     /** Returns true if at least one AI provider is configured */
