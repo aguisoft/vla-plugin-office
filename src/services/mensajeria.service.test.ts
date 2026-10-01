@@ -63,10 +63,31 @@ describe('MensajeriaService: el proxy habla como quien pregunta', () => {
       p?.SKIP_CHAT ? [{ id: '1001', type: 'user' }] : [{ id: 'chat1', type: 'chat', chat: { type: 'general' } }, { id: 'chat9', type: 'chat', chat: { type: 'tasksTask' } }]);
     const r = await svc.recientes('ana');
     expect(r.map((i: any) => i.id)).toEqual(['1001', 'chat1']);
-    expect(callAsUser.mock.calls.map(c => c[2])).toEqual([
+    expect(callAsUser.mock.calls.slice(0, 2).map(c => c[2])).toEqual([
       { SKIP_OPENLINES: 'Y', SKIP_CHAT: 'Y' },
       { SKIP_OPENLINES: 'Y', SKIP_DIALOG: 'Y' },
     ]);
+  });
+
+  it('recientes agrega los diálogos sin leer que Bitrix no listó, con su nombre', async () => {
+    const { svc, callAsUser } = armar();
+    callAsUser.mockImplementation(async (_t: string, m: string, p: any) => {
+      if (m === 'im.counters.get') return { DIALOG: { '1001': 0, '4242': 2 } };
+      if (m === 'im.user.list.get') return { 4242: { name: 'Externo Uno' } };
+      return p?.SKIP_CHAT ? [{ id: '1001', type: 'user' }] : [];
+    });
+    const r = await svc.recientes('ana');
+    expect(r.map((i: any) => [i.id, i.title, i.counter])).toEqual([['4242', 'Externo Uno', 2], ['1001', undefined, undefined]]);
+    expect(callAsUser).toHaveBeenCalledWith('TOKEN-ANA', 'im.user.list.get', { ID: [4242] });
+  });
+
+  it('si completar falla, la lista de recientes igual sale', async () => {
+    const { svc, callAsUser } = armar();
+    callAsUser.mockImplementation(async (_t: string, m: string, p: any) => {
+      if (m === 'im.counters.get') throw new Error('[im.counters.get] QUERY_LIMIT_EXCEEDED: ');
+      return p?.SKIP_CHAT ? [{ id: '1001', type: 'user' }] : [];
+    });
+    expect((await svc.recientes('ana')).map((i: any) => i.id)).toEqual(['1001']);
   });
 
   it('sin Bitrix conectado lanza SinBitrixError, nunca devuelve una lista vacía', async () => {

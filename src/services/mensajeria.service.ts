@@ -3,7 +3,7 @@ import type { BitrixUserService } from './bitrix-user.service';
 import {
   decidirAviso, registrarAvisoInmediato, saltosTrasFallos, totalSinLeer, vistaPrevia,
 } from '../lib/im-aviso';
-import { unirRecientes } from '../lib/im-recientes';
+import { unirRecientes, completarSinLeer, idsSinLeerFaltantes } from '../lib/im-recientes';
 
 /** La persona no conectó su Bitrix (o lo revocó). Las rutas lo traducen a 409. */
 export class SinBitrixError extends Error {
@@ -57,7 +57,21 @@ export class MensajeriaService {
   async recientes(userId: string) {
     const dialogos = await this.llamar(userId, 'im.recent.get', { SKIP_OPENLINES: 'Y', SKIP_CHAT: 'Y' });
     const chats = await this.llamar(userId, 'im.recent.get', { SKIP_OPENLINES: 'Y', SKIP_DIALOG: 'Y' });
-    return unirRecientes(dialogos, chats);
+    const base = unirRecientes(dialogos, chats);
+
+    // Diálogos sin leer que Bitrix no listó (ocultos de recientes). Si esto
+    // falla, la lista de arriba igual sirve: no se pierde lo que ya había.
+    try {
+      const contadores = await this.contadores(userId);
+      const faltan = idsSinLeerFaltantes(base, contadores);
+      if (!faltan.length) return base;
+      const usuarios = await this.llamar(userId, 'im.user.list.get', { ID: faltan }).catch(() => null);
+      return completarSinLeer(base, contadores, usuarios);
+    } catch (e) {
+      if (e instanceof SinBitrixError) throw e;
+      this.ctx.logger.warn(`No se pudieron completar los diálogos sin leer: ${e}`);
+      return base;
+    }
   }
 
   contadores(userId: string) {
