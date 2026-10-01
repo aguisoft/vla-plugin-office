@@ -342,6 +342,8 @@ El aviso sale siempre por:
 
 ### Tarea 13: Andamio
 
+> **Hecho** en `vla-widget/` (commits `bbcae23`, `0dced97`). Electron 44 + Vite 5 + React 18 + Tailwind 3; main/preload con esbuild. `contextIsolation`, `sandbox`, sin `nodeIntegration`, CSP sin scripts de afuera. La interfaz no ve el token y solo puede pedir una lista cerrada de rutas (`permisos.ts`). Ojo: npm 11 bloquea scripts de instalación (aprobados electron, esbuild, electron-winstaller) y VS Code deja `ELECTRON_RUN_AS_NODE=1` en sus terminales. **Falta crear el remoto** `github.com/aguisoft/vla-widget` (no hay `gh` en la máquina).
+
 - [ ] Repo `vla-widget` junto a los demás, remoto
       `github.com/aguisoft/vla-widget`.
 - [ ] Electron + Vite + React + TypeScript + Tailwind, con el mismo
@@ -352,6 +354,8 @@ El aviso sale siempre por:
 
 ### Tarea 14: Vinculación y guardado del token
 
+> **Hecho.** `safeStorage` (DPAPI); sin cifrado disponible la sesión vive solo en memoria. Verificado: el archivo no contiene el JWT. **Deuda:** el JWT dura 7 días, así que cada persona revincula una vez por semana; hace falta un `/auth/device/refresh` en el core.
+
 - [ ] Primera apertura: pide código a `/auth/device/start`, lo muestra grande,
       consulta `/auth/device/token` cada 3 s hasta 5 minutos.
 - [ ] Token guardado con `safeStorage` de Electron (cifrado por el usuario de
@@ -360,12 +364,16 @@ El aviso sale siempre por:
 
 ### Tarea 15: Ícono de bandeja
 
+> **Hecho.** Íconos pintados en memoria desde `STATUS_CFG` al tamaño de la pantalla (16 px × escala), con punto rojo de no leídos y el total en el tooltip. Clic derecho: estados (los que piden datos abren el panel), entrar/salir, iniciar con Windows, desvincular.
+
 - [ ] Once íconos de bandeja, uno por estado, con el color de `statusConfig`.
       Generados a 16 y 32 px.
 - [ ] Clic izquierdo abre el panel; clic derecho, menú con los estados y Salir.
 - [ ] Insignia de cantidad sin leer.
 
 ### Tarea 16: Panel
+
+> **Hecho.** Estado (6 del día, validados con `status-rules.ts` copiado de office; ausencias van a la web), conversaciones, hilo con respuesta, reuniones. Para que la lista sirviera hubo que arreglar office: 1.15.2 saca los chats de tareas (225 de 234) y 1.15.3 agrega los diálogos sin leer ocultos de recientes. Prueba observada contra producción: 10/10.
 
 - [ ] Selector de estado — reutilizando las reglas de justificación y rango
       que valida el servidor, para que la interfaz no prometa lo que el
@@ -377,6 +385,8 @@ El aviso sale siempre por:
 
 ### Tarea 17: En vivo y avisos
 
+> **Hecho.** SSE por `fetch` con Bearer en el proceso principal, reconexión 1 s→60 s con azar. Avisos nativos en `im:new` y `meeting:invite`; no avisa si ese hilo está abierto y a la vista. Office no manda latidos: si el proxy corta la conexión inactiva, se reconecta, y cada 2 min se refresca igual.
+
 - [ ] SSE con el token como Bearer: no se puede con `EventSource` del
       navegador, así que va por el proceso principal.
 - [ ] Reconexión con retroceso.
@@ -384,6 +394,8 @@ El aviso sale siempre por:
 - [ ] No avisar de mensajes propios.
 
 ### Tarea 18: Instalador
+
+> **Hecho** (`0f91a3a`): `VLA-Oficina-Setup-0.1.0.exe`, 112 MB, NSIS de un clic por usuario, **sin firmar** (verificado `NotSigned`). Arranca con Windows por defecto. La app empaquetada pasa la prueba de humo. Guía en `vla-widget/docs/guia-instalacion.md`, **sin capturas**: la advertencia de SmartScreen solo aparece con un archivo bajado de internet; tomarlas en el piloto.
 
 - [ ] electron-builder, NSIS, **sin firmar** — decidido.
 - [ ] Arranque con Windows opcional, activado por defecto.
