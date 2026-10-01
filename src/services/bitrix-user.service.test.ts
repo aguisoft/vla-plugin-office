@@ -135,7 +135,7 @@ describe('BitrixUserService.alAutorizar', () => {
     const { svc, tabla } = armar({ mapeo: 949 });
     expect(await svc.alAutorizar(payload('949'))).toBe('ok');
     expect([...tabla.keys()]).toEqual(['ana']);
-    expect((await svc.estado('ana')).conectado).toBe(true);
+    expect(await svc.estado('ana')).toMatchObject({ conectado: true, bitrixUserId: '949' });
   });
 
   it('si autorizó otra cuenta de Bitrix, no guarda nada y lo deja dicho', async () => {

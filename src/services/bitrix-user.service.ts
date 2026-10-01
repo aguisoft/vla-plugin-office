@@ -13,6 +13,8 @@ interface FilaToken {
 export interface EstadoConexion {
   conectado: boolean;
   desde?: string;
+  /** Usuario de Bitrix conectado: el widget lo usa para marcar los mensajes propios del hilo. */
+  bitrixUserId?: string | null;
   /** Por qué no quedó conectado el último intento, si fue rechazado hace poco. */
   rechazo?: Exclude<VeredictoConexion, 'ok'>;
 }
@@ -91,7 +93,7 @@ export class BitrixUserService {
 
   async estado(userId: string): Promise<EstadoConexion> {
     const fila = await this.leer(userId);
-    if (fila) return { conectado: true, desde: new Date(fila.conectado_at).toISOString() };
+    if (fila) return { conectado: true, desde: new Date(fila.conectado_at).toISOString(), bitrixUserId: fila.bitrix_user_id };
     const rechazo = (await this.ctx.redis.get(claveRechazo(userId))) as EstadoConexion['rechazo'] | null;
     return rechazo ? { conectado: false, rechazo } : { conectado: false };
   }
