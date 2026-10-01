@@ -81,6 +81,21 @@ describe('MensajeriaService: el proxy habla como quien pregunta', () => {
     expect(callAsUser).toHaveBeenCalledWith('TOKEN-ANA', 'im.user.list.get', { ID: [4242] });
   });
 
+  /** El caso real: 4 diálogos «sin leer» de cuentas desactivadas aparecían en la lista. */
+  it('una cuenta desactivada no aparece ni cuenta como sin leer, y se consulta una sola vez', async () => {
+    const { svc, callAsUser } = armar();
+    callAsUser.mockImplementation(async (_t: string, m: string, p: any) => {
+      if (m === 'im.counters.get') return { TYPE: { DIALOG: 2 }, DIALOG: { '240717': 1, '4242': 1 } };
+      if (m === 'im.user.list.get') return { 240717: { name: 'Yudy', active: false }, 4242: { name: 'Activa', active: true } };
+      return p?.SKIP_CHAT ? [] : [];
+    });
+    const r = await svc.recientes('ana');
+    expect(r.map((i: any) => i.id)).toEqual(['4242']);
+    expect((await svc.contadores('ana')).TYPE.DIALOG).toBe(1);
+    const consultasDeActivos = callAsUser.mock.calls.filter(c => c[1] === 'im.user.list.get' && (c[2] as any).ID.includes(240717));
+    expect(consultasDeActivos).toHaveLength(1);
+  });
+
   it('si completar falla, la lista de recientes igual sale', async () => {
     const { svc, callAsUser } = armar();
     callAsUser.mockImplementation(async (_t: string, m: string, p: any) => {

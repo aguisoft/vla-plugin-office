@@ -77,3 +77,27 @@ export function idsSinLeerFaltantes(base: any[], contadores: unknown, tope = 20)
     .slice(0, tope)
     .map(([id]) => Number(id));
 }
+
+/**
+ * ¿Cuenta como alguien con quien conversar? Una cuenta desactivada en Bitrix
+ * (gente que ya no está) no: en producción (1-oct-2026) había 4 diálogos «sin
+ * leer» de cuentas desactivadas —tres con el saludo automático de Bitrix del
+ * 22-dic-2025— que aparecían en la lista e inflaban el número para siempre.
+ * Si Bitrix no devuelve a la persona, también se toma como desactivada.
+ */
+export function cuentaActiva(usuario: any): boolean {
+  return !!usuario && usuario.active !== false;
+}
+
+/**
+ * Los contadores de `im.counters.get` sin los diálogos de cuentas desactivadas.
+ * Se recalcula `TYPE.DIALOG`, que es de donde salen el número del widget y la
+ * consulta de respaldo de avisos.
+ */
+export function ajustarContadores(contadores: any, activo: (id: string) => boolean): any {
+  const dialogos = contadores?.DIALOG;
+  if (!dialogos || typeof dialogos !== 'object') return contadores;
+  const quedan = Object.fromEntries(Object.entries(dialogos).filter(([id]) => activo(id)));
+  const total = Object.values(quedan).reduce((s: number, n) => s + (Number(n) || 0), 0);
+  return { ...contadores, DIALOG: quedan, TYPE: { ...(contadores.TYPE ?? {}), DIALOG: total } };
+}

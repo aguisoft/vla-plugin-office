@@ -3,7 +3,7 @@ import type { BitrixUserService } from './bitrix-user.service';
 import {
   decidirAviso, registrarAvisoInmediato, saltosTrasFallos, totalSinLeer, vistaPrevia,
 } from '../lib/im-aviso';
-import { unirRecientes, completarSinLeer, idsSinLeerFaltantes } from '../lib/im-recientes';
+import { unirRecientes, completarSinLeer, idsSinLeerFaltantes, cuentaActiva, ajustarContadores } from '../lib/im-recientes';
 
 /** La persona no conectó su Bitrix (o lo revocó). Las rutas lo traducen a 409. */
 export class SinBitrixError extends Error {
@@ -33,6 +33,9 @@ const URL_OFICINA = '/dashboard/office';
  */
 export class MensajeriaService {
   private estados = new Map<string, EstadoConsulta>();
+  /** Si cada usuario de Bitrix está activo. Cambia muy de vez en cuando: 6 h. */
+  private activos = new Map<string, { activo: boolean; hasta: number }>();
+  private static readonly VIGENCIA_ACTIVOS_MS = 6 * 60 * 60 * 1000;
   private enCurso = false;
 
   constructor(
@@ -74,8 +77,28 @@ export class MensajeriaService {
     }
   }
 
-  contadores(userId: string) {
-    return this.llamar(userId, 'im.counters.get');
+  /**
+   * `im.counters.get` sin los diálogos de cuentas desactivadas en Bitrix (ver
+   * `ajustarContadores`). De acá salen el número del widget, la lista de
+   * recientes completada y la consulta de respaldo de avisos.
+   */
+  async contadores(userId: string, ahora = Date.now()) {
+    const crudo = await this.llamar<any>(userId, 'im.counters.get');
+    const ids = Object.entries(crudo?.DIALOG ?? {}).filter(([, n]) => Number(n) > 0).map(([id]) => id);
+    const desconocidos = ids.filter(id => /^\d+$/.test(id) && !((this.activos.get(id)?.hasta ?? 0) > ahora));
+    if (desconocidos.length) {
+      try {
+        const usuarios = await this.llamar<Record<string, any>>(userId, 'im.user.list.get', { ID: desconocidos.slice(0, 50).map(Number) });
+        for (const id of desconocidos.slice(0, 50)) {
+          this.activos.set(id, { activo: cuentaActiva(usuarios?.[id]), hasta: ahora + MensajeriaService.VIGENCIA_ACTIVOS_MS });
+        }
+      } catch (e) {
+        if (e instanceof SinBitrixError) throw e;
+        // Sin saberlo, mejor mostrar de más que esconder un mensaje real.
+        this.ctx.logger.warn(`No se pudo saber qué cuentas de Bitrix están activas: ${e}`);
+      }
+    }
+    return ajustarContadores(crudo, id => this.activos.get(id)?.activo ?? true);
   }
 
   dialogo(userId: string, dialogId: string) {
