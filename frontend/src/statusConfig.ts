@@ -22,19 +22,6 @@ export interface StatusCfg {
   text: string;
   /** Solo en ausencias: las distingue del grupo del día. */
   icon?: string;
-  /**
-   * Forma distintiva, para que el estado se lea SIN depender del color.
-   *
-   * Las ausencias ya traen `icon`; los estados del día y del sistema no tenían
-   * nada, así que en cualquier vista compacta quedaban reducidos a un punto de
-   * color de 8px. Eso falla para quien no distingue tonos, y también para
-   * cualquiera que mire de reojo: el verde de «disponible» y el morado de
-   * «reunión interna» son dos puntos iguales a esa escala.
-   *
-   * Son siete figuras geométricas separables entre sí y de render fiable en
-   * cualquier tipografía, no glifos exóticos que caigan en el cuadrito vacío.
-   */
-  glifo: string;
   group: 'day' | 'absence' | 'system';
   payload: PayloadKind;
 }
@@ -48,17 +35,17 @@ export interface StatusCfg {
  * matices que nadie distingue.
  */
 export const STATUS_CFG: Record<ResolvedStatus, StatusCfg> = {
-  AVAILABLE:           { label: 'Disponible',         color: '#4ade80', dot: 'bg-green-400',  text: 'text-green-700', glifo: '●',  group: 'day',     payload: 'none' },
-  FOCUS:               { label: 'Concentrado',        color: '#60a5fa', dot: 'bg-blue-400',   text: 'text-blue-600', glifo: '◆',   group: 'day',     payload: 'justification' },
-  IN_MEETING_INTERNAL: { label: 'En reunión interna', color: '#c084fc', dot: 'bg-purple-400', text: 'text-purple-600', glifo: '■', group: 'day',     payload: 'participants' },
-  IN_MEETING_EXTERNAL: { label: 'En reunión externa', color: '#7c3aed', dot: 'bg-violet-600', text: 'text-violet-700', glifo: '▲', group: 'day',     payload: 'justification' },
-  LUNCH:               { label: 'Almuerzo',           color: '#fb923c', dot: 'bg-orange-400', text: 'text-orange-700', glifo: '▼', group: 'day',     payload: 'timeRange' },
-  BRB:                 { label: 'Vuelvo pronto',      color: '#facc15', dot: 'bg-yellow-400', text: 'text-yellow-700', glifo: '◐', group: 'day',     payload: 'justification' },
-  OFFLINE:             { label: 'Desconectado',       color: '#d1d5db', dot: 'bg-gray-300',   text: 'text-gray-500', glifo: '○',   group: 'system',  payload: 'none' },
-  PERMISO:             { label: 'Permiso',            color: '#94a3b8', dot: 'bg-slate-400',  text: 'text-slate-600',  icon: '📄', glifo: '◇', group: 'absence', payload: 'permiso' },
-  VACACIONES:          { label: 'Vacaciones',         color: '#7dd3fc', dot: 'bg-sky-300',    text: 'text-sky-700',    icon: '🏖', glifo: '✦', group: 'absence', payload: 'dateRange' },
-  INCAPACIDAD:         { label: 'Incapacidad',        color: '#fca5a5', dot: 'bg-red-300',    text: 'text-red-600',    icon: '🏥', glifo: '✚', group: 'absence', payload: 'dateRange' },
-  FERIADO:             { label: 'Feriado',            color: '#fcd34d', dot: 'bg-amber-300',  text: 'text-amber-700',  icon: '🎉', glifo: '★', group: 'absence', payload: 'holidayOverride' },
+  AVAILABLE:           { label: 'Disponible',         color: '#4ade80', dot: 'bg-green-400',  text: 'text-green-700',  group: 'day',     payload: 'none' },
+  FOCUS:               { label: 'Concentrado',        color: '#60a5fa', dot: 'bg-blue-400',   text: 'text-blue-600',   group: 'day',     payload: 'justification' },
+  IN_MEETING_INTERNAL: { label: 'En reunión interna', color: '#c084fc', dot: 'bg-purple-400', text: 'text-purple-600', group: 'day',     payload: 'participants' },
+  IN_MEETING_EXTERNAL: { label: 'En reunión externa', color: '#7c3aed', dot: 'bg-violet-600', text: 'text-violet-700', group: 'day',     payload: 'justification' },
+  LUNCH:               { label: 'Almuerzo',           color: '#fb923c', dot: 'bg-orange-400', text: 'text-orange-700', group: 'day',     payload: 'timeRange' },
+  BRB:                 { label: 'Vuelvo pronto',      color: '#facc15', dot: 'bg-yellow-400', text: 'text-yellow-700', group: 'day',     payload: 'justification' },
+  OFFLINE:             { label: 'Desconectado',       color: '#d1d5db', dot: 'bg-gray-300',   text: 'text-gray-500',   group: 'system',  payload: 'none' },
+  PERMISO:             { label: 'Permiso',            color: '#94a3b8', dot: 'bg-slate-400',  text: 'text-slate-600',  icon: '📄', group: 'absence', payload: 'permiso' },
+  VACACIONES:          { label: 'Vacaciones',         color: '#7dd3fc', dot: 'bg-sky-300',    text: 'text-sky-700',    icon: '🏖', group: 'absence', payload: 'dateRange' },
+  INCAPACIDAD:         { label: 'Incapacidad',        color: '#fca5a5', dot: 'bg-red-300',    text: 'text-red-600',    icon: '🏥', group: 'absence', payload: 'dateRange' },
+  FERIADO:             { label: 'Feriado',            color: '#fcd34d', dot: 'bg-amber-300',  text: 'text-amber-700',  icon: '🎉', group: 'absence', payload: 'holidayOverride' },
 };
 
 export const DAY_GROUP: ResolvedStatus[] =

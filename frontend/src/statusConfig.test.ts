@@ -26,34 +26,13 @@ function distancia(a: string, b: string): number {
   return Math.sqrt((r1 - r2) ** 2 + (g1 - g2) ** 2 + (b1 - b2) ** 2);
 }
 
-describe('los once estados se distinguen SIN color', () => {
-  it('cada estado tiene glifo', () => {
-    for (const k of CLAVES) {
-      expect(STATUS_CFG[k].glifo, `${k} sin glifo`).toBeTruthy();
-    }
-  });
-
-  /**
-   * La prueba que de verdad importa: si dos estados comparten figura, quien no
-   * distingue el color no tiene ningún otro eje para separarlos.
-   */
-  it('ningún glifo se repite entre dos estados', () => {
-    const vistos = new Map<string, ResolvedStatus>();
-    for (const k of CLAVES) {
-      const g = STATUS_CFG[k].glifo;
-      const previo = vistos.get(g);
-      expect(previo, `${k} y ${previo} comparten el glifo ${g}`).toBeUndefined();
-      vistos.set(g, k);
-    }
-    expect(vistos.size).toBe(CLAVES.length);
-  });
-
-  it('los glifos son de un solo carácter visible, no secuencias raras', () => {
-    for (const k of CLAVES) {
-      expect([...STATUS_CFG[k].glifo], `${k} usa un glifo compuesto`).toHaveLength(1);
-    }
-  });
-});
+/*
+ * Las pruebas de diferenciación por FORMA vivían acá cuando el catálogo traía
+ * un campo `glifo`. Al reemplazar las figuras geométricas por íconos SVG, esa
+ * garantía se mudó con ellos: ahora la verifica `StatusIcon.test.ts`, que es
+ * donde está el dibujo. Dejar acá un campo que nadie usa, sostenido solo por
+ * su propia prueba, era código muerto con coartada.
+ */
 
 describe('la paleta tampoco tiene gemelos', () => {
   it('ningún color se repite literalmente', () => {

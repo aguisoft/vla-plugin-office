@@ -6,6 +6,7 @@ import {
 } from '../lib/org-tree';
 import { STATUS_CFG, type ResolvedStatus } from '../statusConfig';
 import { OrgHealthModal } from './OrgHealthModal';
+import { StatusIcon } from './StatusIcon';
 
 /**
  * El organigrama. Lo ve cualquier colaborador.
@@ -360,7 +361,7 @@ export function OrgChart({ onClose, miUserId = null }: { onClose: () => void; mi
                 <div className="grid grid-cols-2 gap-x-3 gap-y-1 px-2">
                   {(Object.keys(STATUS_CFG) as ResolvedStatus[]).map(k => (
                     <span key={k} className="flex items-center gap-1.5 text-[10px]" style={{ color: TINTA.medio }}>
-                      <span style={{ color: STATUS_CFG[k].color }}>{STATUS_CFG[k].glifo}</span>
+                      <StatusIcon estado={k} color={STATUS_CFG[k].color} size={13} />
                       {STATUS_CFG[k].label}
                     </span>
                   ))}
@@ -515,8 +516,8 @@ function Rama({ nodo, nivel, esRaiz = false, ...c }: { nodo: NodoOrg; nivel: num
               el nombre sea lo único que se barre al buscar a alguien. */}
           <div className="mt-0.5 flex flex-wrap items-baseline gap-x-2.5 text-[11px]">
             {cfg && (
-              <span className="flex items-center gap-1" style={{ color: TINTA.medio }}>
-                <span style={{ color: cfg.color }}>{cfg.glifo}</span>
+              <span className="flex items-center gap-1.5" style={{ color: TINTA.medio }}>
+                <StatusIcon estado={persona.estado as ResolvedStatus} color={cfg.color} size={12} />
                 {cfg.label}
               </span>
             )}
