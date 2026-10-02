@@ -64,7 +64,12 @@ const POR_STATUS: Record<string, EstadoJornada> = {
 
 const SIN_JORNADA: Jornada = { estado: 'sin_iniciar', fecha: null, inicio: null, fin: null, pausasSeg: 0, trabajadoSeg: 0 };
 
-export function leerJornada(s: TimemanStatus | null | undefined, ahora: Date, tz: string): Jornada {
+/**
+ * @param pausaDesde Cuándo empezó la pausa en curso, si la pidió la oficina.
+ *   En pausa, Bitrix NO devuelve `TIME_FINISH` (probado el 2-oct-2026): sin
+ *   esto, cada consulta contaría la pausa como trabajo.
+ */
+export function leerJornada(s: TimemanStatus | null | undefined, ahora: Date, tz: string, pausaDesde?: string | null): Jornada {
   const inicio = instante(s?.TIME_START);
   const estado = s?.STATUS ? POR_STATUS[s.STATUS] : undefined;
   if (!s || !inicio || !estado) return SIN_JORNADA;
@@ -73,16 +78,20 @@ export function leerJornada(s: TimemanStatus | null | undefined, ahora: Date, tz
   // Bitrix devuelve la última jornada: si la de ayer se cerró, hoy no empezó.
   if (estado === 'terminada' && fecha !== localDateString(ahora, tz)) return SIN_JORNADA;
 
+  const finBitrix = instante(s.TIME_FINISH);
+  const marca = estado === 'en_pausa' ? instante(pausaDesde) : null;
   const j: Jornada = {
     estado,
     fecha,
     inicio: inicio.toISOString(),
-    fin: instante(s.TIME_FINISH)?.toISOString() ?? null,
+    fin: (finBitrix ?? (marca && marca > inicio ? marca : null))?.toISOString() ?? null,
     pausasSeg: segundosDe(s.TIME_LEAKS),
     trabajadoSeg: 0,
   };
   const duracion = segundosDe(s.DURATION);
-  j.trabajadoSeg = estado === 'terminada' && duracion > 0 ? duracion : trabajadoSegundos(j, ahora);
+  // Terminada, o en pausa sin saber desde cuándo: lo que calculó Bitrix, si lo dio.
+  const usarDuracion = duracion > 0 && (estado === 'terminada' || (estado === 'en_pausa' && !j.fin));
+  j.trabajadoSeg = usarDuracion ? duracion : trabajadoSegundos(j, ahora);
   return j;
 }
 

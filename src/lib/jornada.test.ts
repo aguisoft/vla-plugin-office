@@ -35,6 +35,24 @@ describe('leerJornada', () => {
     expect(trabajadoSegundos(j, new Date(AHORA.getTime() + 3_600_000))).toBe(2 * 3600);
   });
 
+  // El caso real del 2-oct-2026: en pausa, Bitrix no manda TIME_FINISH.
+  it('en pausa sin TIME_FINISH: se congela en la marca que dejó la oficina al pausar', () => {
+    const pausada = { ...ABIERTA, STATUS: 'PAUSED' };
+    const j = leerJornada(pausada, AHORA, TZ, '2026-10-02T16:00:08.000Z');
+    expect(j).toMatchObject({ estado: 'en_pausa', fin: '2026-10-02T16:00:08.000Z', trabajadoSeg: 2 * 3600 });
+    // Una hora más tarde, sigue igual.
+    expect(leerJornada(pausada, new Date(AHORA.getTime() + 3_600_000), TZ, '2026-10-02T16:00:08.000Z').trabajadoSeg).toBe(2 * 3600);
+  });
+
+  it('en pausa sin marca (pausó desde Bitrix): usa DURATION si viene', () => {
+    expect(leerJornada({ ...ABIERTA, STATUS: 'PAUSED', DURATION: '01:10:00' }, AHORA, TZ).trabajadoSeg).toBe(70 * 60);
+  });
+
+  it('una marca de pausa no cambia una jornada que corre, ni una marca anterior a la entrada', () => {
+    expect(leerJornada(ABIERTA, AHORA, TZ, '2026-10-02T15:00:00Z').fin).toBeNull();
+    expect(leerJornada({ ...ABIERTA, STATUS: 'PAUSED' }, AHORA, TZ, '2026-10-01T15:00:00Z').fin).toBeNull();
+  });
+
   it('terminada hoy: usa la duración que calculó Bitrix', () => {
     const j = leerJornada({ ...ABIERTA, STATUS: 'CLOSED', TIME_FINISH: '2026-10-02T17:00:00-06:00', DURATION: '08:15:00', TIME_LEAKS: '00:45:00' }, AHORA, TZ);
     expect(j).toMatchObject({ estado: 'terminada', trabajadoSeg: 8 * 3600 + 15 * 60, pausasSeg: 45 * 60 });

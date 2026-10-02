@@ -16,7 +16,7 @@ function armar(respuestas: Respuestas = {}, opciones: { bitrixId?: number | null
   const base: Respuestas = {
     'timeman.status': () => status,
     'timeman.close': () => { status = CERRADA; return true; },
-    'timeman.pause': () => { status = { ...status, STATUS: 'PAUSED', TIME_FINISH: '2026-10-02T16:30:00-06:00' }; return true; },
+    'timeman.pause': () => { status = { ...status, STATUS: 'PAUSED', TIME_FINISH: null }; return true; },
     'timeman.open': () => { status = { ...status, STATUS: 'OPENED', TIME_FINISH: null }; return true; },
     'tasks.task.list': () => ({ tasks: [] }),
     'task.planner.getlist': () => [],
@@ -39,7 +39,7 @@ function armar(respuestas: Respuestas = {}, opciones: { bitrixId?: number | null
       if (/FROM office_reportes_diarios/.test(sql)) return [{ fecha: '2026-09-29', reporte: 'Cerré Acme', inicio: '2026-09-29T14:00:00Z', fin: '2026-09-29T23:00:00Z', trabajado_seg: 30000 }];
       return [];
     }),
-    redis: (() => { const m = new Map<string, string>(); return { get: vi.fn(async (k: string) => m.get(k) ?? null), set: vi.fn(async (k: string, v: string) => { m.set(k, v); }) }; })(),
+    redis: (() => { const m = new Map<string, string>(); return { m, get: vi.fn(async (k: string) => m.get(k) ?? null), set: vi.fn(async (k: string, v: string) => { m.set(k, v); }), del: vi.fn(async (k: string) => { m.delete(k); }) }; })(),
     logger: { warn: vi.fn(), error: vi.fn(), log: vi.fn() },
   };
   const salir = vi.fn(async () => undefined);
@@ -130,6 +130,26 @@ describe('pausa', () => {
     expect((await svc.reanudar('ana')).estado).toBe('trabajando');
     await expect(svc.reanudar('ana')).rejects.toMatchObject({ status: 409 });
     expect(llamadas.filter(l => /timeman\.(pause|open)/.test(l.method)).map(l => l.method)).toEqual(['timeman.pause', 'timeman.open']);
+  });
+});
+
+describe('pausa larga', () => {
+  it('el reloj queda en el momento de la pausa aunque se consulte una hora después', async () => {
+    const a = armar();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      vi.setSystemTime(new Date('2026-10-02T16:00:00Z'));
+      const pausada = await a.svc.pausar('ana');
+      expect(pausada.estado).toBe('en_pausa');
+      vi.setSystemTime(new Date('2026-10-02T17:00:00Z'));
+      const despues = await a.svc.estado('ana');
+      expect(despues.trabajadoSeg).toBe(pausada.trabajadoSeg);
+      expect(despues.fin).toBe('2026-10-02T16:00:00.000Z');
+      await a.svc.reanudar('ana');
+      expect(a.ctx.redis.m.has('jornada:pausa:ana')).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

@@ -31,6 +31,8 @@ export interface Panel {
 const CAMPOS_TAREA = ['ID', 'TITLE', 'STATUS', 'DEADLINE', 'CLOSED_DATE', 'TIME_SPENT_IN_LOGS', 'GROUP_ID'];
 const POR_PAGINA = 50;
 const PAGINAS_MAXIMAS = 4;
+/** Cuándo empezó la pausa que pidió la oficina: Bitrix no lo devuelve. */
+const clavePausa = (userId: string) => `jornada:pausa:${userId}`;
 const MESES = ['enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio', 'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'];
 
 /**
@@ -52,7 +54,8 @@ export class JornadaService {
 
   async estado(userId: string, ahora = new Date()): Promise<Jornada> {
     const s = await this.llamar<TimemanStatus>(userId, 'timeman.status');
-    return leerJornada(s, ahora, this.tz());
+    const marca = s?.STATUS === 'PAUSED' ? await this.ctx.redis.get(clavePausa(userId)) : null;
+    return leerJornada(s, ahora, this.tz(), marca);
   }
 
   async panel(userId: string, ahora = new Date()): Promise<Panel> {
@@ -65,6 +68,7 @@ export class JornadaService {
     const j = await this.estado(userId);
     if (j.estado !== 'trabajando') throw new JornadaError(409, 'Tu jornada no está corriendo.');
     await this.llamar(userId, 'timeman.pause');
+    await this.ctx.redis.set(clavePausa(userId), new Date().toISOString(), 86_400);
     return this.estado(userId);
   }
 
@@ -72,6 +76,7 @@ export class JornadaService {
     const j = await this.estado(userId);
     if (j.estado !== 'en_pausa') throw new JornadaError(409, 'Tu jornada no está en pausa.');
     await this.llamar(userId, 'timeman.open');
+    await this.ctx.redis.del(clavePausa(userId));
     return this.estado(userId);
   }
 
@@ -118,6 +123,7 @@ export class JornadaService {
     const params: Record<string, unknown> = { REPORT: reporte };
     if (salida) params.TIME = isoConZona(salida, tz);
     await this.llamar(userId, 'timeman.close', params);
+    await this.ctx.redis.del(clavePausa(userId));
 
     // Lo que quedó en Bitrix manda; si no se puede leer, se calcula.
     const final = await this.llamar<TimemanStatus>(userId, 'timeman.status').catch(() => null);
