@@ -129,3 +129,11 @@ export function textoCompaneros(n: number): string | null {
   if (!(n > 0)) return null;
   return n === 1 ? 'Ya la usa 1 compañero' : `Ya la usan ${n} compañeros`;
 }
+
+/**
+ * `?ver-oferta` en la URL (la del iframe o la de la página): muestra el aviso
+ * aunque la persona ya tenga la app, para revisarlo o mostrarlo.
+ */
+export function ofertaForzada(...busquedas: Array<string | null | undefined>): boolean {
+  return busquedas.some(b => !!b && new URLSearchParams(b).has('ver-oferta'));
+}

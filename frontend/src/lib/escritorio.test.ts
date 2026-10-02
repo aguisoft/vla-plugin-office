@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
-  debeOfrecer, posponerHasta, leerPospuesto, textoCompaneros,
+  debeOfrecer, posponerHasta, leerPospuesto, textoCompaneros, ofertaForzada,
   normalizarCodigo, problemaDelCodigo, mensajeDeVinculacion, resultadoBitrix, textoEstadoBitrix, enlaceEscritorio,
 } from './escritorio';
 
@@ -127,5 +127,14 @@ describe('ofrecer la app', () => {
     expect(textoCompaneros(0)).toBeNull();
     expect(textoCompaneros(1)).toBe('Ya la usa 1 compañero');
     expect(textoCompaneros(7)).toBe('Ya la usan 7 compañeros');
+  });
+});
+
+describe('ofertaForzada', () => {
+  it('con ?ver-oferta en la URL del iframe o en la de la página', () => {
+    expect(ofertaForzada('?ver-oferta', null)).toBe(true);
+    expect(ofertaForzada('', '?x=1&ver-oferta=1')).toBe(true);
+    expect(ofertaForzada('?escritorio=bitrix', '')).toBe(false);
+    expect(ofertaForzada(null, undefined)).toBe(false);
   });
 });

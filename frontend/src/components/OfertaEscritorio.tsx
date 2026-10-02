@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import robot from '../assets/robot-oficina.png';
+import { ROBOT as robot } from '../assets/robot-oficina';
 import { descargaEscritorioUrl, getEscritorioMio } from '../api';
 import {
-  CLAVE_POSPONER, debeOfrecer, leerPospuesto, posponerHasta, textoCompaneros, type UsoEscritorio,
+  CLAVE_POSPONER, debeOfrecer, leerPospuesto, ofertaForzada, posponerHasta, textoCompaneros, type UsoEscritorio,
 } from '../lib/escritorio';
 
 type Fase = 'oferta' | 'instalando' | 'lista';
@@ -10,6 +10,12 @@ type Fase = 'oferta' | 'instalando' | 'lista';
 /** Cada cuánto se pregunta si la app ya entró, y hasta cuándo. */
 const CADA_MS = 5_000;
 const HASTA_MS = 20 * 60_000;
+
+function forzadaEnUrl(): boolean {
+  let arriba: string | null = null;
+  try { arriba = window.parent.location.search; } catch { /* otro origen */ }
+  return ofertaForzada(window.location.search, arriba);
+}
 
 function leerPosponer(): number | null {
   try { return leerPospuesto(localStorage.getItem(CLAVE_POSPONER)); } catch { return null; }
@@ -28,6 +34,7 @@ export function OfertaEscritorio({ uso, onCambio }: {
   const [fase, setFase] = useState<Fase>('oferta');
   const [pospuesto, setPospuesto] = useState<number | null>(leerPosponer);
   const desde = useRef(0);
+  const [forzada] = useState(forzadaEnUrl);
 
   // Después de bajarla: preguntar cada pocos segundos si la app ya entró.
   useEffect(() => {
@@ -60,7 +67,7 @@ export function OfertaEscritorio({ uso, onCambio }: {
     );
   }
 
-  if (fase === 'oferta' && !debeOfrecer(uso, pospuesto, Date.now())) return null;
+  if (fase === 'oferta' && !(forzada && uso?.publicada) && !debeOfrecer(uso, pospuesto, Date.now())) return null;
   const p = uso?.publicada;
   const companeros = textoCompaneros(uso?.companeros ?? 0);
 
