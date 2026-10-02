@@ -14,6 +14,7 @@ import { TeamService } from './services/team.service';
 import { ComplianceService } from './services/compliance.service';
 import { BitrixUserService } from './services/bitrix-user.service';
 import { MensajeriaService, SinBitrixError } from './services/mensajeria.service';
+import { JornadaService, JornadaError } from './services/jornada.service';
 import { EscritorioService } from './services/escritorio.service';
 import { dialogoValido, textoMensaje } from './lib/im-aviso';
 import { armarContactos } from './lib/im-contactos';
@@ -141,6 +142,21 @@ const plugin: PluginDefinition = {
     // Mensajería de Bitrix como cada persona (widget de escritorio).
     const bitrixUser = new BitrixUserService(ctx);
     const mensajeria = new MensajeriaService(ctx, bitrixUser, presence);
+    // Jornada de Bitrix desde el widget, también como cada persona.
+    const jornada = new JornadaService(
+      ctx,
+      (userId, method, params) => mensajeria.llamar(userId, method, params),
+      tz,
+      userId => bitrix.getBitrixIdForVlaUser(userId),
+      async (userId, span) => (await timesheet.officeTime([userId], span)).get(userId)?.byDay ?? [],
+      // Bitrix ya cerró: se sale de la oficina sin volver a llamar a timeman.close.
+      async userId => {
+        const p = await ctx.prisma.presenceStatus.findUnique({ where: { userId } });
+        if (!p?.isCheckedIn) return;
+        await presence.setManualOverride(userId);
+        await presence.checkOut(userId, 'WEB');
+      },
+    );
     // Actualizaciones de la app de escritorio (OTA). Office solo sirve lo
     // publicado; la firma la verifica cada app.
     const escritorio = new EscritorioService(ctx);
@@ -1431,6 +1447,61 @@ const plugin: PluginDefinition = {
         return;
       }
       await rutaIm(userId => mensajeria.marcarLeido(userId, dialogId))(req, res);
+    }));
+
+    // ── Jornada (espejo del widget de jornada de Bitrix) ──────────────────────
+    /**
+     * Como rutaIm: sin Bitrix conectado, 409 con el camino para conectarlo. Los
+     * errores pensados para la persona salen con su texto; los de Bitrix, con
+     * uno genérico (el detalle queda en el log).
+     */
+    function rutaJornada(handler: (userId: string, req: Request) => Promise<unknown>) {
+      return asyncRoute(async (req, res) => {
+        try {
+          res.json(await handler((req as any).user?.sub, req) ?? { ok: true });
+        } catch (e) {
+          if (e instanceof SinBitrixError) {
+            res.status(409).json({ message: 'Conectá tu Bitrix para usar la jornada', conectar: '/api/v1/p/office/bitrix/oauth/start' });
+            return;
+          }
+          if (e instanceof JornadaError) {
+            res.status(e.status).json({ message: e.message });
+            return;
+          }
+          if (e instanceof Error && /^\[(timeman|tasks?|calendar)\./.test(e.message)) {
+            ctx.logger.warn(`Bitrix rechazó ${req.method} ${req.originalUrl}: ${e.message}`);
+            res.status(502).json({ message: 'Bitrix no aceptó el cambio. Intentá de nuevo en un momento.' });
+            return;
+          }
+          throw e;
+        }
+      });
+    }
+    const conJornada = [ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN)];
+    const idTarea = (req: Request): number => {
+      const id = String(req.params.taskId ?? '');
+      if (!/^\d{1,10}$/.test(id)) throw new JornadaError(400, 'Tarea inválida');
+      return Number(id);
+    };
+
+    ctx.router.get('/jornada', ...conJornada, rutaJornada(userId => jornada.panel(userId)));
+    ctx.router.post('/jornada/pausa', ...conJornada, rutaJornada(userId => jornada.pausar(userId)));
+    ctx.router.post('/jornada/reanudar', ...conJornada, rutaJornada(userId => jornada.reanudar(userId)));
+    ctx.router.get('/jornada/borrador', ...conJornada, rutaJornada(userId => jornada.borrador(userId)));
+    ctx.router.post('/jornada/terminar', ...conJornada, rutaJornada((userId, req) => jornada.terminar(userId, req.body ?? {})));
+    ctx.router.post('/jornada/plan', ...conJornada, rutaJornada((userId, req) => jornada.agregarAlPlan(userId, req.body ?? {})));
+    ctx.router.post('/jornada/plan/:taskId/quitar', ...conJornada, rutaJornada((userId, req) => jornada.quitarDelPlan(userId, idTarea(req))));
+    ctx.router.post('/jornada/tareas/:taskId/completar', ...conJornada, rutaJornada((userId, req) => jornada.completar(userId, idTarea(req))));
+    ctx.router.post('/jornada/tareas/:taskId/tiempo', ...conJornada, rutaJornada((userId, req) => jornada.registrarTiempo(userId, idTarea(req), req.body ?? {})));
+    ctx.router.post('/jornada/eventos', ...conJornada, rutaJornada((userId, req) => jornada.agregarEvento(userId, req.body ?? {})));
+    ctx.router.get('/jornada/reporte', ...conJornada, rutaJornada((userId, req) => {
+      const periodo = req.query.periodo === 'mes' ? 'mes' : 'semana';
+      const anchorRaw = typeof req.query.anchor === 'string' ? req.query.anchor : '';
+      if (anchorRaw && !/^\d{4}-\d{2}-\d{2}$/.test(anchorRaw)) throw new JornadaError(400, 'Fecha inválida, se espera AAAA-MM-DD');
+      // Mediodía UTC: el mismo día local en UTC-6 sin depender de la hora del servidor (como /timesheet).
+      const anchor = anchorRaw ? new Date(`${anchorRaw}T12:00:00Z`) : new Date();
+      if (Number.isNaN(anchor.getTime())) throw new JornadaError(400, 'Fecha inválida');
+      return jornada.reporte(userId, periodo, anchor);
     }));
 
     // ── App de escritorio: versión publicada y descarga ───────────────────────
