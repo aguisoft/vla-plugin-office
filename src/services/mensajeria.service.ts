@@ -4,6 +4,7 @@ import {
   decidirAviso, registrarAvisoInmediato, saltosTrasFallos, totalSinLeer, vistaPrevia,
 } from '../lib/im-aviso';
 import { urlDeBitrix } from '../lib/im-chat';
+import { chatIdDe, destinatariosDeGrupo, novedades, textoNovedades } from '../lib/im-grupos';
 import { unirRecientes, completarSinLeer, idsSinLeerFaltantes, cuentaActiva, ajustarContadores } from '../lib/im-recientes';
 
 /** La persona no conectó su Bitrix (o lo revocó). Las rutas lo traducen a 409. */
@@ -24,6 +25,18 @@ interface EstadoConsulta {
   base: number | null;
   fallos: number;
   saltar: number;
+  /** Contadores por chat y diálogo de la lectura anterior: para decir de dónde vienen los mensajes. */
+  previo?: { CHAT?: Record<string, number>; DIALOG?: Record<string, number> } | null;
+}
+
+/** Lo que el widget necesita de un grupo. */
+export interface InfoGrupo {
+  chatId: number;
+  titulo: string;
+  duenoId: string | null;
+  adminIds: string[];
+  muteList: unknown;
+  miembros: string[];
 }
 
 const URL_OFICINA = '/dashboard/office';
@@ -37,6 +50,14 @@ export class MensajeriaService {
   /** Si cada usuario de Bitrix está activo. Cambia muy de vez en cuando: 6 h. */
   private activos = new Map<string, { activo: boolean; hasta: number }>();
   private static readonly VIGENCIA_ACTIVOS_MS = 6 * 60 * 60 * 1000;
+  /**
+   * Datos de cada grupo (nombre, dueño, silencios, miembros) por un minuto: el
+   * aviso inmediato los necesita en cada mensaje y no vale la pena preguntarle a
+   * Bitrix dos veces por mensaje.
+   */
+  private grupos = new Map<number, { info: InfoGrupo; hasta: number }>();
+  /** Nombres de grupos para los avisos de respaldo: cambian poco, 1 h. */
+  private titulos = new Map<string, { titulo: string; hasta: number }>();
   private enCurso = false;
 
   constructor(
@@ -182,6 +203,72 @@ export class MensajeriaService {
     throw new Error(`[disk.file.get] descarga ${ultimo}`);
   }
 
+  async infoGrupo(userId: string, dialogId: string, ahora = Date.now()): Promise<InfoGrupo> {
+    const chatId = chatIdDe(dialogId);
+    if (!chatId) throw new Error('[im.dialog.get] no es un grupo');
+    const c = this.grupos.get(chatId);
+    if (c && c.hasta > ahora) return c.info;
+    const d = await this.llamar<any>(userId, 'im.dialog.get', { DIALOG_ID: dialogId });
+    const ids = await this.llamar<any>(userId, 'im.chat.user.list', { CHAT_ID: chatId });
+    const info: InfoGrupo = {
+      chatId,
+      titulo: String(d?.name ?? 'Grupo'),
+      duenoId: d?.owner != null ? String(d.owner) : null,
+      adminIds: Array.isArray(d?.manager_list) ? d.manager_list.map(String) : [],
+      muteList: d?.mute_list ?? [],
+      miembros: Array.isArray(ids) ? ids.map(String) : [],
+    };
+    this.grupos.set(chatId, { info, hasta: ahora + 60_000 });
+    this.titulos.set(String(chatId), { titulo: info.titulo, hasta: ahora + 3_600_000 });
+    return info;
+  }
+
+  private olvidarGrupo(dialogId: string) {
+    const id = chatIdDe(dialogId);
+    if (id) this.grupos.delete(id);
+  }
+
+  /** Nombres de los miembros que no son del equipo (el equipo los pone office). */
+  nombresDeBitrix(userId: string, ids: number[]) {
+    return ids.length ? this.llamar<Record<string, any>>(userId, 'im.user.list.get', { ID: ids.slice(0, 50) }) : Promise.resolve({});
+  }
+
+  async silenciar(userId: string, dialogId: string, silenciar: boolean) {
+    const r = await this.llamar(userId, 'im.chat.mute', { CHAT_ID: chatIdDe(dialogId), ACTION: silenciar ? 'Y' : 'N' });
+    this.olvidarGrupo(dialogId);
+    return r;
+  }
+
+  async crearGrupo(userId: string, titulo: string, miembros: number[]): Promise<{ dialogId: string }> {
+    const id = await this.llamar<number>(userId, 'im.chat.add', { TYPE: 'CHAT', TITLE: titulo, USERS: miembros });
+    if (!Number(id)) throw new Error('[im.chat.add] sin id de chat');
+    return { dialogId: `chat${Number(id)}` };
+  }
+
+  async agregarMiembros(userId: string, dialogId: string, miembros: number[]) {
+    const r = await this.llamar(userId, 'im.chat.user.add', { CHAT_ID: chatIdDe(dialogId), USERS: miembros });
+    this.olvidarGrupo(dialogId);
+    return r;
+  }
+
+  async quitarMiembro(userId: string, dialogId: string, bitrixUserId: number) {
+    const r = await this.llamar(userId, 'im.chat.user.delete', { CHAT_ID: chatIdDe(dialogId), USER_ID: bitrixUserId });
+    this.olvidarGrupo(dialogId);
+    return r;
+  }
+
+  async salirGrupo(userId: string, dialogId: string) {
+    const r = await this.llamar(userId, 'im.chat.leave', { CHAT_ID: chatIdDe(dialogId) });
+    this.olvidarGrupo(dialogId);
+    return r;
+  }
+
+  async renombrarGrupo(userId: string, dialogId: string, titulo: string) {
+    const r = await this.llamar(userId, 'im.chat.updateTitle', { CHAT_ID: chatIdDe(dialogId), TITLE: titulo });
+    this.olvidarGrupo(dialogId);
+    return r;
+  }
+
   async enviar(userId: string, dialogId: string, texto: string, replyId?: number): Promise<{ id: number }> {
     // Responder enlazado solo existe en la API v2 (el REPLY_ID de im.message.add se ignora).
     const id = replyId
@@ -196,7 +283,7 @@ export class MensajeriaService {
   }
 
   private async avisarInmediato(remitenteId: string, dialogId: string, texto: string): Promise<void> {
-    // Solo mensajes directos: un chat grupal no dice a quién avisar.
+    if (chatIdDe(dialogId)) return this.avisarGrupo(remitenteId, dialogId, texto);
     if (!/^\d+$/.test(dialogId)) return;
     const destino = await this.ctx.prisma.bitrixUserMapping.findFirst({ where: { bitrixUserId: Number(dialogId) } });
     if (!destino || destino.userId === remitenteId) return;
@@ -224,6 +311,61 @@ export class MensajeriaService {
   }
 
   /**
+   * Un mensaje de grupo que salió por el proxy: aviso a cada miembro del equipo
+   * (menos quien escribió y quien silenció el grupo, salvo que lo mencionen).
+   */
+  private async avisarGrupo(remitenteId: string, dialogId: string, texto: string): Promise<void> {
+    const info = await this.infoGrupo(remitenteId, dialogId);
+    const mapeos = await this.ctx.prisma.bitrixUserMapping.findMany({ select: { userId: true, bitrixUserId: true } });
+    const vlaPorBitrix = new Map((mapeos as any[]).map(m => [String(m.bitrixUserId), m.userId as string]));
+    const destinos = destinatariosDeGrupo(info.miembros, vlaPorBitrix, remitenteId, info.muteList, texto);
+    if (!destinos.length) return;
+    const remitente = await this.ctx.prisma.user.findUnique({ where: { id: remitenteId }, select: { firstName: true, lastName: true } });
+    const nombre = remitente ? `${remitente.firstName} ${remitente.lastName}`.trim() : 'Alguien';
+    const preview = vistaPrevia(texto);
+    for (const d of destinos) {
+      this.avisador.broadcastToUser(d.userId, { type: 'im:new', dialogId, de: nombre, grupo: info.titulo, mencion: d.mencion, preview });
+      await this.ctx.hooks.doAction('core.push.send', {
+        userId: d.userId,
+        title: d.mencion ? `${nombre} te mencionó en ${info.titulo}` : `${nombre} en ${info.titulo}`,
+        body: preview,
+        url: URL_OFICINA,
+      });
+      const estado = this.estados.get(d.userId);
+      if (estado) estado.base = registrarAvisoInmediato(estado.base);
+    }
+  }
+
+  /** «Te agregó al grupo»: a los del equipo que se suman (menos quien los agrega). */
+  async avisarAgregados(remitenteId: string, dialogId: string, titulo: string, bitrixIds: number[]): Promise<void> {
+    if (!bitrixIds.length) return;
+    const mapeos = await this.ctx.prisma.bitrixUserMapping.findMany({ select: { userId: true, bitrixUserId: true } });
+    const ids = new Set(bitrixIds.map(String));
+    const destinos = (mapeos as any[]).filter(m => ids.has(String(m.bitrixUserId)) && m.userId !== remitenteId).map(m => m.userId as string);
+    if (!destinos.length) return;
+    const r = await this.ctx.prisma.user.findUnique({ where: { id: remitenteId }, select: { firstName: true, lastName: true } });
+    const nombre = r ? `${r.firstName} ${r.lastName}`.trim() : 'Alguien';
+    for (const userId of destinos) {
+      this.avisador.broadcastToUser(userId, { type: 'im:new', dialogId, de: nombre, grupo: titulo, mencion: false, preview: `Te agregó al grupo «${titulo}»` });
+      await this.ctx.hooks.doAction('core.push.send', { userId, title: `${nombre} te agregó a ${titulo}`, body: 'Abrí VLA Oficina para verlo', url: URL_OFICINA });
+    }
+  }
+
+  /** Nombre de un grupo para el aviso de respaldo (de la caché o preguntándole a Bitrix). */
+  private async tituloDe(userId: string, chatId: string, ahora = Date.now()): Promise<string | null> {
+    const c = this.titulos.get(chatId);
+    if (c && c.hasta > ahora) return c.titulo;
+    try {
+      const d = await this.llamar<any>(userId, 'im.dialog.get', { DIALOG_ID: `chat${chatId}` });
+      const titulo = d?.name ? String(d.name) : null;
+      if (titulo) this.titulos.set(chatId, { titulo, hasta: ahora + 3_600_000 });
+      return titulo;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
    * Consulta de respaldo (cron cada 2 min): lo que no pasó por el proxy.
    * De a una persona, con pausa, y frenando ante el límite de Bitrix: el
    * portal tiene ~2 llamadas/s compartidas con cobros.
@@ -245,12 +387,20 @@ export class MensajeriaService {
         if (estado.saltar > 0) { estado.saltar--; continue; }
 
         try {
-          const total = totalSinLeer(await this.contadores(userId));
+          const c = await this.contadores(userId);
+          const total = totalSinLeer(c);
           estado.fallos = 0;
           if (total !== null) {
             const d = decidirAviso(estado.base, total);
+            const n = novedades(estado.previo ?? null, c);
             estado.base = d.base;
-            if (d.avisar) this.avisarRespaldo(userId, d.nuevos);
+            estado.previo = { CHAT: { ...(c?.CHAT ?? {}) }, DIALOG: { ...(c?.DIALOG ?? {}) } };
+            if (d.avisar) {
+              // A lo sumo 3 nombres nuevos por aviso: cada uno es una llamada a Bitrix.
+              const nombres = new Map<string, string | null>();
+              for (const id of n.chats.slice(0, 3)) nombres.set(id, await this.tituloDe(userId, id));
+              this.avisarRespaldo(userId, d.nuevos, textoNovedades(n, id => nombres.get(id) ?? null, d.nuevos));
+            }
           }
         } catch (e) {
           if (e instanceof SinBitrixError) { this.estados.delete(userId); continue; }
@@ -267,9 +417,9 @@ export class MensajeriaService {
     }
   }
 
-  private avisarRespaldo(userId: string, nuevos: number): void {
-    this.avisador.broadcastToUser(userId, { type: 'im:new', nuevos });
-    const body = nuevos === 1 ? 'Tenés 1 mensaje nuevo sin leer' : `Tenés ${nuevos} mensajes nuevos sin leer`;
+  private avisarRespaldo(userId: string, nuevos: number, detalle?: string): void {
+    this.avisador.broadcastToUser(userId, { type: 'im:new', nuevos, ...(detalle ? { detalle } : {}) });
+    const body = detalle ?? (nuevos === 1 ? 'Tenés 1 mensaje nuevo sin leer' : `Tenés ${nuevos} mensajes nuevos sin leer`);
     void this.ctx.hooks.doAction('core.push.send', { userId, title: 'Mensajes nuevos en Bitrix', body, url: URL_OFICINA })
       .catch(e => this.ctx.logger.warn(`Push de mensajes nuevos falló: ${e}`));
   }

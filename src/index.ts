@@ -18,6 +18,7 @@ import { EscritorioService } from './services/escritorio.service';
 import { dialogoValido, textoMensaje } from './lib/im-aviso';
 import { armarContactos } from './lib/im-contactos';
 import { reaccionValida, idMensajeValido, bytesDeBase64, nombreArchivoSeguro, MAX_ARCHIVO_BYTES } from './lib/im-chat';
+import { chatIdDe, tituloGrupo, idsDeUsuarios, armarMiembros, silenciadoPor } from './lib/im-grupos';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { DEFAULT_TZ, localDateString } from './lib/local-date';
 import { cumplimientoToCsv } from './lib/compliance-csv';
@@ -1323,6 +1324,80 @@ const plugin: PluginDefinition = {
         return;
       }
       await rutaIm(userId => mensajeria.enviarArchivo(userId, dialogId, nombre, req.body.contenido, texto ?? undefined))(req, res);
+    }));
+
+    // ── Grupos: miembros con su estado, crear, sumar/quitar, salir, silenciar ─
+    function rutaGrupo(handler: (userId: string, dialogId: string, req: Request) => Promise<unknown>) {
+      return asyncRoute(async (req, res) => {
+        if (!chatIdDe(req.params.dialogId)) {
+          res.status(400).json({ message: 'No es un grupo' });
+          return;
+        }
+        await rutaIm((userId, r) => handler(userId, req.params.dialogId, r))(req, res);
+      });
+    }
+
+    ctx.router.get('/im/grupo/:dialogId', ...conVista, rutaGrupo(async (yo, dialogId) => {
+      const info = await mensajeria.infoGrupo(yo, dialogId);
+      const [personas, mapeos, propio] = await Promise.all([
+        snapshot.getAll({ userId: yo, hasManage: false }),
+        ctx.prisma.bitrixUserMapping.findMany({ select: { userId: true, bitrixUserId: true } }),
+        bitrixUser.estado(yo),
+      ]);
+      // '' en vez de yo: acá también quiero mi propio estado en la lista.
+      const equipo = armarContactos(personas as any[], mapeos as any[], '');
+      const enEquipo = new Set(equipo.map(c => c.bitrixUserId));
+      const nombres = await mensajeria.nombresDeBitrix(yo, info.miembros.filter(id => !enEquipo.has(id)).map(Number)).catch(() => ({}));
+      const mio = propio.bitrixUserId ?? null;
+      return {
+        dialogId,
+        titulo: info.titulo,
+        miembros: armarMiembros(info, equipo, nombres as any, mio),
+        silenciado: silenciadoPor(info.muteList, mio),
+        soyDueno: mio !== null && mio === info.duenoId,
+        soyAdmin: mio !== null && info.adminIds.includes(mio),
+      };
+    }));
+
+    ctx.router.post('/im/grupo', ...conVista, asyncRoute(async (req, res) => {
+      const titulo = tituloGrupo(req.body?.titulo);
+      const miembros = idsDeUsuarios(req.body?.miembros ?? []);
+      if (!titulo) { res.status(400).json({ message: 'El grupo necesita un nombre (hasta 100 caracteres)' }); return; }
+      if (!miembros) { res.status(400).json({ message: 'La lista de miembros no es válida' }); return; }
+      await rutaIm(async yo => {
+        const r = await mensajeria.crearGrupo(yo, titulo, miembros);
+        void mensajeria.avisarAgregados(yo, r.dialogId, titulo, miembros).catch(e => ctx.logger.warn(`Aviso de grupo nuevo falló: ${e}`));
+        return r;
+      })(req, res);
+    }));
+
+    ctx.router.post('/im/grupo/:dialogId/miembros', ...conVista, asyncRoute(async (req, res) => {
+      const ids = idsDeUsuarios(req.body?.agregar);
+      if (!ids || !ids.length) { res.status(400).json({ message: 'Elegí a quién sumar' }); return; }
+      await rutaGrupo(async (yo, dialogId) => {
+        const r = await mensajeria.agregarMiembros(yo, dialogId, ids);
+        const info = await mensajeria.infoGrupo(yo, dialogId).catch(() => null);
+        void mensajeria.avisarAgregados(yo, dialogId, info?.titulo ?? 'un grupo', ids).catch(e => ctx.logger.warn(`Aviso de miembros nuevos falló: ${e}`));
+        return { ok: r };
+      })(req, res);
+    }));
+
+    ctx.router.post('/im/grupo/:dialogId/miembros/:bitrixId/quitar', ...conVista, asyncRoute(async (req, res) => {
+      if (!/^\d{1,10}$/.test(req.params.bitrixId)) { res.status(400).json({ message: 'Miembro inválido' }); return; }
+      // Bitrix solo deja quitar al dueño del grupo: si no, responde con error (→ 502).
+      await rutaGrupo(async (yo, dialogId) => ({ ok: await mensajeria.quitarMiembro(yo, dialogId, Number(req.params.bitrixId)) }))(req, res);
+    }));
+
+    ctx.router.post('/im/grupo/:dialogId/salir', ...conVista,
+      rutaGrupo(async (yo, dialogId) => ({ ok: await mensajeria.salirGrupo(yo, dialogId) })));
+
+    ctx.router.post('/im/grupo/:dialogId/silencio', ...conVista,
+      rutaGrupo(async (yo, dialogId, req) => ({ ok: await mensajeria.silenciar(yo, dialogId, req.body?.silenciar === true) })));
+
+    ctx.router.post('/im/grupo/:dialogId/titulo', ...conVista, asyncRoute(async (req, res) => {
+      const titulo = tituloGrupo(req.body?.titulo);
+      if (!titulo) { res.status(400).json({ message: 'El nombre va de 1 a 100 caracteres' }); return; }
+      await rutaGrupo(async (yo, dialogId) => ({ ok: await mensajeria.renombrarGrupo(yo, dialogId, titulo) }))(req, res);
     }));
 
     ctx.router.get('/im/archivo/:fileId', ...conVista, asyncRoute(async (req, res) => {

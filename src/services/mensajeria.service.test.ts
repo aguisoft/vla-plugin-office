@@ -25,6 +25,7 @@ function armar(opts: {
     hooks: { doAction },
     prisma: {
       bitrixUserMapping: {
+        findMany: vi.fn(async () => MAPEO),
         findFirst: vi.fn(async ({ where }: any) =>
           MAPEO.find(m => (where.userId ? m.userId === where.userId : m.bitrixUserId === where.bitrixUserId)) ?? null),
       },
@@ -157,7 +158,7 @@ describe('MensajeriaService: consulta de respaldo', () => {
 
     total = 5;
     await svc.consultarRespaldo();
-    expect(avisos).toEqual([{ userId: 'beto', payload: { type: 'im:new', nuevos: 2 } }]);
+    expect(avisos).toEqual([{ userId: 'beto', payload: { type: 'im:new', nuevos: 2, detalle: 'Tenés 2 mensajes nuevos sin leer' } }]);
   });
 
   it('un mensaje ya avisado por el proxy no se vuelve a avisar en la consulta', async () => {
@@ -276,5 +277,56 @@ describe('MensajeriaService.archivo', () => {
     const { svc, callAsUser } = armar();
     callAsUser.mockImplementation(async () => ({ NAME: 'x', DOWNLOAD_URL: 'https://malo.example/robar' }));
     await expect(svc.archivo('beto', 5)).rejects.toThrow('fuera del portal');
+  });
+});
+
+describe('MensajeriaService: grupos', () => {
+  /** Grupo chat77 «Ventas»: Ana (949), Beto (1001) y alguien de fuera (777). Beto lo silenció. */
+  function armarGrupo(muteList: unknown = []) {
+    const r = armar();
+    r.callAsUser.mockImplementation(async (_t: string, m: string) => ({
+      'im.dialog.get': { name: 'Ventas', owner: 949, manager_list: [949], mute_list: muteList },
+      'im.chat.user.list': [949, 1001, 777],
+      'im.message.add': 555,
+    } as any)[m] ?? []);
+    return r;
+  }
+
+  it('un mensaje de grupo avisa a los miembros del equipo con el nombre del grupo', async () => {
+    const { svc, avisos, doAction } = armarGrupo();
+    await svc.enviar('ana', 'chat77', 'reunión a las 3');
+    expect(avisos).toEqual([{ userId: 'beto', payload: { type: 'im:new', dialogId: 'chat77', de: 'Ana Pérez', grupo: 'Ventas', mencion: false, preview: 'reunión a las 3' } }]);
+    expect(doAction).toHaveBeenCalledWith('core.push.send', expect.objectContaining({ userId: 'beto', title: 'Ana Pérez en Ventas' }));
+  });
+
+  it('quien silenció el grupo no recibe aviso, salvo que lo mencionen', async () => {
+    const a = armarGrupo([1001]);
+    await a.svc.enviar('ana', 'chat77', 'hola');
+    expect(a.avisos).toEqual([]);
+
+    const b = armarGrupo([1001]);
+    await b.svc.enviar('ana', 'chat77', 'ojo [USER=1001]Beto[/USER]');
+    expect(b.avisos[0].payload).toMatchObject({ mencion: true });
+    expect(b.doAction).toHaveBeenCalledWith('core.push.send', expect.objectContaining({ title: 'Ana Pérez te mencionó en Ventas' }));
+  });
+
+  it('los datos del grupo se guardan un minuto: dos mensajes, una sola consulta', async () => {
+    const { svc, callAsUser } = armarGrupo();
+    await svc.enviar('ana', 'chat77', 'uno');
+    await svc.enviar('ana', 'chat77', 'dos');
+    expect(callAsUser.mock.calls.filter(c => c[1] === 'im.chat.user.list')).toHaveLength(1);
+  });
+
+  it('crear, silenciar y salir usan el token de quien lo pide', async () => {
+    const { svc, callAsUser } = armar();
+    callAsUser.mockImplementation(async (_t: string, m: string) => (m === 'im.chat.add' ? 469053 : true));
+    expect(await svc.crearGrupo('ana', 'Q4', [1001])).toEqual({ dialogId: 'chat469053' });
+    await svc.silenciar('ana', 'chat469053', true);
+    await svc.salirGrupo('ana', 'chat469053');
+    expect(callAsUser.mock.calls.map(c => [c[0], c[1], c[2]])).toEqual([
+      ['TOKEN-ANA', 'im.chat.add', { TYPE: 'CHAT', TITLE: 'Q4', USERS: [1001] }],
+      ['TOKEN-ANA', 'im.chat.mute', { CHAT_ID: 469053, ACTION: 'Y' }],
+      ['TOKEN-ANA', 'im.chat.leave', { CHAT_ID: 469053 }],
+    ]);
   });
 });
