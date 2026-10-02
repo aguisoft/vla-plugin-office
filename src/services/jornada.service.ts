@@ -23,6 +23,8 @@ export interface Panel {
   plan: Tarea[];
   /** Tareas abiertas que no están en el plan: para elegir. */
   tareas: Tarea[];
+  /** Las del plan que se sumaron desde la oficina: las del planificador de Bitrix volverían solas. */
+  quitables: number[];
   eventos: Evento[];
 }
 
@@ -54,8 +56,9 @@ export class JornadaService {
   }
 
   async panel(userId: string, ahora = new Date()): Promise<Panel> {
-    const { jornada, plan, tareas, eventos } = await this.delDia(userId, ahora);
-    return { jornada, plan, tareas, eventos };
+    const { jornada, plan, tareas, eventos, planOficina } = await this.delDia(userId, ahora);
+    const deBitrix = new Set(idsDelPlan(planOficina.planBitrix, []));
+    return { jornada, plan, tareas, eventos, quitables: planOficina.ids.filter(id => !deBitrix.has(id)) };
   }
 
   async pausar(userId: string): Promise<Jornada> {
@@ -253,13 +256,17 @@ export class JornadaService {
     const planBitrix = await this.llamar(userId, 'task.planner.getlist').catch(() => []);
     const eventos = await this.eventosDeHoy(userId, bid, ahora);
 
-    const ids = idsDelPlan(planBitrix, await this.planDeOficina(userId, ahora));
+    const deOficina = await this.planDeOficina(userId, ahora);
+    const ids = idsDelPlan(planBitrix, deOficina);
     const porId = new Map<number, Tarea>();
     for (const t of [...abiertas, ...hechasHoy]) porId.set(t.id, t);
     const enPlan = new Set(ids);
     const plan = ids.map(id => porId.get(id)).filter((t): t is Tarea => !!t)
       .sort((a, b) => Number(a.estado === 'completada') - Number(b.estado === 'completada'));
-    return { jornada, plan, tareas: abiertas.filter(t => !enPlan.has(t.id)), eventos, hechasHoy };
+    return {
+      jornada, plan, tareas: abiertas.filter(t => !enPlan.has(t.id)), eventos, hechasHoy,
+      planOficina: { ids: deOficina, planBitrix },
+    };
   }
 
   private async miBitrix(userId: string): Promise<number> {

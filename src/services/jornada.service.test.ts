@@ -148,6 +148,8 @@ describe('panel del día', () => {
     expect(p.plan.map(t => [t.id, t.estado])).toEqual([[1, 'en_curso'], [3, 'completada']]);
     expect(p.tareas.map(t => t.id)).toEqual([2]);
     expect(p.jornada.estado).toBe('trabajando');
+    // La 3 viene del planificador de Bitrix: quitarla de la oficina no la saca.
+    expect(p.quitables).toEqual([1]);
   });
 
   it('pide las tareas propias y las cerradas desde el comienzo del día local', async () => {
