@@ -67,6 +67,44 @@ export function completarSinLeer(base: any[], contadores: unknown, usuarios: unk
   return [...extra, ...base];
 }
 
+/**
+ * Lo mismo para los GRUPOS: el 2-oct-2026 el widget marcaba 3 sin leer y la
+ * lista no mostraba ninguno. Eran de un chat de junio («Nadege Cesar») que
+ * Bitrix no traía en recientes pero seguía contando. Devuelve los `chatN` que
+ * faltan, con tope: cada uno cuesta una llamada a Bitrix.
+ */
+export function chatsSinLeerFaltantes(base: any[], contadores: unknown, tope = 5): string[] {
+  const chats = (contadores as any)?.CHAT;
+  if (!chats || typeof chats !== 'object') return [];
+  const presentes = new Set(base.map(b => String(b.id)));
+  return Object.entries(chats)
+    .filter(([id, n]) => Number(n) > 0 && /^\d+$/.test(id) && !presentes.has(`chat${id}`))
+    .slice(0, tope)
+    .map(([id]) => `chat${id}`);
+}
+
+/**
+ * Los grupos que faltan, armados como ítems de `im.recent.get` con lo que da
+ * `im.dialog.get` de cada uno. Van primero, como los diálogos ocultos. Los de
+ * tareas no: Bitrix los cuenta aparte y llenaban la lista.
+ */
+export function completarChatsSinLeer(base: any[], contadores: unknown, datos: Array<{ dialogId: string; info: any }>): any[] {
+  const chats = ((contadores as any)?.CHAT ?? {}) as Record<string, unknown>;
+  const extra = datos
+    .filter(d => d.info && !TIPOS_DE_CHAT_EXCLUIDOS.has(d.info.type))
+    .map(({ dialogId, info }) => ({
+      id: dialogId,
+      type: 'chat',
+      title: String(info.name || 'Grupo sin nombre'),
+      avatar: { url: info.avatar || '', color: info.color || null },
+      counter: Number(chats[dialogId.slice(4)]) || 0,
+      message: null,
+      chat: { type: info.type ?? null, mute_list: info.mute_list ?? [] },
+      oculta: true,
+    }));
+  return [...extra, ...base];
+}
+
 /** Ids de diálogos sin leer que faltan, para pedir sus nombres. Con tope. */
 export function idsSinLeerFaltantes(base: any[], contadores: unknown, tope = 20): number[] {
   const dialogos = (contadores as any)?.DIALOG;

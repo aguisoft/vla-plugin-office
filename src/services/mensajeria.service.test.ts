@@ -97,6 +97,21 @@ describe('MensajeriaService: el proxy habla como quien pregunta', () => {
     expect(consultasDeActivos).toHaveLength(1);
   });
 
+  // El caso real del 2-oct-2026: el widget marcaba 3 y la lista no mostraba nada.
+  it('recientes agrega los GRUPOS sin leer que Bitrix no listó, y recuerda sus datos', async () => {
+    const { svc, callAsUser } = armar();
+    callAsUser.mockImplementation(async (_t: string, m: string, p: any) => {
+      if (m === 'im.counters.get') return { TYPE: { CHAT: 3 }, DIALOG: {}, CHAT: { 455313: 3 } };
+      if (m === 'im.dialog.get') return { id: 'chat455313', name: 'Nadege Cesar', color: '#ab7761', type: 'chat', mute_list: [] };
+      return p?.SKIP_CHAT ? [{ id: '1001', type: 'user' }] : [];
+    });
+    const r = await svc.recientes('ana');
+    expect(r.map((i: any) => [i.id, i.title, i.counter])).toEqual([['chat455313', 'Nadege Cesar', 3], ['1001', undefined, undefined]]);
+    expect(callAsUser).toHaveBeenCalledWith('TOKEN-ANA', 'im.dialog.get', { DIALOG_ID: 'chat455313' });
+    await svc.recientes('ana');
+    expect(callAsUser.mock.calls.filter(c => c[1] === 'im.dialog.get')).toHaveLength(1);
+  });
+
   it('si completar falla, la lista de recientes igual sale', async () => {
     const { svc, callAsUser } = armar();
     callAsUser.mockImplementation(async (_t: string, m: string, p: any) => {

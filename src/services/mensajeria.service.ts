@@ -5,7 +5,7 @@ import {
 } from '../lib/im-aviso';
 import { urlDeBitrix } from '../lib/im-chat';
 import { chatIdDe, destinatariosDeGrupo, novedades, textoNovedades } from '../lib/im-grupos';
-import { unirRecientes, completarSinLeer, idsSinLeerFaltantes, cuentaActiva, ajustarContadores } from '../lib/im-recientes';
+import { unirRecientes, completarSinLeer, idsSinLeerFaltantes, cuentaActiva, ajustarContadores, chatsSinLeerFaltantes, completarChatsSinLeer } from '../lib/im-recientes';
 
 /** La persona no conectó su Bitrix (o lo revocó). Las rutas lo traducen a 409. */
 export class SinBitrixError extends Error {
@@ -84,19 +84,38 @@ export class MensajeriaService {
     const chats = await this.llamar(userId, 'im.recent.get', { SKIP_OPENLINES: 'Y', SKIP_DIALOG: 'Y' });
     const base = unirRecientes(dialogos, chats);
 
-    // Diálogos sin leer que Bitrix no listó (ocultos de recientes). Si esto
-    // falla, la lista de arriba igual sirve: no se pierde lo que ya había.
+    // Diálogos y grupos sin leer que Bitrix no listó (ocultos de recientes). Si
+    // esto falla, la lista de arriba igual sirve: no se pierde lo que ya había.
     try {
       const contadores = await this.contadores(userId);
+      let lista = base;
       const faltan = idsSinLeerFaltantes(base, contadores);
-      if (!faltan.length) return base;
-      const usuarios = await this.llamar(userId, 'im.user.list.get', { ID: faltan }).catch(() => null);
-      return completarSinLeer(base, contadores, usuarios);
+      if (faltan.length) {
+        const usuarios = await this.llamar(userId, 'im.user.list.get', { ID: faltan }).catch(() => null);
+        lista = completarSinLeer(lista, contadores, usuarios);
+      }
+      const grupos = chatsSinLeerFaltantes(lista, contadores);
+      if (grupos.length) {
+        const datos = [];
+        for (const dialogId of grupos) datos.push({ dialogId, info: await this.datosDeChat(userId, dialogId) });
+        lista = completarChatsSinLeer(lista, contadores, datos);
+      }
+      return lista;
     } catch (e) {
       if (e instanceof SinBitrixError) throw e;
-      this.ctx.logger.warn(`No se pudieron completar los diálogos sin leer: ${e}`);
+      this.ctx.logger.warn(`No se pudieron completar las conversaciones sin leer: ${e}`);
       return base;
     }
+  }
+
+  /** Nombre, color y tipo de un grupo, para sumarlo a la lista. Se recuerda 6 h; si falla, `null`. */
+  private chatsConocidos = new Map<string, { info: any; hasta: number }>();
+  private async datosDeChat(userId: string, dialogId: string, ahora = Date.now()): Promise<any> {
+    const c = this.chatsConocidos.get(dialogId);
+    if (c && c.hasta > ahora) return c.info;
+    const info = await this.llamar<any>(userId, 'im.dialog.get', { DIALOG_ID: dialogId }).catch(() => null);
+    if (info) this.chatsConocidos.set(dialogId, { info, hasta: ahora + 6 * 3_600_000 });
+    return info;
   }
 
   /**

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { esConversacion, unirRecientes, completarSinLeer, idsSinLeerFaltantes, cuentaActiva, ajustarContadores } from './im-recientes';
+import { esConversacion, unirRecientes, completarSinLeer, idsSinLeerFaltantes, cuentaActiva, ajustarContadores, chatsSinLeerFaltantes, completarChatsSinLeer } from './im-recientes';
 
 const usuario = (id: string) => ({ id, type: 'user' });
 const chat = (id: string, tipo: string) => ({ id, type: 'chat', chat: { type: tipo } });
@@ -101,5 +101,35 @@ describe('ajustarContadores', () => {
 
   it('una respuesta sin DIALOG queda igual', () => {
     expect(ajustarContadores({ TYPE: {} }, () => false)).toEqual({ TYPE: {} });
+  });
+});
+
+describe('grupos sin leer que recientes no trae', () => {
+  // El caso real del 2-oct-2026: 3 sin leer en chat455313, ausente de la lista.
+  const contadores = { CHAT: { 455313: 3, 77: 0, 88: 2 }, DIALOG: {} };
+  const base = [usuario('949'), { id: 'chat88', type: 'chat', chat: { type: 'chat' } }];
+
+  it('encuentra los que faltan, con forma chatN y con tope', () => {
+    expect(chatsSinLeerFaltantes(base, contadores)).toEqual(['chat455313']);
+    expect(chatsSinLeerFaltantes([], { CHAT: { 1: 1, 2: 1, 3: 1 } }, 2)).toEqual(['chat1', 'chat2']);
+    expect(chatsSinLeerFaltantes(base, { CHAT: { abc: 3 } })).toEqual([]);
+    expect(chatsSinLeerFaltantes(base, null)).toEqual([]);
+  });
+
+  it('los suma primero, con su nombre, su número y su silencio', () => {
+    const r = completarChatsSinLeer(base, contadores, [
+      { dialogId: 'chat455313', info: { name: 'Nadege Cesar', color: '#ab7761', type: 'chat', mute_list: [] } },
+    ]);
+    expect(r[0]).toMatchObject({ id: 'chat455313', type: 'chat', title: 'Nadege Cesar', counter: 3, oculta: true, chat: { type: 'chat', mute_list: [] } });
+    expect(r.slice(1)).toEqual(base);
+    // Pasa el filtro de la lista: es una conversación.
+    expect(esConversacion(r[0])).toBe(true);
+  });
+
+  it('los de tareas y los que no se pudieron leer no se suman', () => {
+    expect(completarChatsSinLeer(base, contadores, [
+      { dialogId: 'chat455313', info: { name: 'Tarea', type: 'tasksTask' } },
+      { dialogId: 'chat99', info: null },
+    ])).toEqual(base);
   });
 });

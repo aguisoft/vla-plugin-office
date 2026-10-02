@@ -1,6 +1,6 @@
 {
   "name": "vla-plugin-office",
-  "version": "1.21.2",
+  "version": "1.21.3",
   "description": "Office presence plugin for VLA System",
   "private": true,
   "scripts": {
