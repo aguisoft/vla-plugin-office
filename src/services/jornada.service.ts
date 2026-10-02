@@ -311,7 +311,7 @@ export class JornadaService {
     const inicio = localDayStart(ahora, this.tz()).toISOString();
     const fin = localDayEnd(ahora, this.tz()).toISOString();
     // El calendario puede traer eventos que solo rozan el día (de ayer a la noche).
-    return leerEventos(crudo).filter(e => e.hasta > inicio && e.desde <= fin);
+    return leerEventos(crudo, this.tz()).filter(e => e.hasta > inicio && e.desde <= fin);
   }
 
   private async planDeOficina(userId: string, ahora: Date): Promise<number[]> {

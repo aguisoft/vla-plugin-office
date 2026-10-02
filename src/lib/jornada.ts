@@ -200,31 +200,78 @@ export interface Evento {
   fueraDeOficina: boolean;
 }
 
-function instanteDeEvento(ts: unknown, texto: unknown): Date | null {
-  const n = Number(ts);
-  if (Number.isFinite(n) && n > 0) return new Date(n * 1000);
-  return instante(texto);
+/** «12:00:00 pm», «16:00:00», «4:00 p. m.» al final del texto → hora del día. */
+export function horaDelTexto(texto: unknown): { h: number; m: number; s: number } | null {
+  if (typeof texto !== 'string') return null;
+  const x = /(\d{1,2}):(\d{2})(?::(\d{2}))?\s*([ap])?\.?\s*(m\.?)?\s*$/i.exec(texto.trim());
+  if (!x) return null;
+  let h = Number(x[1]);
+  const m = Number(x[2]);
+  const s = Number(x[3] ?? 0);
+  if (x[4]) {
+    if (h < 1 || h > 12) return null;
+    h = (h % 12) + (x[4].toLowerCase() === 'p' ? 12 : 0);
+  }
+  if (h > 23 || m > 59 || s > 59) return null;
+  return { h, m, s };
+}
+
+function zonaValida(tz: unknown): tz is string {
+  if (typeof tz !== 'string' || !tz) return false;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
- * `calendar.event.get` → eventos del día, en orden. Las fechas en texto vienen
- * en el formato del portal; se usan las marcas UTC cuando están. Las
- * invitaciones rechazadas no cuentan.
+ * La hora del texto en la zona del evento, el día que quede más cerca de la
+ * marca UTC. En este portal `DATE_FROM_TS_UTC` viene corrido 3 horas (probado
+ * el 2-oct-2026: un evento de las 12:00 de Costa Rica llegó como 09:00), así
+ * que la marca solo sirve para saber de qué día es: el error de una zona nunca
+ * llega a 12 horas. El formato de la fecha en texto depende del idioma del
+ * portal (MM/DD o DD.MM); de ahí solo se toma la hora, que no es ambigua.
  */
-export function leerEventos(crudo: unknown): Evento[] {
+function instanteDeEvento(ts: unknown, texto: unknown, tz: string, todoElDia: boolean): Date | null {
+  const n = Number(ts);
+  const aprox = Number.isFinite(n) && n > 0 ? new Date(n * 1000) : instante(texto);
+  if (!aprox) return null;
+  const hora = todoElDia ? { h: 0, m: 0, s: 0 } : horaDelTexto(texto);
+  if (!hora) return aprox;
+  let mejor: Date | null = null;
+  for (const dias of [-1, 0, 1]) {
+    const [y, mo, d] = localDateString(new Date(aprox.getTime() + dias * 86_400_000), tz).split('-').map(Number);
+    const c = zonedTimeToUtc(y, mo, d, hora.h, hora.m, hora.s, tz);
+    if (!mejor || Math.abs(c.getTime() - aprox.getTime()) < Math.abs(mejor.getTime() - aprox.getTime())) mejor = c;
+  }
+  return mejor;
+}
+
+/**
+ * `calendar.event.get` → eventos del día, en orden. Las invitaciones
+ * rechazadas no cuentan. Un evento de todo el día va de la medianoche de su
+ * primer día a la del día siguiente al último.
+ */
+export function leerEventos(crudo: unknown, tzPorDefecto: string): Evento[] {
   const lista = Array.isArray(crudo) ? crudo : [];
   const out: Evento[] = [];
   for (const e of lista) {
     if (e?.MEETING_STATUS === 'N') continue;
-    const desde = instanteDeEvento(e?.DATE_FROM_TS_UTC, e?.DATE_FROM);
-    const hasta = instanteDeEvento(e?.DATE_TO_TS_UTC, e?.DATE_TO);
+    const todoElDia = e?.DT_SKIP_TIME === 'Y';
+    const tzDesde = zonaValida(e?.TZ_FROM) ? e.TZ_FROM : tzPorDefecto;
+    const tzHasta = zonaValida(e?.TZ_TO) ? e.TZ_TO : tzDesde;
+    const desde = instanteDeEvento(e?.DATE_FROM_TS_UTC, e?.DATE_FROM, tzDesde, todoElDia);
+    const finDia = instanteDeEvento(e?.DATE_TO_TS_UTC, e?.DATE_TO, tzHasta, todoElDia);
+    const hasta = todoElDia && finDia ? new Date(finDia.getTime() + 86_400_000) : finDia;
     if (!desde || !hasta || e?.ID == null) continue;
     out.push({
       id: String(e.ID),
       titulo: String(e.NAME ?? '').trim() || 'Evento',
       desde: desde.toISOString(),
       hasta: hasta.toISOString(),
-      todoElDia: e.DT_SKIP_TIME === 'Y',
+      todoElDia,
       fueraDeOficina: e.ACCESSIBILITY === 'absent',
     });
   }

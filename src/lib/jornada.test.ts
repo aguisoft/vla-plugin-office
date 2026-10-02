@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   segundosDe, leerJornada, trabajadoSegundos, duracionTexto, horaLocal, problemaConSalida, isoConZona,
-  leerTareas, leerEventos, idsDelPlan, armarBorrador, armarResumen, textoResumen, horaTexto,
+  leerTareas, leerEventos, idsDelPlan, armarBorrador, armarResumen, textoResumen, horaTexto, horaDelTexto,
 } from './jornada';
 
 const TZ = 'America/Costa_Rica';
@@ -132,11 +132,66 @@ describe('leerEventos', () => {
       { ID: '1', NAME: 'Daily', DATE_FROM_TS_UTC: '1790949600', DATE_TO_TS_UTC: '1790951400', ACCESSIBILITY: 'busy' },
       { ID: '3', NAME: 'Rechazada', DATE_FROM_TS_UTC: '1790949600', DATE_TO_TS_UTC: '1790951400', MEETING_STATUS: 'N' },
       { ID: '4', NAME: 'Sin fecha' },
-    ]);
+    ], TZ);
     expect(e.map(x => x.id)).toEqual(['1', '2']);
     expect(e[1]).toMatchObject({ titulo: 'Almuerzo con cliente', fueraDeOficina: true, todoElDia: false });
     expect(horaTexto(new Date(e[0].desde), TZ)).toBe('08:00');
   });
+
+  // Lo que se vio en vivo el 2-oct-2026: la marca UTC llega 3 horas antes.
+  it('el evento creado en Bitrix a las 12:00 se lee a las 12:00 aunque la marca UTC diga 09:00', () => {
+    const [e] = leerEventos([{
+      ID: '110193', NAME: 'Prueba VLA Oficina 2', TZ_FROM: TZ, TZ_TO: TZ,
+      DATE_FROM: '10/02/2026 12:00:00 pm', DATE_TO: '10/02/2026 01:00:00 pm',
+      DATE_FROM_TS_UTC: '1790953200', DATE_TO_TS_UTC: '1790956800',
+    }], TZ);
+    expect([e.desde, e.hasta]).toEqual(['2026-10-02T18:00:00.000Z', '2026-10-02T19:00:00.000Z']);
+  });
+
+  it('y el creado desde la oficina para las 16:00 se lee a las 16:00', () => {
+    const [e] = leerEventos([{
+      ID: '110191', NAME: 'Prueba', TZ_FROM: TZ, DATE_FROM: '10/02/2026 04:00:00 pm', DATE_TO: '10/02/2026 04:15:00 pm',
+      DATE_FROM_TS_UTC: '1790967600', DATE_TO_TS_UTC: '1790968500',
+    }], TZ);
+    expect(horaTexto(new Date(e.desde), TZ)).toBe('16:00');
+    expect(horaTexto(new Date(e.hasta), TZ)).toBe('16:15');
+  });
+
+  // Los ejemplos de la documentación de Bitrix, donde la marca UTC sí está bien.
+  it.each([
+    ['03.12.2024 10:00:00', 'Europe/Kaliningrad', '1733212800', '2024-12-03T08:00:00.000Z'],
+    ['06/14/2024 05:00:00 pm', 'Europe/Riga', '1718373600', '2024-06-14T14:00:00.000Z'],
+  ])('con la marca UTC correcta da lo mismo: %s en %s', (texto, zona, ts, esperado) => {
+    const [e] = leerEventos([{ ID: '1', NAME: 'x', TZ_FROM: zona, DATE_FROM: texto, DATE_TO: texto, DATE_FROM_TS_UTC: ts, DATE_TO_TS_UTC: ts }], TZ);
+    expect(e.desde).toBe(esperado);
+  });
+
+  it('un evento de todo el día va de medianoche a medianoche local, aunque la marca esté corrida', () => {
+    const [e] = leerEventos([{
+      ID: '9', NAME: 'Feriado', DT_SKIP_TIME: 'Y', DATE_FROM: '10/02/2026', DATE_TO: '10/02/2026',
+      DATE_FROM_TS_UTC: '1790910000', DATE_TO_TS_UTC: '1790910000',
+    }], TZ);
+    expect([e.desde, e.hasta, e.todoElDia]).toEqual(['2026-10-02T06:00:00.000Z', '2026-10-03T06:00:00.000Z', true]);
+  });
+
+  it('una zona que no existe usa la de la oficina; sin hora legible queda la marca', () => {
+    const [a] = leerEventos([{ ID: '1', NAME: 'x', TZ_FROM: 'Marte/Base', DATE_FROM: '10/02/2026 12:00:00 pm', DATE_TO: '10/02/2026 12:00:00 pm', DATE_FROM_TS_UTC: '1790953200', DATE_TO_TS_UTC: '1790953200' }], TZ);
+    expect(a.desde).toBe('2026-10-02T18:00:00.000Z');
+    const [b] = leerEventos([{ ID: '2', NAME: 'x', DATE_FROM: 'ilegible', DATE_TO: 'ilegible', DATE_FROM_TS_UTC: '1790953200', DATE_TO_TS_UTC: '1790953200' }], TZ);
+    expect(b.desde).toBe('2026-10-02T15:00:00.000Z');
+  });
+});
+
+describe('horaDelTexto', () => {
+  it.each([
+    ['10/02/2026 12:00:00 pm', { h: 12, m: 0, s: 0 }],
+    ['10/02/2026 12:30:00 am', { h: 0, m: 30, s: 0 }],
+    ['10/02/2026 04:15:09 PM', { h: 16, m: 15, s: 9 }],
+    ['02.10.2026 16:00:00', { h: 16, m: 0, s: 0 }],
+    ['2/10/2026 4:00 p. m.', { h: 16, m: 0, s: 0 }],
+  ])('%s', (t, h) => expect(horaDelTexto(t)).toEqual(h));
+
+  it.each([['10/02/2026'], ['25:00:00'], ['13:00:00 pm'], [''], [null]])('no lee %p', (t) => expect(horaDelTexto(t)).toBeNull());
 });
 
 describe('idsDelPlan', () => {
