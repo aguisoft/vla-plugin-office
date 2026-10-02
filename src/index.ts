@@ -16,6 +16,7 @@ import { BitrixUserService } from './services/bitrix-user.service';
 import { MensajeriaService, SinBitrixError } from './services/mensajeria.service';
 import { JornadaService, JornadaError } from './services/jornada.service';
 import { EscritorioService } from './services/escritorio.service';
+import { versionValida, estadoDeUso, textoTamano, DIAS_VIGENTE } from './lib/escritorio-uso';
 import { dialogoValido, textoMensaje } from './lib/im-aviso';
 import { armarContactos } from './lib/im-contactos';
 import { reaccionValida, idMensajeValido, bytesDeBase64, nombreArchivoSeguro, MAX_ARCHIVO_BYTES } from './lib/im-chat';
@@ -1513,6 +1514,42 @@ const plugin: PluginDefinition = {
       }
       res.setHeader('Cache-Control', 'no-store');
       res.json({ manifiesto: p.manifiesto, firma: p.firma });
+    }));
+
+    // La app avisa que está viva y con qué versión: así la oficina sabe a quién
+    // ofrecérsela y cuántos la usan. Solo con un token de la app de escritorio.
+    ctx.router.post('/escritorio/latido', ctx.requireAuth(), asyncRoute(async (req, res) => {
+      const u = (req as any).user;
+      if (!u?.dispositivo || !u?.sub) { res.status(403).json({ message: 'Solo la app de escritorio' }); return; }
+      const version = req.body?.version;
+      if (!versionValida(version)) { res.status(400).json({ message: 'Versión inválida' }); return; }
+      await ctx.query(
+        `INSERT INTO office_escritorio_uso (user_id, version, ultima_vez) VALUES ($1, $2, now())
+         ON CONFLICT (user_id) DO UPDATE SET version = EXCLUDED.version, ultima_vez = now()`,
+        [u.sub, version],
+      );
+      res.json({ ok: true });
+    }));
+
+    // Para la web: ¿esta persona tiene la app? Y lo publicado, para ofrecerla.
+    ctx.router.get('/escritorio/mio', ...conVista, asyncRoute(async (req, res) => {
+      const userId = (req as any).user?.sub;
+      const p = escritorio.leer();
+      const publicada = p && escritorio.rutaInstalador(p) ? p.meta : null;
+      const [fila] = await ctx.query<any>(`SELECT version, ultima_vez FROM office_escritorio_uso WHERE user_id = $1`, [userId]);
+      const [cuenta] = await ctx.query<any>(
+        `SELECT count(*)::int AS n FROM office_escritorio_uso
+          WHERE ultima_vez > now() - make_interval(days => $1::int) AND user_id <> $2`,
+        [String(DIAS_VIGENTE), userId],
+      );
+      res.setHeader('Cache-Control', 'no-store');
+      res.json({
+        ...estadoDeUso(fila, publicada?.version ?? null, new Date()),
+        companeros: Number(cuenta?.n) || 0,
+        publicada: publicada
+          ? { version: publicada.version, tamano: publicada.tamano, tamanoTexto: textoTamano(publicada.tamano), fecha: publicada.fecha }
+          : null,
+      });
     }));
 
     ctx.router.get('/escritorio/descarga', ...conVista, asyncRoute(async (_req, res) => {

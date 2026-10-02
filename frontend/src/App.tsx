@@ -22,7 +22,9 @@ import { HolidayManager } from './components/HolidayManager';
 import { TimesheetScreen } from './components/TimesheetScreen';
 import { OrgChart } from './components/OrgChart';
 import { EscritorioModal } from './components/EscritorioModal';
-import { resultadoBitrix, enlaceEscritorio, type ResultadoBitrix, type EnlaceEscritorio } from './lib/escritorio';
+import { resultadoBitrix, enlaceEscritorio, type ResultadoBitrix, type EnlaceEscritorio, type UsoEscritorio } from './lib/escritorio';
+import { OfertaEscritorio } from './components/OfertaEscritorio';
+import { getEscritorioMio } from './api';
 import { Shell } from './components/modalParts';
 import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant, PendingInvite } from './types';
 import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
@@ -82,6 +84,10 @@ export default function App() {
     return enlaceEscritorio(window.location.search, dePadre);
   });
   const [showEscritorio, setShowEscritorio] = useState(vueltaBitrix !== null || enlace !== null);
+  // ¿Tiene la app de escritorio? Para ofrecérsela a quien no.
+  const [usoEscritorio, setUsoEscritorio] = useState<UsoEscritorio | null>(null);
+  useEffect(() => { getEscritorioMio().then(setUsoEscritorio).catch(() => undefined); }, []);
+  const faltaEscritorio = !!usoEscritorio?.publicada && !usoEscritorio.instalada;
   const [showHolidayAdmin, setShowHolidayAdmin]     = useState(false);
   const [showAbsences, setShowAbsences]             = useState(false);
   const [usePhotos, setUsePhotos] = useState(() => localStorage.getItem('vla-use-photos') !== 'false');
@@ -528,13 +534,14 @@ export default function App() {
         Organigrama
       </button>
 
-      <button onClick={() => setShowEscritorio(true)}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] text-gray-500 hover:bg-gray-100 transition-colors"
+      <button onClick={() => setShowEscritorio(true)} data-testid="boton-escritorio"
+        className={`relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] transition-colors ${faltaEscritorio ? 'bg-gray-900 font-semibold text-white hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-100'}`}
         title="App de escritorio y mensajes de Bitrix">
         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5h16a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zM8 20h8m-4-4v4" />
         </svg>
-        Escritorio
+        {faltaEscritorio ? 'Instalar la app' : 'Escritorio'}
+        {faltaEscritorio && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-orange-400 ring-2 ring-white" />}
       </button>
 
       {/* Sin gating por office.manage: es un reporte de lo propio, cualquiera
@@ -588,7 +595,7 @@ export default function App() {
         <AvatarModal current={myUser?.avatar ?? null} onSave={handleSaveAvatar} onClose={() => setShowAvatarModal(false)} />
       )}
       {showEscritorio && (
-        <EscritorioModal resultado={vueltaBitrix}
+        <EscritorioModal resultado={vueltaBitrix} uso={usoEscritorio}
           codigoInicial={enlace?.tipo === 'codigo' ? enlace.codigo : null}
           autoConectar={enlace?.tipo === 'bitrix'}
           onClose={() => {
@@ -660,6 +667,7 @@ export default function App() {
           <div className="flex-1 flex overflow-hidden">
             {/* Grid */}
             <div className="flex-1 flex flex-col overflow-hidden">
+              <OfertaEscritorio uso={usoEscritorio} onCambio={setUsoEscritorio} />
               {/* Filter bar */}
               <div className="flex-shrink-0 flex items-center gap-1.5 px-5 py-2 bg-white border-b border-gray-100 overflow-x-auto">
                 {([

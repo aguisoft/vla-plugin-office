@@ -4,8 +4,9 @@ import {
   ApiError, conectarBitrixUrl, confirmarDispositivo, desconectarBitrix, getEstadoBitrix, type EstadoBitrix,
 } from '../api';
 import {
-  mensajeDeVinculacion, normalizarCodigo, problemaDelCodigo, textoEstadoBitrix, type ResultadoBitrix,
+  mensajeDeVinculacion, normalizarCodigo, problemaDelCodigo, textoEstadoBitrix, type ResultadoBitrix, type UsoEscritorio,
 } from '../lib/escritorio';
+import { descargaEscritorioUrl } from '../api';
 
 /**
  * La puesta en marcha de la app de escritorio, en el orden en que se hace:
@@ -13,8 +14,10 @@ import {
  * para los mensajes. El widget abre esta pantalla con el código ya escrito
  * (`?escritorio=CODIGO`) o directo al paso 2 (`?escritorio=bitrix`).
  */
-export function EscritorioModal({ onClose, resultado, codigoInicial, autoConectar }: {
+export function EscritorioModal({ onClose, resultado, codigoInicial, autoConectar, uso }: {
   onClose: () => void;
+  /** Si ya tiene la app (por su latido) y qué hay publicado. */
+  uso?: UsoEscritorio | null;
   /** Viene de la vuelta de Bitrix (`?bitrix=listo|error`), si la hubo. */
   resultado: ResultadoBitrix | null;
   /** Código que mandó el widget: se precarga, pero vincular sigue pidiendo un clic. */
@@ -89,6 +92,26 @@ export function EscritorioModal({ onClose, resultado, codigoInicial, autoConecta
 
   return (
     <Shell title="App de escritorio" onClose={onClose}>
+      {uso?.publicada && (
+        <section className="mb-4" data-testid="paso-descargar">
+          {uso.instalada ? (
+            <p className="rounded-xl bg-green-50 px-3 py-2 text-xs text-green-700">
+              Ya tenés la app en tu computadora{uso.version ? ` (versión ${uso.version})` : ''}. Se actualiza sola.
+            </p>
+          ) : (
+            <>
+              <p className="mb-2 text-xs text-gray-500">
+                ¿Todavía no la tenés? Bajala, abrila y tocá <b>Entrar con Bitrix</b>: con eso quedan hechos los dos pasos de abajo.
+              </p>
+              <a href={descargaEscritorioUrl} download
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-700">
+                Descargar VLA Oficina para Windows{uso.publicada.tamanoTexto ? ` · ${uso.publicada.tamanoTexto}` : ''}
+              </a>
+              <p className="mt-1.5 text-[11px] text-gray-500">Si Windows dice «Windows protegió su PC»: <b>Más información</b> → <b>Ejecutar de todos modos</b>.</p>
+            </>
+          )}
+        </section>
+      )}
       {resultado === 'listo' && bitrixListo && (
         <p className="mb-3 rounded-xl bg-green-50 px-3 py-2 text-xs text-green-700">Bitrix conectado. Ya podés ver y mandar tus mensajes desde la app.</p>
       )}

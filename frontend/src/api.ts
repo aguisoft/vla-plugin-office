@@ -249,3 +249,11 @@ export const conectarBitrixUrl = `${BASE}${PLUGIN}/bitrix/oauth/start`;
 /** Ruta del core, no del plugin: es el core quien emite el token del escritorio. */
 export const confirmarDispositivo = (userCode: string) =>
   api.post<{ ok: true }>('/auth/device/confirm', { userCode });
+
+// ── App de escritorio: ofrecerla y saber si ya la tiene ──────────────────────
+
+/** ¿Tiene la app? Y lo publicado (versión, tamaño), para ofrecerla. */
+export const getEscritorioMio = () => api.get<import('./lib/escritorio').UsoEscritorio>(`${PLUGIN}/escritorio/mio`);
+
+/** Se navega (un <a download>): la cookie de sesión autoriza la descarga. */
+export const descargaEscritorioUrl = `${BASE}${PLUGIN}/escritorio/descarga`;

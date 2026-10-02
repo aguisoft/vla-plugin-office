@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  debeOfrecer, posponerHasta, leerPospuesto, textoCompaneros,
   normalizarCodigo, problemaDelCodigo, mensajeDeVinculacion, resultadoBitrix, textoEstadoBitrix, enlaceEscritorio,
 } from './escritorio';
 
@@ -95,4 +96,36 @@ describe('enlaceEscritorio', () => {
     expect(enlaceEscritorio('?escritorio=<script>')).toBeNull();
   });
   it('sin parámetro, nada', () => expect(enlaceEscritorio('?view=tiempos', null)).toBeNull());
+});
+
+describe('ofrecer la app', () => {
+  const AHORA = Date.parse('2026-10-02T20:00:00Z');
+  const publicada = { version: '0.8.5', tamano: 112_000_000, tamanoTexto: '107 MB', fecha: '2026-10-02' };
+  const uso = (x: object = {}) => ({ instalada: false, version: null, ultimaVez: null, alDia: false, companeros: 3, publicada, ...x });
+
+  it('se ofrece a quien no la tiene', () => {
+    expect(debeOfrecer(uso(), null, AHORA)).toBe(true);
+  });
+
+  it('no a quien ya la tiene, ni si no hay nada publicado, ni sin datos', () => {
+    expect(debeOfrecer(uso({ instalada: true }), null, AHORA)).toBe(false);
+    expect(debeOfrecer(uso({ publicada: null }), null, AHORA)).toBe(false);
+    expect(debeOfrecer(null, null, AHORA)).toBe(false);
+  });
+
+  it('«Ahora no» la esconde 3 días y después vuelve', () => {
+    const hasta = posponerHasta(AHORA);
+    expect(debeOfrecer(uso(), hasta, AHORA + 2 * 86_400_000)).toBe(false);
+    expect(debeOfrecer(uso(), hasta, AHORA + 3 * 86_400_000)).toBe(true);
+  });
+
+  it.each([[null, null], ['', null], ['abc', null], ['1790971200000', 1790971200000]])('leerPospuesto(%p) → %p', (v, r) => {
+    expect(leerPospuesto(v)).toBe(r);
+  });
+
+  it('cuenta compañeros sin inventar: con cero no dice nada', () => {
+    expect(textoCompaneros(0)).toBeNull();
+    expect(textoCompaneros(1)).toBe('Ya la usa 1 compañero');
+    expect(textoCompaneros(7)).toBe('Ya la usan 7 compañeros');
+  });
 });

@@ -89,3 +89,43 @@ export function enlaceEscritorio(...busquedas: Array<string | null | undefined>)
   }
   return null;
 }
+
+// ── Ofrecer la app a quien no la tiene ──────────────────────────────────────
+
+export interface UsoEscritorio {
+  instalada: boolean;
+  version: string | null;
+  ultimaVez: string | null;
+  alDia: boolean;
+  companeros: number;
+  publicada: { version: string; tamano: number; tamanoTexto: string; fecha: string } | null;
+}
+
+export const CLAVE_POSPONER = 'vla-escritorio-posponer';
+export const DIAS_POSPONER = 3;
+
+/**
+ * Se ofrece si hay una versión publicada, la persona no la tiene, y no dijo
+ * «Ahora no» hace menos de `DIAS_POSPONER` días.
+ */
+export function debeOfrecer(uso: UsoEscritorio | null, pospuestoHasta: number | null, ahora: number): boolean {
+  if (!uso?.publicada || uso.instalada) return false;
+  return !pospuestoHasta || ahora >= pospuestoHasta;
+}
+
+/** Hasta cuándo se pospone al tocar «Ahora no». */
+export function posponerHasta(ahora: number): number {
+  return ahora + DIAS_POSPONER * 86_400_000;
+}
+
+/** Lo guardado en localStorage → marca de tiempo o null. */
+export function leerPospuesto(crudo: string | null): number | null {
+  const n = Number(crudo);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** «Ya la usan 5 compañeros», o nada si todavía nadie (no se inventa urgencia). */
+export function textoCompaneros(n: number): string | null {
+  if (!(n > 0)) return null;
+  return n === 1 ? 'Ya la usa 1 compañero' : `Ya la usan ${n} compañeros`;
+}
