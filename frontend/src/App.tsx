@@ -24,6 +24,7 @@ import { OrgChart } from './components/OrgChart';
 import { EscritorioModal } from './components/EscritorioModal';
 import { resultadoBitrix, enlaceEscritorio, type ResultadoBitrix, type EnlaceEscritorio, type UsoEscritorio } from './lib/escritorio';
 import { OfertaEscritorio } from './components/OfertaEscritorio';
+import { InformeSalidaModal } from './components/InformeSalidaModal';
 import { getEscritorioMio } from './api';
 import { Shell } from './components/modalParts';
 import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant, PendingInvite } from './types';
@@ -219,7 +220,11 @@ export default function App() {
     } finally { setActionLoading(false); }
   }
 
-  async function handleCheckOut() {
+  // «Salir» pasa por el informe del día si la jornada de Bitrix está abierta.
+  const [pidiendoInforme, setPidiendoInforme] = useState(false);
+  function handleCheckOut() { setPidiendoInforme(true); }
+
+  async function salirSinInforme() {
     setActionLoading(true);
     try {
       await api.post('/p/office/checkout');
@@ -610,6 +615,10 @@ export default function App() {
               } catch { /* otro origen */ }
             }
           }} />
+      )}
+      {pidiendoInforme && (
+        <InformeSalidaModal onClose={() => setPidiendoInforme(false)} salirSinInforme={salirSinInforme}
+          onSalio={() => { setPidiendoInforme(false); setIsCheckedIn(false); setMyStatus('OFFLINE'); void loadData(); }} />
       )}
       {showBitrixSettings && (
         <BitrixSettings onClose={() => setShowBitrixSettings(false)} />
