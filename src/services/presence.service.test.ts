@@ -102,4 +102,29 @@ describe('PresenceService.recordTransition — forma del SQL', () => {
     expect(warn).toHaveBeenCalledTimes(1);
     expect(String(warn.mock.calls[0][0])).toContain('No se pudo registrar la transición');
   });
+
+  // El caso real del 2-oct-2026: dos cambios a la vez, el segundo chocaba con 23505 y se perdía.
+  it('si choca con otro cambio simultáneo (23505), reintenta y registra el estado nuevo', async () => {
+    const { ctx, calls, warn } = makeCtx({ openStatus: 'AVAILABLE' });
+    const query = (ctx as any).query as ReturnType<typeof vi.fn>;
+    const original = query.getMockImplementation()!;
+    let choques = 0;
+    query.mockImplementation(async (sql: string, params: unknown[]) => {
+      if (/INSERT INTO office_status_intervals/.test(sql) && choques++ === 0) {
+        throw new Error('Raw query failed. Code: `23505`. Message: `Key (user_id)=(u1) already exists.`');
+      }
+      return original(sql, params);
+    });
+    await (new PresenceService(ctx) as any).recordTransition('u1', 'IN_MEETING_INTERNAL', new Date(), null, 'WEB');
+    expect(query.mock.calls.filter(c => /INSERT INTO office_status_intervals/.test(String(c[0])))).toHaveLength(2);
+    expect(calls.filter(c => /INSERT INTO office_status_intervals/.test(c.sql))).toHaveLength(1);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('otros errores no se reintentan', async () => {
+    const { ctx, calls, warn } = makeCtx({ openStatus: 'AVAILABLE', rejectWith: new Error('tabla no existe') });
+    await (new PresenceService(ctx) as any).recordTransition('u1', 'FOCUS', new Date(), null, 'WEB');
+    expect(calls).toHaveLength(1);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
 });

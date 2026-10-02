@@ -452,7 +452,13 @@ export class BitrixService {
 
   // ── Timeman bulk sync (matches by email) ───────────────────────────────────
 
-  async syncTimemanStatuses(): Promise<Array<{ userId: string; isOpen: boolean }>> {
+  /**
+   * `isOpen: null` = no se pudo leer (cuota de Bitrix, red): quien llama no debe
+   * deducir nada. Antes un error contaba como jornada cerrada y sacaba de la
+   * oficina a gente trabajando. Las consultas van de a una: en ráfaga se
+   * comían el cupo de ~2 por segundo del portal, compartido con cobros.
+   */
+  async syncTimemanStatuses(): Promise<Array<{ userId: string; isOpen: boolean | null }>> {
     if (!this.isConfigured()) return [];
 
     const [bitrixUsers, vlaByEmail] = await Promise.all([
@@ -472,23 +478,20 @@ export class BitrixService {
 
     this.ctx.logger.log(`Timeman sync: ${matched.length} usuarios coincidentes por email`);
 
-    const results = await Promise.allSettled(
-      matched.map(async (bu) => {
-        const userId = vlaByEmail.get(bu.EMAIL.toLowerCase())!;
-        const status = await this.getTimemanStatusForUser(Number(bu.ID));
-        const isOpen = status?.STATUS === 'OPENED'
-          || status?.STATUS === 'PAUSED'
-          || (status?.STATUS === 'EXPIRED' && status?.ACTIVE === true);
-        this.ctx.logger.log(
-          `Timeman [${bu.EMAIL}] bitrixId=${bu.ID} STATUS=${status?.STATUS ?? 'null'} ACTIVE=${status?.ACTIVE} → isOpen=${isOpen}`,
-        );
-        return { userId, isOpen };
-      }),
-    );
-
-    return results
-      .filter((r): r is PromiseFulfilledResult<{ userId: string; isOpen: boolean }> => r.status === 'fulfilled')
-      .map(r => r.value);
+    const resultados: Array<{ userId: string; isOpen: boolean | null }> = [];
+    for (const bu of matched) {
+      const userId = vlaByEmail.get(bu.EMAIL.toLowerCase())!;
+      const status = await this.getTimemanStatusForUser(Number(bu.ID));
+      const isOpen = !status?.STATUS ? null
+        : status.STATUS === 'OPENED'
+          || status.STATUS === 'PAUSED'
+          || (status.STATUS === 'EXPIRED' && status.ACTIVE === true);
+      this.ctx.logger.log(
+        `Timeman [${bu.EMAIL}] bitrixId=${bu.ID} STATUS=${status?.STATUS ?? 'null'} ACTIVE=${status?.ACTIVE} → isOpen=${isOpen}`,
+      );
+      resultados.push({ userId, isOpen });
+    }
+    return resultados;
   }
 
   // ── Timeman diagnostic ─────────────────────────────────────────────────────

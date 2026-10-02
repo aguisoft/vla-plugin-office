@@ -27,6 +27,8 @@ export interface PresenceRecord {
  * Manages user check-in/check-out and presence state.
  * Uses ctx.prisma for persistence and ctx.redis for caching.
  */
+const claveUltimaConexion = (userId: string) => `presencia:ultima-conexion:${userId}`;
+
 export class PresenceService {
   constructor(private readonly ctx: PluginContext) {}
 
@@ -57,6 +59,13 @@ export class PresenceService {
    * costo aceptado es que un fallo deja el historial divergido en silencio, y eso
    * se detecta en el reporte como "sin registrar" creciendo.
    */
+  /**
+   * Dos cambios de la misma persona a la vez (web y app, o con el sync de
+   * Bitrix) cierran el mismo intervalo y los dos quieren abrir uno: Postgres
+   * rechaza al segundo con 23505 (pasó en producción el 2-oct-2026), y ese era
+   * justo el estado más nuevo. Al reintentar, la sentencia nueva ya ve el
+   * intervalo del primero y lo cierra.
+   */
   private async recordTransition(
     userId: string,
     status: string,
@@ -64,7 +73,27 @@ export class PresenceService {
     justification: string | null,
     source: CheckSource,
   ): Promise<void> {
-    try {
+    for (let intento = 1; intento <= 3; intento++) {
+      try {
+        await this.registrarTransicion(userId, status, at, justification, source);
+        return;
+      } catch (e) {
+        const duplicado = String((e as any)?.code ?? '').includes('23505') || /23505|already exists/.test(String(e));
+        if (duplicado && intento < 3) continue;
+        this.ctx.logger.warn(`No se pudo registrar la transición de ${userId} a ${status}: ${e}`);
+        return;
+      }
+    }
+  }
+
+  private async registrarTransicion(
+    userId: string,
+    status: string,
+    at: Date,
+    justification: string | null,
+    source: CheckSource,
+  ): Promise<void> {
+    {
       const abierto = await this.ctx.query<{ status: string }>(
         'SELECT status FROM office_status_intervals WHERE user_id = $1 AND ended_at IS NULL LIMIT 1',
         [userId],
@@ -106,8 +135,6 @@ export class PresenceService {
          RETURNING id`,
         [userId, at.toISOString(), status, justification, source],
       );
-    } catch (e) {
-      this.ctx.logger.warn(`No se pudo registrar la transición de ${userId} a ${status}: ${e}`);
     }
   }
 
@@ -259,7 +286,20 @@ export class PresenceService {
 
   subscribe(send: (data: string) => void, userId: string | null = null): () => void {
     this.clients.set(send, userId);
-    return () => this.clients.delete(send);
+    return () => {
+      this.clients.delete(send);
+      // Se cerró su última pantalla: desde acá cuenta la inactividad (ver lib/inactividad.ts).
+      if (userId && ![...this.clients.values()].includes(userId)) {
+        void this.ctx.redis.set(claveUltimaConexion(userId), new Date().toISOString(), 2 * 86_400).catch(() => undefined);
+      }
+    };
+  }
+
+  /** Última vez que tuvo una pantalla abierta (oficina o app), si se cerró en los últimos 2 días. */
+  async ultimaConexion(userId: string): Promise<Date | null> {
+    const v = await this.ctx.redis.get(claveUltimaConexion(userId)).catch(() => null);
+    const d = v ? new Date(v) : null;
+    return d && !Number.isNaN(d.getTime()) ? d : null;
   }
 
   private broadcast(payload: object): void {

@@ -17,6 +17,7 @@ import { MensajeriaService, SinBitrixError } from './services/mensajeria.service
 import { JornadaService, JornadaError } from './services/jornada.service';
 import { EscritorioService } from './services/escritorio.service';
 import { versionValida, estadoDeUso, textoTamano, DIAS_VIGENTE } from './lib/escritorio-uso';
+import { motivoDeCierre, estadosVencidos } from './lib/inactividad';
 import { dialogoValido, textoMensaje } from './lib/im-aviso';
 import { armarContactos } from './lib/im-contactos';
 import { reaccionValida, idMensajeValido, bytesDeBase64, nombreArchivoSeguro, MAX_ARCHIVO_BYTES } from './lib/im-chat';
@@ -287,10 +288,26 @@ const plugin: PluginDefinition = {
       res.setHeader('Content-Type', 'text/event-stream');
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('Connection', 'keep-alive');
+      res.setHeader('X-Accel-Buffering', 'no');
       res.flushHeaders();
+      res.write(': conectado\n\n');
 
       const unsubscribe = presence.subscribe((data) => res.write(data), (req as any).user?.sub ?? null);
-      req.on('close', unsubscribe);
+      // Latido: sin datos, Node (la app) corta a los 300 s y los proxies cortan
+      // por inactividad; con un socket muerto, la escritura falla y se limpia.
+      // Medido el 2-oct-2026: todas las apps se reconectaban cada ~305 s.
+      const latido = setInterval(() => {
+        try { res.write(': latido\n\n'); } catch { cerrar(); }
+      }, 25_000);
+      let cerrado = false;
+      function cerrar() {
+        if (cerrado) return;
+        cerrado = true;
+        clearInterval(latido);
+        unsubscribe();
+      }
+      req.on('close', cerrar);
+      res.on('error', cerrar);
     });
 
     // ── Presencia ──────────────────────────────────────────────────────────────
@@ -1627,7 +1644,7 @@ const plugin: PluginDefinition = {
      * mismo tick cubre los dos.
      */
     let ausentesPrevios: Set<string> | null = null;
-    ctx.cron('* * * * *', async () => {
+    async function ventanaDeAusencias() {
       try {
         const ahora = await absentUserIds(new Date());
 
@@ -1647,16 +1664,47 @@ const plugin: PluginDefinition = {
         // refrescándose de rebote como lo hacía antes de existir esto.
         ctx.logger.warn(`Cron ventana de ausencia: ${e}`);
       }
+    }
+
+    /** El almuerzo (o el «vuelvo pronto») con hora de fin vuelve solo a Disponible. */
+    async function vencerEstados() {
+      try {
+        const filas = await ctx.prisma.presenceStatus.findMany({
+          where: { isCheckedIn: true, statusEndsAt: { lte: new Date() } },
+        }) as any[];
+        for (const f of estadosVencidos(filas, new Date())) {
+          await presence.updateStatus(f.userId, 'AVAILABLE', {});
+          ctx.logger.log(`Estado vencido: ${f.userId} ${f.status} → AVAILABLE`);
+        }
+      } catch (e) {
+        ctx.logger.warn(`Cron de estados vencidos: ${e}`);
+      }
+    }
+
+    // ── Cron: cada minuto ─────────────────────────────────────────────────────
+    // UNO solo: el core nombra los crons por su expresión y al registrar otro
+    // «* * * * *» detenía el anterior. Así murió la ventana de ausencias cuando
+    // se sumó el de la app de escritorio (encontrado el 2-oct-2026).
+    ctx.cron('* * * * *', async () => {
+      await ventanaDeAusencias();
+      await vencerEstados();
+      try {
+        escritorio.revisar(version => presence.anunciarActualizacionEscritorio(version));
+      } catch (e) {
+        ctx.logger.warn(`Cron de publicación de escritorio: ${e}`);
+      }
     });
 
     // ── Cron: auto-checkout por inactividad (>8h) ─────────────────────────────
     // Cierra tanto en VLA como en Bitrix ANTES de que la jornada expire (~24h)
     ctx.cron('*/5 * * * *', async () => {
-      const threshold = new Date(Date.now() - 8 * 60 * 60 * 1000);
-      const absent = await absentUserIds(new Date());
+      const ahora = new Date();
+      const threshold = new Date(ahora.getTime() - 8 * 60 * 60 * 1000);
+      const absent = await absentUserIds(ahora);
       const stale = await ctx.prisma.presenceStatus.findMany({
         where: { isCheckedIn: true, lastActivityAt: { lt: threshold } },
       });
+      const conectados = new Set(presence.conectados());
       for (const p of stale) {
         const userId = (p as any).userId;
         // No tiene sentido cerrar por inactividad a quien está de
@@ -1665,6 +1713,17 @@ const plugin: PluginDefinition = {
           ctx.logger.log(`Auto checkout omitido por ausencia: ${userId}`);
           continue;
         }
+        const abierta = await ctx.prisma.checkInRecord.findFirst({ where: { userId, checkOutAt: null }, orderBy: { checkInAt: 'desc' } });
+        const motivo = motivoDeCierre({
+          ahora,
+          lastActivityAt: (p as any).lastActivityAt ?? null,
+          ultimaConexion: await presence.ultimaConexion(userId),
+          conectado: conectados.has(userId),
+          checkInAt: abierta?.checkInAt ?? null,
+        });
+        // Con la oficina o la app abiertas, o vista hace poco: está trabajando.
+        if (!motivo) continue;
+        ctx.logger.warn(`Auto checkout (${motivo}): ${userId}`);
         await presence.checkOut(userId, 'WEB');
         // Also close in Bitrix to prevent EXPIRED state
         const bid = await bitrix.getBitrixIdForVlaUser(userId);
@@ -1737,7 +1796,7 @@ const plugin: PluginDefinition = {
       // de promesas en handlers async; el cron sí tiene su propio wrapper).
       // Verificado en vivo: POST /timeman/sync contra el stub de Bitrix
       // (dominio nonexistent.invalid) mató el servidor antes de este guard.
-      let statuses: Array<{ userId: string; isOpen: boolean }>;
+      let statuses: Array<{ userId: string; isOpen: boolean | null }>;
       try {
         statuses = await bitrix.syncTimemanStatuses();
       } catch (e) {
@@ -1747,6 +1806,8 @@ const plugin: PluginDefinition = {
 
       for (const { userId, isOpen } of statuses) {
         try {
+          // No se pudo leer su jornada: no se deduce nada (antes era «cerrada» y lo sacaba).
+          if (isOpen === null) { errors++; continue; }
           // Una ausencia o un feriado gana sobre lo que diga timeman.
           if (absent.has(userId)) { skippedByAbsence++; continue; }
 
@@ -1789,11 +1850,8 @@ const plugin: PluginDefinition = {
       await runTimemanSync();
     });
 
-    // ── Cron: publicación nueva de la app de escritorio ───────────────────────
-    // Respaldo de fs.watch, que en algunos volúmenes se pierde.
-    ctx.cron('* * * * *', async () => {
-      escritorio.revisar(version => presence.anunciarActualizacionEscritorio(version));
-    });
+    // La publicación nueva de la app de escritorio se revisa en el cron de
+    // cada minuto de arriba (respaldo de fs.watch, que en algunos volúmenes se pierde).
 
     // ── Cron: mensajes nuevos de Bitrix (respaldo del aviso inmediato) ────────
     // Minutos impares, para no coincidir con el sync de timeman de arriba.
