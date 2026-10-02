@@ -166,19 +166,29 @@ describe('MensajeriaService: aviso inmediato', () => {
 describe('MensajeriaService: consulta de respaldo', () => {
   it('primera consulta en silencio; si sube el contador, avisa', async () => {
     let total = 3;
-    const { svc, avisos } = armar({ conectados: ['beto'], contadores: async () => ({ TYPE: { DIALOG: total } }) });
+    const { svc, avisos } = armar({ conectados: ['beto'], contadores: async () => ({ TYPE: { DIALOG: total }, DIALOG: { 949: total } }) });
 
     await svc.consultarRespaldo();
     expect(avisos).toEqual([]);
 
     total = 5;
     await svc.consultarRespaldo();
-    expect(avisos).toEqual([{ userId: 'beto', payload: { type: 'im:new', nuevos: 2, detalle: 'Tenés 2 mensajes nuevos sin leer' } }]);
+    expect(avisos).toEqual([{ userId: 'beto', payload: { type: 'im:new', nuevos: 2, detalle: 'Mensajes nuevos en 1 conversación directa' } }]);
+  });
+
+  // El caso que se perdía al comparar el total: leyó 3 en un chat y le llegaron 3 en otro.
+  it('avisa los nuevos aunque el total no cambie (leyó en un chat, llegaron en otro)', async () => {
+    let c: any = { TYPE: { DIALOG: 3 }, DIALOG: { 949: 3 }, CHAT: {} };
+    const { svc, avisos } = armar({ conectados: ['beto'], contadores: async () => c });
+    await svc.consultarRespaldo();
+    c = { TYPE: { DIALOG: 0, CHAT: 3 }, DIALOG: { 949: 0 }, CHAT: { 77: 3 } };
+    await svc.consultarRespaldo();
+    expect(avisos.map(a => a.payload.nuevos)).toEqual([3]);
   });
 
   it('un mensaje ya avisado por el proxy no se vuelve a avisar en la consulta', async () => {
     let total = 0;
-    const { svc, avisos } = armar({ conectados: ['beto'], contadores: async () => ({ TYPE: { DIALOG: total } }) });
+    const { svc, avisos } = armar({ conectados: ['beto'], contadores: async () => ({ TYPE: { DIALOG: total }, DIALOG: { 949: total } }) });
     await svc.consultarRespaldo(); // base 0
 
     await svc.enviar('ana', '1001', 'hola'); // aviso inmediato a Beto

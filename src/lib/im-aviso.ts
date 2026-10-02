@@ -83,3 +83,55 @@ export function vistaPrevia(texto: string, max = 120): string {
     .trim();
   return una.length <= max ? una : `${una.slice(0, max - 1)}…`;
 }
+
+// ── Comparación chat por chat ───────────────────────────────────────────────
+
+/** Sin leer por conversación en la última consulta (lo que ya se avisó). */
+export interface Instantanea {
+  CHAT: Record<string, number>;
+  DIALOG: Record<string, number>;
+}
+
+export function instantanea(contadores: any): Instantanea {
+  const copia = (m: unknown) => Object.fromEntries(
+    Object.entries((m && typeof m === 'object' ? m : {}) as Record<string, unknown>).map(([k, v]) => [k, Number(v) || 0]),
+  );
+  return { CHAT: copia(contadores?.CHAT), DIALOG: copia(contadores?.DIALOG) };
+}
+
+/**
+ * Lo nuevo desde la consulta anterior, conversación por conversación. Antes se
+ * comparaba el TOTAL: si la persona leía 3 en Bitrix y le llegaban 3 en otro
+ * chat, el total no cambiaba y no se avisaba nada. `previo` nulo (primera
+ * consulta tras arrancar o conectarse) no avisa: fija la base.
+ */
+export function subidas(previo: Instantanea | null, contadores: any): { nuevos: number; chats: string[]; dialogos: number } {
+  if (!previo) return { nuevos: 0, chats: [], dialogos: 0 };
+  const ahora = instantanea(contadores);
+  let nuevos = 0;
+  const subieron = (antes: Record<string, number>, despues: Record<string, number>) => {
+    const ids: string[] = [];
+    for (const [id, n] of Object.entries(despues)) {
+      const d = n - (antes[id] ?? 0);
+      if (d > 0) { nuevos += d; ids.push(id); }
+    }
+    return ids;
+  };
+  const chats = subieron(previo.CHAT, ahora.CHAT);
+  const dialogos = subieron(previo.DIALOG, ahora.DIALOG).length;
+  return { nuevos, chats, dialogos };
+}
+
+/**
+ * El aviso inmediato (mensaje que salió por el proxy) ya avisó en ese chat: la
+ * próxima consulta no lo repite. Se aplica ANTES de difundir, sin `await` de
+ * por medio, para que una consulta en vuelo no lo cuente dos veces.
+ */
+export function sumarAvisado(previo: Instantanea | null, dialogId: string): Instantanea | null {
+  if (!previo) return null;
+  if (dialogId.startsWith('chat')) {
+    const id = dialogId.slice(4);
+    return { ...previo, CHAT: { ...previo.CHAT, [id]: (previo.CHAT[id] ?? 0) + 1 } };
+  }
+  return { ...previo, DIALOG: { ...previo.DIALOG, [dialogId]: (previo.DIALOG[dialogId] ?? 0) + 1 } };
+}

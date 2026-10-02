@@ -76,8 +76,8 @@ describe('novedades y su texto', () => {
 
   it('arma un texto que dice de dónde vienen', () => {
     expect(textoNovedades({ chats: ['10'], dialogos: 0 }, id => nombres[id], 2)).toBe('Mensajes nuevos en Ventas');
-    expect(textoNovedades({ chats: ['10', '20', '30'], dialogos: 1 }, id => nombres[id], 5)).toBe('Mensajes nuevos en Ventas y 2 grupos más y 1 conversación directa');
-    expect(textoNovedades({ chats: [], dialogos: 2 }, id => nombres[id], 2)).toBe('Mensajes nuevos 2 conversaciones directas');
+    expect(textoNovedades({ chats: ['10', '20', '30'], dialogos: 1 }, id => nombres[id], 5)).toBe('Mensajes nuevos en Ventas y 2 grupos más y en 1 conversación directa');
+    expect(textoNovedades({ chats: [], dialogos: 2 }, id => nombres[id], 2)).toBe('Mensajes nuevos en 2 conversaciones directas');
   });
 
   it('sin saber de dónde, el texto de siempre', () => {

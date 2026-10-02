@@ -1,10 +1,10 @@
 import type { PluginContext } from '@vla/plugin-sdk';
 import type { BitrixUserService } from './bitrix-user.service';
 import {
-  decidirAviso, registrarAvisoInmediato, saltosTrasFallos, totalSinLeer, vistaPrevia,
+  saltosTrasFallos, totalSinLeer, vistaPrevia, instantanea, subidas, sumarAvisado, type Instantanea,
 } from '../lib/im-aviso';
 import { urlDeBitrix } from '../lib/im-chat';
-import { chatIdDe, destinatariosDeGrupo, novedades, textoNovedades } from '../lib/im-grupos';
+import { chatIdDe, destinatariosDeGrupo, textoNovedades } from '../lib/im-grupos';
 import { unirRecientes, completarSinLeer, idsSinLeerFaltantes, cuentaActiva, ajustarContadores, chatsSinLeerFaltantes, completarChatsSinLeer } from '../lib/im-recientes';
 
 /** La persona no conectó su Bitrix (o lo revocó). Las rutas lo traducen a 409. */
@@ -22,11 +22,14 @@ export interface Avisador {
 }
 
 interface EstadoConsulta {
-  base: number | null;
   fallos: number;
   saltar: number;
-  /** Contadores por chat y diálogo de la lectura anterior: para decir de dónde vienen los mensajes. */
-  previo?: { CHAT?: Record<string, number>; DIALOG?: Record<string, number> } | null;
+  /**
+   * Sin leer por chat y diálogo ya avisados. Se compara conversación por
+   * conversación (ver `subidas`): con el total, leer en un chat y recibir en
+   * otro se compensaban y no se avisaba nada. Nulo = fijar la base en silencio.
+   */
+  previo: Instantanea | null;
 }
 
 /** Lo que el widget necesita de un grupo. */
@@ -59,6 +62,7 @@ export class MensajeriaService {
   /** Nombres de grupos para los avisos de respaldo: cambian poco, 1 h. */
   private titulos = new Map<string, { titulo: string; hasta: number }>();
   private enCurso = false;
+  private turno = 0;
 
   constructor(
     private readonly ctx: PluginContext,
@@ -314,6 +318,9 @@ export class MensajeriaService {
     const nombre = remitente ? `${remitente.firstName} ${remitente.lastName}`.trim() : 'Alguien';
     const preview = vistaPrevia(texto);
 
+    const dialogoDelDestino = mapeoRemitente ? String(mapeoRemitente.bitrixUserId) : null;
+    const estadoDestino = this.estados.get(destino.userId);
+    if (estadoDestino && dialogoDelDestino) estadoDestino.previo = sumarAvisado(estadoDestino.previo, dialogoDelDestino);
     this.avisador.broadcastToUser(destino.userId, {
       type: 'im:new',
       // Para responder, el destinatario abre el diálogo con el usuario de Bitrix del remitente.
@@ -324,9 +331,6 @@ export class MensajeriaService {
     await this.ctx.hooks.doAction('core.push.send', {
       userId: destino.userId, title: `${nombre} te escribió`, body: preview, url: URL_OFICINA,
     });
-
-    const estado = this.estados.get(destino.userId);
-    if (estado) estado.base = registrarAvisoInmediato(estado.base);
   }
 
   /**
@@ -343,6 +347,8 @@ export class MensajeriaService {
     const nombre = remitente ? `${remitente.firstName} ${remitente.lastName}`.trim() : 'Alguien';
     const preview = vistaPrevia(texto);
     for (const d of destinos) {
+      const estado = this.estados.get(d.userId);
+      if (estado) estado.previo = sumarAvisado(estado.previo, dialogId);
       this.avisador.broadcastToUser(d.userId, { type: 'im:new', dialogId, de: nombre, grupo: info.titulo, mencion: d.mencion, preview });
       await this.ctx.hooks.doAction('core.push.send', {
         userId: d.userId,
@@ -350,8 +356,6 @@ export class MensajeriaService {
         body: preview,
         url: URL_OFICINA,
       });
-      const estado = this.estados.get(d.userId);
-      if (estado) estado.base = registrarAvisoInmediato(estado.base);
     }
   }
 
@@ -399,37 +403,41 @@ export class MensajeriaService {
       // Quien se fue vuelve a fijar la base en silencio al reconectarse.
       for (const u of this.estados.keys()) if (!personas.includes(u)) this.estados.delete(u);
 
-      for (let i = 0; i < personas.length; i++) {
-        const userId = personas[i];
-        const estado = this.estados.get(userId) ?? { base: null, fallos: 0, saltar: 0 };
+      // El orden rota: con el portal saturado, los del final no quedan siempre sin consultar.
+      const inicio = personas.length ? this.turno++ % personas.length : 0;
+      const orden = [...personas.slice(inicio), ...personas.slice(0, inicio)];
+      for (let i = 0; i < orden.length; i++) {
+        const userId = orden[i];
+        const estado = this.estados.get(userId) ?? { fallos: 0, saltar: 0, previo: null };
         this.estados.set(userId, estado);
         if (estado.saltar > 0) { estado.saltar--; continue; }
 
         try {
           const c = await this.contadores(userId);
-          const total = totalSinLeer(c);
           estado.fallos = 0;
-          if (total !== null) {
-            const d = decidirAviso(estado.base, total);
-            const n = novedades(estado.previo ?? null, c);
-            estado.base = d.base;
-            estado.previo = { CHAT: { ...(c?.CHAT ?? {}) }, DIALOG: { ...(c?.DIALOG ?? {}) } };
-            if (d.avisar) {
+          if (totalSinLeer(c) !== null) {
+            const n = subidas(estado.previo, c);
+            estado.previo = instantanea(c);
+            if (n.nuevos > 0) {
               // A lo sumo 3 nombres nuevos por aviso: cada uno es una llamada a Bitrix.
               const nombres = new Map<string, string | null>();
               for (const id of n.chats.slice(0, 3)) nombres.set(id, await this.tituloDe(userId, id));
-              this.avisarRespaldo(userId, d.nuevos, textoNovedades(n, id => nombres.get(id) ?? null, d.nuevos));
+              this.avisarRespaldo(userId, n.nuevos, textoNovedades(n, id => nombres.get(id) ?? null, n.nuevos));
             }
           }
         } catch (e) {
           if (e instanceof SinBitrixError) { this.estados.delete(userId); continue; }
+          // El límite es del portal entero: no es culpa de esta persona (no se la
+          // castiga con espera) y seguir con los demás lo empeora.
+          if (/QUERY_LIMIT_EXCEEDED|OVERLOAD/i.test(String(e))) {
+            this.ctx.logger.warn(`Consulta de mensajes cortada por el límite de Bitrix en ${userId}`);
+            break;
+          }
           estado.fallos++;
           estado.saltar = saltosTrasFallos(estado.fallos);
           this.ctx.logger.warn(`Consulta de mensajes de ${userId} falló (${estado.fallos} seguidos): ${e}`);
-          // El límite es del portal entero: seguir con los demás lo empeora.
-          if (/QUERY_LIMIT_EXCEEDED|OVERLOAD/i.test(String(e))) break;
         }
-        if (i < personas.length - 1) await this.pausa();
+        if (i < orden.length - 1) await this.pausa();
       }
     } finally {
       this.enCurso = false;

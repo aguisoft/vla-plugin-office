@@ -121,10 +121,13 @@ export function idsSinLeerFaltantes(base: any[], contadores: unknown, tope = 20)
  * (gente que ya no está) no: en producción (1-oct-2026) había 4 diálogos «sin
  * leer» de cuentas desactivadas —tres con el saludo automático de Bitrix del
  * 22-dic-2025— que aparecían en la lista e inflaban el número para siempre.
- * Si Bitrix no devuelve a la persona, también se toma como desactivada.
+ * Solo cuenta como desactivada si Bitrix lo DICE (`active: false`): a una
+ * cuenta desactivada la sigue devolviendo. Antes, si no la devolvía por
+ * cualquier motivo, sus mensajes quedaban 6 h fuera del número y de los avisos
+ * (revisión del 2-oct-2026): esconder un mensaje real es peor que mostrar de más.
  */
 export function cuentaActiva(usuario: any): boolean {
-  return !!usuario && usuario.active !== false;
+  return !usuario || usuario.active !== false;
 }
 
 /**

@@ -69,7 +69,8 @@ describe('cuentaActiva', () => {
   });
   it('desactivada o que Bitrix no devuelve: no', () => {
     expect(cuentaActiva({ active: false })).toBe(false);
-    expect(cuentaActiva(undefined)).toBe(false);
+    // Si Bitrix no la devolvió no se sabe: no se esconden sus mensajes.
+    expect(cuentaActiva(undefined)).toBe(true);
   });
 });
 

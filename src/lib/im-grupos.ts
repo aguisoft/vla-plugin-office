@@ -89,7 +89,7 @@ export function textoNovedades(n: { chats: string[]; dialogos: number }, nombre:
   const partes: string[] = [];
   if (grupos.length === 1) partes.push(`en ${grupos[0]}`);
   else if (grupos.length > 1) partes.push(`en ${grupos[0]} y ${grupos.length - 1} grupo${grupos.length > 2 ? 's' : ''} más`);
-  if (n.dialogos > 0) partes.push(n.dialogos === 1 ? '1 conversación directa' : `${n.dialogos} conversaciones directas`);
+  if (n.dialogos > 0) partes.push(n.dialogos === 1 ? 'en 1 conversación directa' : `en ${n.dialogos} conversaciones directas`);
   if (!partes.length) return total === 1 ? 'Tenés 1 mensaje nuevo sin leer' : `Tenés ${total} mensajes nuevos sin leer`;
   return `Mensajes nuevos ${partes.join(' y ')}`;
 }

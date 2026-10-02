@@ -3,6 +3,7 @@ import {
   decidirAviso, registrarAvisoInmediato, saltosTrasFallos, totalSinLeer,
   dialogoValido, textoMensaje, vistaPrevia,
 } from './im-aviso';
+import * as imAviso from './im-aviso';
 
 describe('decidirAviso', () => {
   it('la primera consulta fija la base y NO avisa, aunque haya no leídos viejos', () => {
@@ -97,5 +98,33 @@ describe('vistaPrevia', () => {
     const v = vistaPrevia('a'.repeat(300));
     expect(v).toHaveLength(120);
     expect(v.endsWith('…')).toBe(true);
+  });
+});
+
+describe('avisos chat por chat', () => {
+  const { instantanea, subidas, sumarAvisado } = imAviso;
+  // El caso que se perdía: leyó 3 en un chat y le llegaron 3 en otro; el total no cambió.
+  it('avisa lo nuevo aunque el total no suba', () => {
+    const antes = instantanea({ DIALOG: { 949: 3 }, CHAT: {} });
+    expect(subidas(antes, { DIALOG: { 949: 0 }, CHAT: { 455313: 3 } })).toEqual({ nuevos: 3, chats: ['455313'], dialogos: 0 });
+  });
+
+  it('suma por conversación y cuenta los directos', () => {
+    const antes = instantanea({ DIALOG: { 1: 1, 2: 0 }, CHAT: { 9: 2 } });
+    expect(subidas(antes, { DIALOG: { 1: 2, 2: 1, 3: 4 }, CHAT: { 9: 2 } })).toEqual({ nuevos: 6, chats: [], dialogos: 3 });
+  });
+
+  it('la primera consulta fija la base sin avisar', () => {
+    expect(subidas(null, { DIALOG: { 1: 5 } })).toEqual({ nuevos: 0, chats: [], dialogos: 0 });
+  });
+
+  it('lo que ya avisó el camino inmediato no se repite', () => {
+    let base = instantanea({ DIALOG: { 949: 0 }, CHAT: { 77: 1 } });
+    base = sumarAvisado(base, '949')!;
+    base = sumarAvisado(base, 'chat77')!;
+    expect(subidas(base, { DIALOG: { 949: 1 }, CHAT: { 77: 2 } }).nuevos).toBe(0);
+    // Y si llegó otro más, ese sí.
+    expect(subidas(base, { DIALOG: { 949: 2 }, CHAT: { 77: 2 } }).nuevos).toBe(1);
+    expect(sumarAvisado(null, '949')).toBeNull();
   });
 });

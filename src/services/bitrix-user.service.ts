@@ -76,6 +76,10 @@ export class BitrixUserService {
    * (o revocó el acceso, y entonces se borra para que reconecte).
    */
   async obtenerVigente(userId: string, ahora = Date.now()): Promise<string | null> {
+    // Antes de leer: si otra petición ya está renovando, esperarla (leer primero
+    // dejaba reusar un refresh token ya gastado y Bitrix lo daba por revocado).
+    const yaEnCurso = this.refrescando.get(userId);
+    if (yaEnCurso) return yaEnCurso;
     const fila = await this.leer(userId);
     if (!fila) return null;
     if (!necesitaRefresco(new Date(fila.expires_at).getTime(), ahora)) return fila.access_token;
@@ -121,6 +125,9 @@ export class BitrixUserService {
       return nuevos.accessToken;
     } catch (e) {
       if (esAccesoRevocado(e)) {
+        // ¿Lo renovó otro proceso o petición entre medio? Entonces no está revocado.
+        const actual = await this.leer(fila.user_id).catch(() => null);
+        if (actual && actual.refresh_token !== fila.refresh_token) return actual.access_token;
         this.ctx.logger.warn(`Bitrix revocó el acceso de ${fila.user_id}: se borra la conexión`);
         await this.desconectar(fila.user_id);
         return null;
