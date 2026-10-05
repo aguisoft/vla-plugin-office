@@ -1,5 +1,6 @@
 import type { PluginContext } from '@vla/plugin-sdk';
 import { countryFromPhone, phoneShape, prefixOf } from '../lib/phone-country';
+import { emparejarUsuarios } from '../lib/emparejar-bitrix';
 
 export interface BitrixUser {
   ID: string;
@@ -466,21 +467,23 @@ export class BitrixService {
       this.getVlaEmailMap(),
     ]);
 
-    const matched = bitrixUsers.filter(bu => {
-      const email = bu.EMAIL?.toLowerCase();
-      return email && vlaByEmail.has(email);
-    });
+    // Solo vínculos de usuarios activos de system (los de vlaByEmail).
+    const activos = new Set(vlaByEmail.values());
+    const filas = await this.ctx.prisma.bitrixUserMapping.findMany({ select: { userId: true, bitrixUserId: true } }) as any[];
+    const vinculos = new Map(filas.filter(m => activos.has(m.userId)).map(m => [String(m.bitrixUserId), String(m.userId)]));
+    const matched = emparejarUsuarios(bitrixUsers, vinculos, vlaByEmail);
 
     if (matched.length === 0) {
-      this.ctx.logger.warn('Timeman sync: no se encontraron usuarios de Bitrix con email coincidente en VLA');
+      this.ctx.logger.warn('Timeman sync: no se encontraron usuarios de Bitrix vinculados ni con email coincidente en VLA');
       return [];
     }
 
-    this.ctx.logger.log(`Timeman sync: ${matched.length} usuarios coincidentes por email`);
+    const porVinculo = matched.filter(m => m.por === 'vinculo').length;
+    this.ctx.logger.log(`Timeman sync: ${matched.length} usuarios (${porVinculo} por vínculo, ${matched.length - porVinculo} por email)`);
 
     const resultados: Array<{ userId: string; isOpen: boolean | null }> = [];
-    for (const bu of matched) {
-      const userId = vlaByEmail.get(bu.EMAIL.toLowerCase())!;
+    for (const { bitrix, userId } of matched) {
+      const bu = bitrix as BitrixUser;
       const status = await this.getTimemanStatusForUser(Number(bu.ID));
       const isOpen = !status?.STATUS ? null
         : status.STATUS === 'OPENED'
