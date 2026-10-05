@@ -1622,6 +1622,53 @@ const plugin: PluginDefinition = {
       payload: { bitrixUserIds: 'string[]', disponibles: 'string[] (salida)' },
     });
 
+    // ── Tokens de Bitrix por persona, para otros plugins (bitrix-api) ─────────
+    // office es el ÚNICO dueño de los tokens por usuario: si otro plugin guardara
+    // su copia, competirían por el mismo refresh token (Bitrix lo invalida al
+    // usarlo) y el primero en renovar rompería al otro. Por eso se piden acá.
+    //
+    // Seguridad: cualquier plugin cargado en el proceso puede pedir el token de
+    // cualquier persona. Es aceptable porque los plugins son código propio de
+    // confianza; no exponer este filtro hacia afuera (rutas, webhooks).
+    ctx.hooks.registerFilter('office.bitrix.token_vigente', async (entrada: any) => {
+      // Si otro handler ya cargó un token, se respeta.
+      if (typeof entrada?.token === 'string' && entrada.token) return entrada;
+      const userId = typeof entrada?.userId === 'string' ? entrada.userId : '';
+      if (!userId) return { ...entrada, token: null, bitrixUserId: null, motivo: 'error' };
+      return { ...entrada, ...(await bitrixUser.tokenParaPlugin(userId)) };
+    });
+    ctx.hooks.declareHook('office.bitrix.token_vigente', {
+      description: 'Filtro: el access token de Bitrix VIGENTE de una persona (renovado si hacía falta, con el candado de office). Nunca el refresh token; no lanza. Solo para plugins propios.',
+      payload: {
+        userId: 'string (entrada, id del core)',
+        token: 'string | null (salida)',
+        bitrixUserId: 'string | null (salida)',
+        motivo: "'no_conectado' | 'revocado' | 'error' (salida, solo si token es null)",
+      },
+    });
+
+    // Solo para mostrar «Conectado como X desde Y»: no renueva ni llama a Bitrix.
+    ctx.hooks.registerFilter('office.bitrix.conexion', async (entrada: any) => {
+      const userId = typeof entrada?.userId === 'string' ? entrada.userId : '';
+      if (!userId) return { ...entrada, conectado: false };
+      try {
+        return { ...entrada, ...(await bitrixUser.estado(userId)) };
+      } catch (e) {
+        ctx.logger.error(`office.bitrix.conexion (usuario ${userId}): ${e}`);
+        return { ...entrada, conectado: false };
+      }
+    });
+    ctx.hooks.declareHook('office.bitrix.conexion', {
+      description: 'Filtro: si la persona tiene Bitrix conectado en office, desde cuándo y con qué usuario, o por qué se rechazó el último intento. No renueva ni llama a Bitrix.',
+      payload: {
+        userId: 'string (entrada)',
+        conectado: 'boolean (salida)',
+        desde: 'string ISO (salida, si conectado)',
+        bitrixUserId: 'string | null (salida)',
+        rechazo: "'otra_cuenta' | 'sin_mapeo' (salida, si el último intento se rechazó)",
+      },
+    });
+
     ctx.hooks.declareHook('office.user.checked_in', {
       description: 'Un usuario entró a la oficina virtual',
       payload: { userId: 'string', source: 'WEB | BITRIX | MOBILE' },

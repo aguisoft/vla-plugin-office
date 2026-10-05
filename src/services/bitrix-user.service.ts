@@ -102,6 +102,31 @@ export class BitrixUserService {
     return rechazo ? { conectado: false, rechazo } : { conectado: false };
   }
 
+  /**
+   * Para el filtro `office.bitrix.token_vigente` (lo usa bitrix-api): el token
+   * vigente de la persona, renovado con el mismo candado que el resto de office.
+   * Nunca el refresh token. No lanza: ante cualquier error, `motivo: 'error'`.
+   *
+   * `revocado` = tenía conexión y al renovar Bitrix la rechazó (se borró, como
+   * siempre). `no_conectado` = no había conexión.
+   */
+  async tokenParaPlugin(userId: string, ahora = Date.now()): Promise<{
+    token: string | null;
+    bitrixUserId: string | null;
+    motivo?: 'no_conectado' | 'revocado' | 'error';
+  }> {
+    try {
+      const fila = await this.leer(userId);
+      if (!fila) return { token: null, bitrixUserId: null, motivo: 'no_conectado' };
+      const token = await this.obtenerVigente(userId, ahora);
+      if (!token) return { token: null, bitrixUserId: fila.bitrix_user_id, motivo: 'revocado' };
+      return { token, bitrixUserId: fila.bitrix_user_id };
+    } catch (e) {
+      this.ctx.logger.error(`Token de Bitrix para otro plugin (usuario ${userId}): ${e}`);
+      return { token: null, bitrixUserId: null, motivo: 'error' };
+    }
+  }
+
   /** Quiénes tienen Bitrix conectado. Para la consulta de respaldo de mensajes. */
   async conectados(): Promise<string[]> {
     const filas = await this.ctx.query<{ user_id: string }>(`SELECT user_id FROM office_bitrix_tokens`);

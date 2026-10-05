@@ -158,3 +158,62 @@ describe('BitrixUserService.alAutorizar', () => {
     expect((await svc.estado('ana')).rechazo).toBeUndefined();
   });
 });
+
+describe('BitrixUserService: token para otros plugins (office.bitrix.token_vigente)', () => {
+  it('conectada con token vigente: lo devuelve sin renovar, nunca el refresh', async () => {
+    const { svc, refreshUserToken } = armar();
+    await svc.guardar('ana', tokens(AHORA + 3_600_000), '949');
+    const r = await svc.tokenParaPlugin('ana', AHORA);
+    expect(r).toEqual({ token: 'ACTUAL', bitrixUserId: '949' });
+    expect(JSON.stringify(r)).not.toContain('REFRESH');
+    expect(refreshUserToken).not.toHaveBeenCalled();
+  });
+
+  it('por vencer: renueva una sola vez aunque lo pidan dos a la vez', async () => {
+    const { svc, refreshUserToken } = armar();
+    await svc.guardar('ana', tokens(AHORA + 30_000), '949');
+    const [a, b] = await Promise.all([svc.tokenParaPlugin('ana', AHORA), svc.tokenParaPlugin('ana', AHORA)]);
+    expect(a.token).toBe('NUEVO');
+    expect(b.token).toBe('NUEVO');
+    expect(refreshUserToken).toHaveBeenCalledTimes(1);
+  });
+
+  it('sin conexión: no_conectado', async () => {
+    const { svc } = armar();
+    expect(await svc.tokenParaPlugin('ana', AHORA)).toEqual({ token: null, bitrixUserId: null, motivo: 'no_conectado' });
+  });
+
+  it('invalid_grant al renovar: revocado y se borra la conexión', async () => {
+    const { svc, tabla } = armar({ refresh: async () => { throw new Error('OAuth error: invalid_grant'); } });
+    await svc.guardar('ana', tokens(AHORA - 1000), '949');
+    expect(await svc.tokenParaPlugin('ana', AHORA)).toMatchObject({ token: null, motivo: 'revocado' });
+    expect(tabla.has('ana')).toBe(false);
+  });
+
+  it('error inesperado (base caída): motivo error, sin excepción', async () => {
+    const { svc } = armar();
+    (svc as any).ctx.query = vi.fn(async () => { throw new Error('connection refused'); });
+    await expect(svc.tokenParaPlugin('ana', AHORA)).resolves.toEqual({ token: null, bitrixUserId: null, motivo: 'error' });
+  });
+
+  it('Bitrix caído al renovar (no es invalid_grant): error, la conexión queda', async () => {
+    const { svc, tabla } = armar({ refresh: async () => { throw new Error('fetch failed'); } });
+    await svc.guardar('ana', tokens(AHORA - 1000), '949');
+    expect(await svc.tokenParaPlugin('ana', AHORA)).toMatchObject({ token: null, motivo: 'error' });
+    expect(tabla.has('ana')).toBe(true);
+  });
+});
+
+describe('BitrixUserService: estado (office.bitrix.conexion)', () => {
+  it('no llama a Bitrix ni renueva, aunque el token esté vencido', async () => {
+    const { svc, refreshUserToken } = armar();
+    await svc.guardar('ana', tokens(AHORA - 60_000), '949');
+    expect(await svc.estado('ana')).toMatchObject({ conectado: true, bitrixUserId: '949' });
+    expect(refreshUserToken).not.toHaveBeenCalled();
+  });
+  it('devuelve el rechazo del último intento', async () => {
+    const { svc } = armar({ mapeo: 100 });
+    await svc.alAutorizar({ userId: 'ana', bitrixUserId: '949', tokens: tokens(AHORA + 3_600_000) } as any);
+    expect(await svc.estado('ana')).toEqual({ conectado: false, rechazo: 'otra_cuenta' });
+  });
+});
