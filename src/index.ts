@@ -1276,6 +1276,8 @@ const plugin: PluginDefinition = {
 
     ctx.router.get('/im/recent', ...conVista, rutaIm(userId => mensajeria.recientes(userId)));
     ctx.router.get('/im/counters', ...conVista, rutaIm(userId => mensajeria.contadores(userId)));
+    ctx.router.get('/im/tareas', ...conVista, rutaIm(userId => mensajeria.chatsDeTareas(userId)));
+    ctx.router.post('/im/tareas/leer', ...conVista, rutaIm(userId => mensajeria.leerTodasLasTareas(userId)));
 
     // Compañeros para empezar una conversación. No llama a Bitrix: sale de la
     // base, así que funciona aunque la persona todavía no conectó su Bitrix.

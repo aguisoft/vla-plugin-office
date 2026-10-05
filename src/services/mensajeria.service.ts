@@ -5,7 +5,7 @@ import {
 } from '../lib/im-aviso';
 import { urlDeBitrix } from '../lib/im-chat';
 import { chatIdDe, destinatariosDeGrupo, textoNovedades } from '../lib/im-grupos';
-import { unirRecientes, completarSinLeer, idsSinLeerFaltantes, cuentaActiva, ajustarContadores, chatsSinLeerFaltantes, completarChatsSinLeer } from '../lib/im-recientes';
+import { unirRecientes, completarSinLeer, idsSinLeerFaltantes, cuentaActiva, ajustarContadores, chatsSinLeerFaltantes, completarChatsSinLeer, soloChatsDeTareas } from '../lib/im-recientes';
 
 /** La persona no conectó su Bitrix (o lo revocó). Las rutas lo traducen a 409. */
 export class SinBitrixError extends Error {
@@ -116,6 +116,42 @@ export class MensajeriaService {
       this.ctx.logger.warn(`No se pudieron completar las conversaciones sin leer: ${e}`);
       return base;
     }
+  }
+
+  /** Los chats de tareas (filtro «Tareas» del widget), primero los que tienen sin leer. */
+  async chatsDeTareas(userId: string) {
+    return soloChatsDeTareas(await this.llamar(userId, 'im.recent.get', { SKIP_OPENLINES: 'Y', SKIP_DIALOG: 'Y' }));
+  }
+
+  /**
+   * Marca como leídos todos los chats de tareas con mensajes nuevos. Son
+   * casi todos avisos automáticos («completed the task») y pueden ser cientos:
+   * va en segundo plano, de a uno y con pausa (el portal tiene ~2 llamadas/s,
+   * compartidas con cobros). Devuelve cuántos va a marcar; una sola tanda por
+   * persona a la vez.
+   */
+  private leyendoTareas = new Set<string>();
+  async leerTodasLasTareas(userId: string): Promise<{ pendientes: number; enCurso: boolean }> {
+    if (this.leyendoTareas.has(userId)) return { pendientes: 0, enCurso: true };
+    const sinLeer = (await this.chatsDeTareas(userId)).filter(c => Number(c.counter) > 0).map(c => String(c.id));
+    if (!sinLeer.length) return { pendientes: 0, enCurso: false };
+    this.leyendoTareas.add(userId);
+    void (async () => {
+      let ok = 0;
+      try {
+        for (const dialogId of sinLeer) {
+          try { await this.llamar(userId, 'im.dialog.read', { DIALOG_ID: dialogId }); ok++; } catch (e) {
+            if (e instanceof SinBitrixError) break;
+            this.ctx.logger.warn(`No se pudo marcar como leído ${dialogId}: ${e}`);
+          }
+          await new Promise(r => setTimeout(r, 600));
+        }
+      } finally {
+        this.leyendoTareas.delete(userId);
+        this.ctx.logger.log(`Chats de tareas marcados como leídos: ${ok}/${sinLeer.length} (usuario ${userId})`);
+      }
+    })();
+    return { pendientes: sinLeer.length, enCurso: true };
   }
 
   /** Nombre, color y tipo de un grupo, para sumarlo a la lista. Se recuerda 6 h; si falla, `null`. */

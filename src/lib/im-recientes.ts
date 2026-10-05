@@ -149,3 +149,14 @@ export function ajustarContadores(contadores: any, activo: (id: string) => boole
   const total = Object.values(quedan).reduce((s: number, n) => s + (Number(n) || 0), 0);
   return { ...contadores, DIALOG: quedan, TYPE: { ...(contadores.TYPE ?? {}), DIALOG: total } };
 }
+
+/**
+ * Los chats de tareas, para el filtro «Tareas» del widget (fuera de la lista
+ * principal, ver arriba). Primero los que tienen mensajes sin leer.
+ */
+export function soloChatsDeTareas(lista: unknown): any[] {
+  if (!Array.isArray(lista)) return [];
+  return lista
+    .filter((it: any) => it && it.type === 'chat' && it.id != null && TIPOS_DE_CHAT_EXCLUIDOS.has(it.chat?.type))
+    .sort((a: any, b: any) => (Number(b.counter) > 0 ? 1 : 0) - (Number(a.counter) > 0 ? 1 : 0));
+}

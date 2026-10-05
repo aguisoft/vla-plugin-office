@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { esConversacion, unirRecientes, completarSinLeer, idsSinLeerFaltantes, cuentaActiva, ajustarContadores, chatsSinLeerFaltantes, completarChatsSinLeer } from './im-recientes';
+import { esConversacion, unirRecientes, completarSinLeer, idsSinLeerFaltantes, cuentaActiva, ajustarContadores, chatsSinLeerFaltantes, completarChatsSinLeer, soloChatsDeTareas } from './im-recientes';
 
 const usuario = (id: string) => ({ id, type: 'user' });
 const chat = (id: string, tipo: string) => ({ id, type: 'chat', chat: { type: tipo } });
@@ -143,4 +143,17 @@ describe('grupos sin leer que recientes no trae', () => {
     expect(r[0]).toMatchObject({ id: 'chat5501', title: 'Laura - Oficial Comunicaciones', counter: 1, chat: { type: 'lines' } });
     expect(esConversacion(r[0])).toBe(true);
   });
+});
+
+describe('soloChatsDeTareas', () => {
+  it('solo los de tareas, primero los que tienen sin leer', () => {
+    const r = soloChatsDeTareas([
+      { ...chat('chat1', 'tasksTask'), counter: 0 },
+      chat('chat2', 'chat'),
+      usuario('949'),
+      { ...chat('chat3', 'tasksTask'), counter: 2 },
+    ]);
+    expect(r.map(i => i.id)).toEqual(['chat3', 'chat1']);
+  });
+  it('una respuesta rara da lista vacía', () => expect(soloChatsDeTareas({ error: 'x' })).toEqual([]));
 });
