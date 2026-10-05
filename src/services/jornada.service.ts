@@ -153,7 +153,7 @@ export class JornadaService {
     if (j.estado !== 'vencida') {
       await this.salirDeLaOficina(userId).catch(e => this.ctx.logger.warn(`Jornada: no se pudo salir de la oficina (${userId}): ${e}`));
     }
-    return this.estado(userId);
+    return this.estado(userId, ahora);
   }
 
   // ── Plan del día y tareas ─────────────────────────────────────────────────
@@ -176,6 +176,51 @@ export class JornadaService {
       [userId, localDateString(ahora, this.tz()), taskId],
     );
     return { taskId };
+  }
+
+  /**
+   * Tarea nueva desde la pestaña Tareas: con fecha de vencimiento opcional y,
+   * si se pide, también al plan de hoy.
+   */
+  async crearTarea(userId: string, entrada: { titulo?: unknown; vence?: unknown; alPlan?: unknown }, ahora = new Date()): Promise<{ taskId: number }> {
+    const titulo = typeof entrada.titulo === 'string' ? entrada.titulo.trim() : '';
+    if (!titulo || titulo.length > 250) throw new JornadaError(400, 'La tarea necesita un nombre (hasta 250 caracteres).');
+    const deadline = this.deadlineDe(entrada.vence);
+    const bid = await this.miBitrix(userId);
+    const fields: Record<string, unknown> = { TITLE: titulo, RESPONSIBLE_ID: bid };
+    if (deadline) fields.DEADLINE = deadline;
+    const r = await this.llamar(userId, 'tasks.task.add', { fields });
+    const taskId = Number(r?.task?.id);
+    if (!Number.isInteger(taskId) || taskId <= 0) throw new Error('[tasks.task.add] respuesta sin id');
+    if (entrada.alPlan === true) {
+      await this.ctx.query(
+        `INSERT INTO office_plan_dia (user_id, fecha, task_id) VALUES ($1, $2::date, $3) ON CONFLICT DO NOTHING`,
+        [userId, localDateString(ahora, this.tz()), taskId],
+      );
+    }
+    return { taskId };
+  }
+
+  /** Cambiar (o quitar, con `null`) la fecha de vencimiento. */
+  async cambiarVencimiento(userId: string, taskId: number, vence: unknown): Promise<void> {
+    const deadline = vence === null || vence === '' ? '' : this.deadlineDe(vence);
+    if (deadline === null) throw new JornadaError(400, 'La fecha tiene que ser como 2026-10-15.');
+    await this.llamar(userId, 'tasks.task.update', { taskId, fields: { DEADLINE: deadline } });
+  }
+
+  /** «2026-10-15» → ese día a las 18:00 de la oficina, con zona. Sin fecha: undefined; mal escrita: null. */
+  private deadlineDe(vence: unknown): string | null | undefined {
+    if (vence === undefined || vence === null || vence === '') return undefined;
+    // Que el día exista: «2026-13-40» tiene buena forma pero no es una fecha.
+    const [y, m, d] = typeof vence === 'string' ? vence.split('-').map(Number) : [];
+    const real = typeof vence === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(vence)
+      && new Date(Date.UTC(y, m - 1, d)).toISOString().slice(0, 10) === vence;
+    if (!real) {
+      throw new JornadaError(400, 'La fecha tiene que ser como 2026-10-15.');
+    }
+    const instante = horaLocal(vence, '18:00', this.tz());
+    if (!instante) throw new JornadaError(400, 'La fecha tiene que ser como 2026-10-15.');
+    return isoConZona(instante, this.tz());
   }
 
   async quitarDelPlan(userId: string, taskId: number, ahora = new Date()): Promise<void> {

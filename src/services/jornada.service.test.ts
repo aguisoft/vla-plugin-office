@@ -308,3 +308,38 @@ describe('reporte semanal y mensual', () => {
     expect(r).toMatchObject({ desde: '2026-10-01', hasta: '2026-10-31', titulo: 'Octubre 2026' });
   });
 });
+
+describe('pestaña Tareas', () => {
+  it('crea una tarea con fecha (18:00 de ese día en Costa Rica) sin sumarla al plan', async () => {
+    const { svc, llamadas, consultas } = armar({ 'tasks.task.add': () => ({ task: { id: '900' } }) });
+    expect(await svc.crearTarea('ana', { titulo: ' Informe Q4 ', vence: '2026-10-15' }, AHORA)).toEqual({ taskId: 900 });
+    expect(llamadas.find(l => l.method === 'tasks.task.add')!.params).toEqual({
+      fields: { TITLE: 'Informe Q4', RESPONSIBLE_ID: 949, DEADLINE: '2026-10-15T18:00:00-06:00' },
+    });
+    expect(consultas.some(c => /office_plan_dia/.test(c.sql))).toBe(false);
+  });
+
+  it('sin fecha no manda DEADLINE; con alPlan entra al plan de hoy', async () => {
+    const { svc, llamadas, consultas } = armar({ 'tasks.task.add': () => ({ task: { id: '901' } }) });
+    await svc.crearTarea('ana', { titulo: 'Llamar', alPlan: true }, AHORA);
+    expect(llamadas.find(l => l.method === 'tasks.task.add')!.params.fields.DEADLINE).toBeUndefined();
+    expect(consultas.find(c => /INSERT INTO office_plan_dia/.test(c.sql))!.params).toEqual(['ana', '2026-10-02', 901]);
+  });
+
+  it('cambia la fecha o la quita', async () => {
+    const { svc, llamadas } = armar({ 'tasks.task.update': () => ({ task: {} }) });
+    await svc.cambiarVencimiento('ana', 225733, '2026-10-09');
+    await svc.cambiarVencimiento('ana', 225733, null);
+    expect(llamadas.map(l => l.params)).toEqual([
+      { taskId: 225733, fields: { DEADLINE: '2026-10-09T18:00:00-06:00' } },
+      { taskId: 225733, fields: { DEADLINE: '' } },
+    ]);
+  });
+
+  it.each([['15/10/2026'], ['2026-13-40'], [12]])('rechaza la fecha %p sin llamar a Bitrix', async (vence) => {
+    const { svc, llamar } = armar();
+    await expect(svc.cambiarVencimiento('ana', 1, vence)).rejects.toMatchObject({ status: 400 });
+    await expect(svc.crearTarea('ana', { titulo: 'x', vence }, AHORA)).rejects.toMatchObject({ status: 400 });
+    expect(llamar).not.toHaveBeenCalled();
+  });
+});
