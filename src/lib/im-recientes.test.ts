@@ -11,9 +11,9 @@ describe('esConversacion', () => {
     expect(esConversacion(chat('chat2', 'collab'))).toBe(true);
   });
   /** 225 de 234 en producción: tapaban las conversaciones de verdad. */
-  it('los chats de tareas leídos no', () => expect(esConversacion(chat('chat9', 'tasksTask'))).toBe(false));
-  /** 5-oct-2026: el widget contaba 1 sin leer que no aparecía en la lista. */
-  it('un chat de tareas con mensajes sin leer sí', () => expect(esConversacion({ ...chat('chat9', 'tasksTask'), counter: 2 })).toBe(true));
+  it('los chats de tareas no', () => expect(esConversacion(chat('chat9', 'tasksTask'))).toBe(false));
+  /** 5-oct-2026: mostrarlos con sin leer trajo 180 avisos de tareas que taparon a los compañeros. */
+  it('ni siquiera con mensajes sin leer', () => expect(esConversacion({ ...chat('chat9', 'tasksTask'), counter: 2 })).toBe(false));
   it('las notificaciones u otros tipos no', () => expect(esConversacion({ id: 'x', type: 'notification' })).toBe(false));
 });
 
@@ -129,13 +129,11 @@ describe('grupos sin leer que recientes no trae', () => {
     expect(esConversacion(r[0])).toBe(true);
   });
 
-  it('los de tareas sin leer también se suman; los que no se pudieron leer no', () => {
-    const r = completarChatsSinLeer(base, contadores, [
+  it('los de tareas y los que no se pudieron leer no se suman', () => {
+    expect(completarChatsSinLeer(base, contadores, [
       { dialogId: 'chat455313', info: { name: 'Tarea 12', type: 'tasksTask' } },
       { dialogId: 'chat99', info: null },
-    ]);
-    expect(r.map(i => i.id)).toEqual(['chat455313', ...base.map(b => b.id)]);
-    expect(esConversacion(r[0])).toBe(true);
+    ])).toEqual(base);
   });
 
   it('Canales Abiertos sin leer (LINES): se encuentran y se suman como chat de línea', () => {

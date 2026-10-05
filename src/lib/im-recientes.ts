@@ -8,9 +8,10 @@
  * mostraba 2.
  *
  * Por eso se piden por separado los diálogos directos y los chats, y de los
- * chats se descartan los de tareas YA LEÍDOS. Uno con mensajes sin leer sí
- * entra (5-oct-2026): el número del widget lo contaba y no aparecía en ningún
- * lado. Lo que suma al número tiene que poder verse.
+ * chats se descartan los de tareas, AUNQUE tengan mensajes sin leer: Bitrix
+ * cuenta como no leído cada aviso automático («completed the task») y no los
+ * suma al número del widget. El 5-oct-2026 se probó mostrarlos y aparecieron
+ * 180 que taparon las conversaciones con compañeros.
  */
 
 const TIPOS_DE_CHAT_EXCLUIDOS = new Set(['tasksTask']);
@@ -18,7 +19,7 @@ const TIPOS_DE_CHAT_EXCLUIDOS = new Set(['tasksTask']);
 export function esConversacion(item: any): boolean {
   if (!item || item.id == null) return false;
   if (item.type === 'user') return true;
-  if (item.type === 'chat') return !TIPOS_DE_CHAT_EXCLUIDOS.has(item.chat?.type) || Number(item.counter) > 0;
+  if (item.type === 'chat') return !TIPOS_DE_CHAT_EXCLUIDOS.has(item.chat?.type);
   return false;
 }
 
@@ -86,8 +87,8 @@ export function chatsSinLeerFaltantes(base: any[], contadores: unknown, tope = 5
 
 /**
  * Los grupos que faltan, armados como ítems de `im.recent.get` con lo que da
- * `im.dialog.get` de cada uno. Van primero, como los diálogos ocultos. Solo
- * llegan acá los que tienen mensajes sin leer, así que también los de tareas.
+ * `im.dialog.get` de cada uno. Van primero, como los diálogos ocultos. Los de
+ * tareas no (ver arriba).
  *
  * Con `clave = 'LINES'` son los chats de Canales Abiertos sin leer: el número
  * del widget suma `TYPE.LINES`, pero la lista pide los recientes sin Canales
@@ -97,7 +98,7 @@ export function chatsSinLeerFaltantes(base: any[], contadores: unknown, tope = 5
 export function completarChatsSinLeer(base: any[], contadores: unknown, datos: Array<{ dialogId: string; info: any }>, clave: 'CHAT' | 'LINES' = 'CHAT'): any[] {
   const chats = ((contadores as any)?.[clave] ?? {}) as Record<string, unknown>;
   const extra = datos
-    .filter(d => d.info)
+    .filter(d => d.info && !TIPOS_DE_CHAT_EXCLUIDOS.has(d.info.type))
     .map(({ dialogId, info }) => ({
       id: dialogId,
       type: 'chat',
