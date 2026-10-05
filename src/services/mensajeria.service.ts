@@ -104,6 +104,12 @@ export class MensajeriaService {
         for (const dialogId of grupos) datos.push({ dialogId, info: await this.datosDeChat(userId, dialogId) });
         lista = completarChatsSinLeer(lista, contadores, datos);
       }
+      const lineas = chatsSinLeerFaltantes(lista, contadores, 5, 'LINES');
+      if (lineas.length) {
+        const datos = [];
+        for (const dialogId of lineas) datos.push({ dialogId, info: await this.datosDeChat(userId, dialogId) });
+        lista = completarChatsSinLeer(lista, contadores, datos, 'LINES');
+      }
       return lista;
     } catch (e) {
       if (e instanceof SinBitrixError) throw e;

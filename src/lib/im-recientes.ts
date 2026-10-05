@@ -8,8 +8,9 @@
  * mostraba 2.
  *
  * Por eso se piden por separado los diálogos directos y los chats, y de los
- * chats se descartan los de tareas. Sus avisos van por la campana de Bitrix,
- * no por la mensajería.
+ * chats se descartan los de tareas YA LEÍDOS. Uno con mensajes sin leer sí
+ * entra (5-oct-2026): el número del widget lo contaba y no aparecía en ningún
+ * lado. Lo que suma al número tiene que poder verse.
  */
 
 const TIPOS_DE_CHAT_EXCLUIDOS = new Set(['tasksTask']);
@@ -17,7 +18,7 @@ const TIPOS_DE_CHAT_EXCLUIDOS = new Set(['tasksTask']);
 export function esConversacion(item: any): boolean {
   if (!item || item.id == null) return false;
   if (item.type === 'user') return true;
-  if (item.type === 'chat') return !TIPOS_DE_CHAT_EXCLUIDOS.has(item.chat?.type);
+  if (item.type === 'chat') return !TIPOS_DE_CHAT_EXCLUIDOS.has(item.chat?.type) || Number(item.counter) > 0;
   return false;
 }
 
@@ -73,8 +74,8 @@ export function completarSinLeer(base: any[], contadores: unknown, usuarios: unk
  * Bitrix no traía en recientes pero seguía contando. Devuelve los `chatN` que
  * faltan, con tope: cada uno cuesta una llamada a Bitrix.
  */
-export function chatsSinLeerFaltantes(base: any[], contadores: unknown, tope = 5): string[] {
-  const chats = (contadores as any)?.CHAT;
+export function chatsSinLeerFaltantes(base: any[], contadores: unknown, tope = 5, clave: 'CHAT' | 'LINES' = 'CHAT'): string[] {
+  const chats = (contadores as any)?.[clave];
   if (!chats || typeof chats !== 'object') return [];
   const presentes = new Set(base.map(b => String(b.id)));
   return Object.entries(chats)
@@ -85,13 +86,18 @@ export function chatsSinLeerFaltantes(base: any[], contadores: unknown, tope = 5
 
 /**
  * Los grupos que faltan, armados como ítems de `im.recent.get` con lo que da
- * `im.dialog.get` de cada uno. Van primero, como los diálogos ocultos. Los de
- * tareas no: Bitrix los cuenta aparte y llenaban la lista.
+ * `im.dialog.get` de cada uno. Van primero, como los diálogos ocultos. Solo
+ * llegan acá los que tienen mensajes sin leer, así que también los de tareas.
+ *
+ * Con `clave = 'LINES'` son los chats de Canales Abiertos sin leer: el número
+ * del widget suma `TYPE.LINES`, pero la lista pide los recientes sin Canales
+ * Abiertos (`SKIP_OPENLINES`), así que un mensaje de un cliente contaba y no
+ * se veía.
  */
-export function completarChatsSinLeer(base: any[], contadores: unknown, datos: Array<{ dialogId: string; info: any }>): any[] {
-  const chats = ((contadores as any)?.CHAT ?? {}) as Record<string, unknown>;
+export function completarChatsSinLeer(base: any[], contadores: unknown, datos: Array<{ dialogId: string; info: any }>, clave: 'CHAT' | 'LINES' = 'CHAT'): any[] {
+  const chats = ((contadores as any)?.[clave] ?? {}) as Record<string, unknown>;
   const extra = datos
-    .filter(d => d.info && !TIPOS_DE_CHAT_EXCLUIDOS.has(d.info.type))
+    .filter(d => d.info)
     .map(({ dialogId, info }) => ({
       id: dialogId,
       type: 'chat',
@@ -99,7 +105,7 @@ export function completarChatsSinLeer(base: any[], contadores: unknown, datos: A
       avatar: { url: info.avatar || '', color: info.color || null },
       counter: Number(chats[dialogId.slice(4)]) || 0,
       message: null,
-      chat: { type: info.type ?? null, mute_list: info.mute_list ?? [] },
+      chat: { type: info.type ?? (clave === 'LINES' ? 'lines' : null), mute_list: info.mute_list ?? [] },
       oculta: true,
     }));
   return [...extra, ...base];
