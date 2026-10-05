@@ -18,6 +18,7 @@ import { JornadaService, JornadaError } from './services/jornada.service';
 import { EscritorioService } from './services/escritorio.service';
 import { versionValida, estadoDeUso, textoTamano, DIAS_VIGENTE } from './lib/escritorio-uso';
 import { motivoDeCierre, estadosVencidos } from './lib/inactividad';
+import { disponibles } from './lib/presencia-disponible';
 import { dialogoValido, textoMensaje } from './lib/im-aviso';
 import { armarContactos } from './lib/im-contactos';
 import { reaccionValida, idMensajeValido, bytesDeBase64, nombreArchivoSeguro, MAX_ARCHIVO_BYTES } from './lib/im-chat';
@@ -1596,6 +1597,27 @@ const plugin: PluginDefinition = {
         create: { userId: user.id, isCheckedIn: false, status: 'OFFLINE' },
         update: {},
       });
+    });
+
+    // ── Presencia para otros plugins (asistente de ventas) ────────────────────
+    // Entrada {bitrixUserIds}; salida la misma más {disponibles}: quiénes de esos
+    // están en la oficina y pueden atender ahora (ver lib/presencia-disponible.ts).
+    ctx.hooks.registerFilter('office.presencia.disponibles', async (entrada: any) => {
+      const ids: string[] = Array.isArray(entrada?.bitrixUserIds) ? entrada.bitrixUserIds.map(String) : [];
+      if (!ids.length) return { ...entrada, disponibles: [] };
+      const [personas, mapeos] = await Promise.all([
+        snapshot.getAll({ userId: '', hasManage: false }),
+        ctx.prisma.bitrixUserMapping.findMany({ select: { userId: true, bitrixUserId: true } }),
+      ]);
+      const bitrixDe = new Map((mapeos as any[]).map(m => [m.userId as string, String(m.bitrixUserId)]));
+      const lista = (personas as any[]).filter(p => bitrixDe.has(p.userId)).map(p => ({
+        bitrixUserId: bitrixDe.get(p.userId)!, isCheckedIn: !!p.isCheckedIn, status: String(p.status), ausente: !!p.isAbsent,
+      }));
+      return { ...entrada, disponibles: disponibles(lista, ids) };
+    });
+    ctx.hooks.declareHook('office.presencia.disponibles', {
+      description: 'Filtro: de una lista de usuarios de Bitrix, quiénes están en la oficina y pueden atender (Disponible o Concentrado, sin ausencia)',
+      payload: { bitrixUserIds: 'string[]', disponibles: 'string[] (salida)' },
     });
 
     ctx.hooks.declareHook('office.user.checked_in', {
