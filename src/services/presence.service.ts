@@ -1,4 +1,5 @@
 import type { PluginContext } from '@vla/plugin-sdk';
+import { inicioDelEstado } from '../lib/inicio-estado';
 
 const PRESENCE_CACHE_TTL = 120; // seconds
 
@@ -238,7 +239,7 @@ export class PresenceService {
     const data = {
       status,
       justification:  extra.justification ?? null,
-      statusStartsAt: extra.startsAt ?? null,
+      statusStartsAt: inicioDelEstado(status, extra.startsAt, now),
       statusEndsAt:   extra.endsAt ?? null,
       meetingId:      extra.meetingId ?? null,
       lastActivityAt: now,
