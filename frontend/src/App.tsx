@@ -836,7 +836,8 @@ export default function App() {
                     </div>
                   )}
 
-                  <PlantaOficina onRegada={setRegadoPor} />
+                  <PlantaOficina onRegada={setRegadoPor}
+                    nombreDe={id => users.find(u => u.userId === id)?.firstName ?? null} />
                 </div>
               </div>
             </div>

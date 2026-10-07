@@ -275,6 +275,8 @@ export interface Planta {
   puedeRegar: boolean;
   seriaRescate: boolean;
   ultimoRiegoPor: string | null;
+  /** Cuándo fue el último riego (ISO). */
+  ultimoRiegoEn?: string | null;
   misRiegos: number;
   fueRescate?: boolean;
 }

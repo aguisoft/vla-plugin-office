@@ -22,14 +22,22 @@ const FRASE: Record<EstadoPlanta, string> = {
  * cada quien lleva su propia cuenta. No hay ranking: la idea es que sea un
  * gusto compartido, no una competencia.
  */
-export function PlantaOficina({ onRegada }: { onRegada?: (userId: string) => void }) {
+export function PlantaOficina({ onRegada, nombreDe }: {
+  onRegada?: (userId: string) => void;
+  /** Nombre de pila de alguien de la oficina, para «Última vez: Carlos». */
+  nombreDe?: (userId: string) => string | null;
+}) {
   const [p, setP] = useState<Planta | null>(null);
   const [regando, setRegando] = useState(false);
   const [festejo, setFestejo] = useState<string | null>(null);
 
   // Si falla se deja rastro en consola: un catch mudo escondió un 404 de ruta
   // durante todo un despliegue, y la planta simplemente no aparecía.
-  const cargar = () => getPlanta().then(setP).catch(e => console.warn("planta:", e));
+  // Al cargar también se avisa quién la regó: antes solo se marcaba a quien la
+  // regaba en esa misma sesión, y al abrir la oficina nadie tenía la 🌱 (7-oct-2026).
+  const cargar = () => getPlanta()
+    .then(r => { setP(r); if (r.ultimoRiegoPor && onRegada) onRegada(r.ultimoRiegoPor); })
+    .catch(e => console.warn("planta:", e));
   useEffect(() => {
     cargar();
     // La planta cambia de estado en horas: revisar cada 5 minutos alcanza.
@@ -68,6 +76,12 @@ export function PlantaOficina({ onRegada }: { onRegada?: (userId: string) => voi
             <> · {Math.floor(p.horasSinAgua / 24)} días sin agua</>
           )}
         </p>
+        {p.ultimoRiegoPor && (
+          <p className="text-[10px] text-gray-400" data-testid="planta-ultimo-riego">
+            Última vez: {nombreDe?.(p.ultimoRiegoPor) ?? 'alguien del equipo'}
+            {p.ultimoRiegoEn && <>, {haceCuanto(p.ultimoRiegoEn)}</>}
+          </p>
+        )}
         {p.misRiegos > 0 && (
           <p className="text-[10px] text-gray-400">La regaste {p.misRiegos} {p.misRiegos === 1 ? 'vez' : 'veces'}</p>
         )}
@@ -86,4 +100,15 @@ export function PlantaOficina({ onRegada }: { onRegada?: (userId: string) => voi
       {festejo && <span className="text-[11px] text-emerald-600">{festejo}</span>}
     </div>
   );
+}
+
+/** «hace 5 min», «hace 3 h», «hace 2 días». */
+function haceCuanto(iso: string, ahora = new Date()): string {
+  const min = Math.max(0, Math.floor((ahora.getTime() - new Date(iso).getTime()) / 60000));
+  if (min < 1) return 'recién';
+  if (min < 60) return `hace ${min} min`;
+  const h = Math.floor(min / 60);
+  if (h < 24) return `hace ${h} h`;
+  const d = Math.floor(h / 24);
+  return `hace ${d} ${d === 1 ? 'día' : 'días'}`;
 }
