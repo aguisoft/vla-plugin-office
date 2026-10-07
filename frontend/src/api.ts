@@ -104,7 +104,12 @@ export const setStatus = (payload: StatusPayload) =>
  */
 export const createAbsence = (body: {
   type: string; startAt: string; endAt: string; justification?: string;
-}) => api.post<{ id: string }>(`${PLUGIN}/absences`, body);
+  /** Documentos de respaldo en base64; viajan con la solicitud. */
+  adjuntos?: Array<{ nombre: string; tipo: string; contenido: string }>;
+}) => api.post<{ id: string; adjuntos?: Array<{ id: string; nombre: string }>; avisoAdjuntos?: string }>(`${PLUGIN}/absences`, body);
+
+/** URL de descarga de un documento. El servidor decide si quien pide puede verlo. */
+export const urlAdjunto = (id: string) => `${BASE}${PLUGIN}/absences/adjuntos/${id}`;
 
 export const listAbsences = (userId?: string) =>
   api.get<Absence[]>(`${PLUGIN}/absences${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`);
@@ -257,3 +262,33 @@ export const getEscritorioMio = () => api.get<import('./lib/escritorio').UsoEscr
 
 /** Se navega (un <a download>): la cookie de sesión autoriza la descarga. */
 export const descargaEscritorioUrl = `${BASE}${PLUGIN}/escritorio/descarga`;
+
+// ── La planta de la oficina ──────────────────────────────────────────────────
+
+export interface Planta {
+  estado: 'feliz' | 'sed' | 'marchita' | 'seca';
+  horasSinAgua: number | null;
+  puedeRegar: boolean;
+  seriaRescate: boolean;
+  ultimoRiegoPor: string | null;
+  misRiegos: number;
+  fueRescate?: boolean;
+}
+
+export const getPlanta = () => api.get<Planta>(`${PLUGIN}/planta`);
+
+/** El servidor vuelve a comprobar si se puede regar: devuelve 409 si alguien se adelantó. */
+export const regarPlanta = () => api.post<Planta>(`${PLUGIN}/planta/regar`, {});
+
+/**
+ * Consumo del mes contra los topes (permiso largo y cita médica). Sin
+ * `userId` responde por el viewer; con él, solo si lo tiene a cargo.
+ */
+export const getUsoAusencias = (userId?: string, anio?: number, mes?: number) => {
+  const qs = new URLSearchParams();
+  if (userId) qs.set('userId', userId);
+  if (anio) qs.set('anio', String(anio));
+  if (mes) qs.set('mes', String(mes));
+  const q = qs.toString();
+  return api.get<import('./types').UsoAusencias>(`${PLUGIN}/absences/usage${q ? `?${q}` : ''}`);
+};

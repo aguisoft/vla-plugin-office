@@ -4,7 +4,7 @@ import { STATUS_CFG, type ResolvedStatus } from './statusConfig';
 /**
  * Estas pruebas existen por un fallo concreto y medido.
  *
- * Una propuesta de diseño redujo los once estados a un punto de color de 8px y
+ * Una propuesta de diseño redujo los doce estados a un punto de color de 8px y
  * asignó `rgb(22,163,74)` a «Disponible» y `rgb(21,128,61)` a «Reunión
  * interna»: dos verdes separados por 2 puntos de luminosidad. A esa escala son
  * el mismo punto, y para quien no distingue tonos, los tres naranjas y los
@@ -90,8 +90,8 @@ describe('la paleta tampoco tiene gemelos', () => {
 });
 
 describe('forma del catálogo', () => {
-  it('son exactamente once estados', () => {
-    expect(CLAVES).toHaveLength(11);
+  it('son exactamente doce estados', () => {
+    expect(CLAVES).toHaveLength(12);
   });
 
   it('cada estado tiene etiqueta en español y grupo', () => {
@@ -101,9 +101,9 @@ describe('forma del catálogo', () => {
     }
   });
 
-  it('las cuatro ausencias conservan su ícono además del glifo', () => {
+  it('las cinco ausencias conservan su ícono además del glifo', () => {
     const ausencias = CLAVES.filter(k => STATUS_CFG[k].group === 'absence');
-    expect(ausencias).toHaveLength(4);
+    expect(ausencias).toHaveLength(5);
     for (const k of ausencias) expect(STATUS_CFG[k].icon, `${k} sin icon`).toBeTruthy();
   });
 });
@@ -129,6 +129,7 @@ describe('las etiquetas de estado se pueden leer', () => {
     'text-green-700': '#15803d', 'text-blue-600': '#2563eb', 'text-purple-600': '#9333ea',
     'text-violet-700': '#6d28d9', 'text-orange-700': '#c2410c', 'text-yellow-700': '#a16207',
     'text-gray-500': '#6b7280', 'text-slate-600': '#475569', 'text-sky-700': '#0369a1',
+    'text-fuchsia-700': '#a21caf',
     'text-red-600': '#dc2626', 'text-amber-700': '#b45309',
   };
 

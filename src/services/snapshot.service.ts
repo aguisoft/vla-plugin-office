@@ -4,7 +4,8 @@ import type { AbsenceService } from './absence.service';
 import type { HolidayService } from './holiday.service';
 import type { OrgService } from './org.service';
 import { resolveStatus } from '../lib/state-resolver';
-import { canSeeJustification } from '../lib/justification-visibility';
+import { canSeeJustification, canSeeTimeAlerts } from '../lib/justification-visibility';
+import { DIAS_VIGENTE } from '../lib/escritorio-uso';
 import { DEFAULT_TZ } from '../lib/local-date';
 
 export interface UserSnapshot {
@@ -24,6 +25,11 @@ export interface UserSnapshot {
   justification?: string;
   statusStartsAt?: string;
   statusEndsAt?: string;
+  /** Tiene la app de escritorio con latido reciente. */
+  tieneEscritorio?: boolean;
+  /** Si el que mira puede ver el ámbar/rojo del cronómetro de esta persona. */
+  canSeeTimeAlerts?: boolean;
+  absenceStartsAt?: string;
   absenceEndsAt?: string;
   meetingId?: string;
   meetingWith?: { userId: string; firstName: string; lastName: string }[];
@@ -84,6 +90,19 @@ export class SnapshotService {
       this.org.managedUserIds(viewerId),
     ]);
     const onHoliday = await this.holidays.effectiveByUserId(now, countryOf, this.tzOf());
+
+    // Quién tiene la app de escritorio: una consulta por snapshot, no una por
+    // persona. Cuenta como instalada si dio señal en los últimos DIAS_VIGENTE
+    // días, así un equipo que dejó de usarse deja de mostrar el ícono solo.
+    const conEscritorio = new Set<string>();
+    try {
+      const filas = await this.ctx.query<{ user_id: string }>(
+        `SELECT user_id FROM office_escritorio_uso
+          WHERE ultima_vez > now() - ($1::int * interval '1 day')`,
+        [DIAS_VIGENTE],
+      );
+      for (const f of filas) conEscritorio.add(f.user_id);
+    } catch { /* el ícono es decorativo: si falla, la oficina carga igual */ }
 
     const viewerCtx = { userId: viewerId, hasManage: viewer.hasManage, managedUserIds };
 
@@ -149,6 +168,7 @@ export class SnapshotService {
         isAbsent: resolved.isAbsent,
         statusStartsAt: p?.statusStartsAt?.toISOString(),
         statusEndsAt:   p?.statusEndsAt?.toISOString(),
+        absenceStartsAt: resolved.absenceStartsAt?.toISOString(),
         absenceEndsAt:  resolved.absenceEndsAt?.toISOString(),
         meetingId:      p?.meetingId ?? undefined,
         meetingWith:    p?.meetingId
@@ -169,6 +189,8 @@ export class SnapshotService {
       };
 
       // El campo se OMITE, no se manda vacío: el texto no viaja sin permiso.
+      if (conEscritorio.has(u.id)) snap.tieneEscritorio = true;
+      if (canSeeTimeAlerts(viewerCtx, u.id)) snap.canSeeTimeAlerts = true;
       if (justification && canSeeJustification(viewerCtx, u.id, resolved.status)) {
         snap.justification = justification;
       }

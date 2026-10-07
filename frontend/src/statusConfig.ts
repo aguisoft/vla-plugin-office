@@ -1,7 +1,7 @@
 export type ResolvedStatus =
   | 'AVAILABLE' | 'FOCUS' | 'IN_MEETING_INTERNAL' | 'IN_MEETING_EXTERNAL'
   | 'LUNCH' | 'BRB' | 'OFFLINE'
-  | 'PERMISO' | 'VACACIONES' | 'INCAPACIDAD' | 'FERIADO';
+  | 'PERMISO' | 'CITA_MEDICA' | 'VACACIONES' | 'INCAPACIDAD' | 'FERIADO';
 
 export type PayloadKind =
   | 'none'
@@ -43,6 +43,7 @@ export const STATUS_CFG: Record<ResolvedStatus, StatusCfg> = {
   BRB:                 { label: 'Vuelvo pronto',      color: '#facc15', dot: 'bg-yellow-400', text: 'text-yellow-700', group: 'day',     payload: 'justification' },
   OFFLINE:             { label: 'Desconectado',       color: '#d1d5db', dot: 'bg-gray-300',   text: 'text-gray-500',   group: 'system',  payload: 'none' },
   PERMISO:             { label: 'Permiso',            color: '#94a3b8', dot: 'bg-slate-400',  text: 'text-slate-600',  icon: '📄', group: 'absence', payload: 'permiso' },
+  CITA_MEDICA:         { label: 'Cita médica',        color: '#f0abfc', dot: 'bg-fuchsia-300', text: 'text-fuchsia-700', icon: '🩺', group: 'absence', payload: 'permiso' },
   VACACIONES:          { label: 'Vacaciones',         color: '#7dd3fc', dot: 'bg-sky-300',    text: 'text-sky-700',    icon: '🏖', group: 'absence', payload: 'dateRange' },
   INCAPACIDAD:         { label: 'Incapacidad',        color: '#fca5a5', dot: 'bg-red-300',    text: 'text-red-600',    icon: '🏥', group: 'absence', payload: 'dateRange' },
   FERIADO:             { label: 'Feriado',            color: '#fcd34d', dot: 'bg-amber-300',  text: 'text-amber-700',  icon: '🎉', group: 'absence', payload: 'holidayOverride' },

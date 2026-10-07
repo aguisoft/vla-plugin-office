@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { PlantaOficina } from './components/PlantaOficina';
 import { api } from './vla/api';
 import { PluginShell } from './vla/PluginShell';
 import { AvatarSVG } from './components/AvatarSVG';
@@ -94,6 +95,9 @@ export default function App() {
   const [usePhotos, setUsePhotos] = useState(() => localStorage.getItem('vla-use-photos') !== 'false');
   const sseRef = useRef<EventSource | null>(null);
   const [viewMode, setViewMode]         = useState<'list' | 'map'>('list');
+  // Quién regó la planta por última vez: lleva una marca junto a su avatar
+  // hasta que otra persona la riegue.
+  const [regadoPor, setRegadoPor] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
   const [pending, setPending]           = useState<PendingPick>(null);
   const [notice, setNotice]             = useState<string | null>(null);
@@ -267,7 +271,7 @@ export default function App() {
   // permiso se lee con fmtDate (instante) y la de los otros dos con
   // fmtDateOnly (fecha pura) -- son formatos de entrada distintos, no
   // intercambiables.
-  const applyAbsence = async (body: { type: string; startAt: string; endAt: string; justification?: string }) => {
+  const applyAbsence = async (body: { type: string; startAt: string; endAt: string; justification?: string; adjuntos?: Array<{ nombre: string; tipo: string; contenido: string }> }) => {
     setActionLoading(true);
     try {
       await createAbsence(body);
@@ -357,16 +361,17 @@ export default function App() {
           <DateRangeModal
             status={pending.status}
             onClose={() => setPending(null)}
-            onConfirm={(startAt, endAt, justification) =>
-              applyAbsence({ type: pending.status, startAt, endAt, justification })}
+            onConfirm={(startAt, endAt, justification, adjuntos) =>
+              applyAbsence({ type: pending.status, startAt, endAt, justification, adjuntos })}
           />
         );
       case 'permiso':
         return (
           <PermisoModal
+            status={pending.status}
             onClose={() => setPending(null)}
-            onConfirm={(startAt, endAt, justification) =>
-              applyAbsence({ type: pending.status, startAt, endAt, justification })}
+            onConfirm={(startAt, endAt, justification, adjuntos) =>
+              applyAbsence({ type: pending.status, startAt, endAt, justification, adjuntos })}
           />
         );
       case 'participants':
@@ -784,6 +789,7 @@ export default function App() {
                           zone={zone}
                           users={zoneUsersMap.get(zone.id) ?? []}
                           usePhotos={usePhotos}
+                          regadoPor={regadoPor}
                           compacto
                         />
                       ))}
@@ -799,6 +805,8 @@ export default function App() {
                       )}
                     </div>
                   )}
+
+                  <PlantaOficina onRegada={setRegadoPor} />
                 </div>
               </div>
             </div>

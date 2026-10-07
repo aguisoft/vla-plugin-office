@@ -1,4 +1,5 @@
 import { useState, useCallback, useEffect } from 'react';
+import iconoEscritorio from '../assets/app-escritorio.png';
 import { AvatarSVG } from './AvatarSVG';
 import { HoverCard } from './HoverCard';
 import { cfgOf } from '../statusConfig';
@@ -117,6 +118,16 @@ export function ZoneListView({ zones, zoneUsersMap, usePhotos, active }: {
                           name={`${u.firstName} ${u.lastName}`}
                         />
                       </div>
+                      {u.tieneEscritorio && (
+                        <img
+                          src={iconoEscritorio}
+                          alt=""
+                          title="Tiene la app de escritorio"
+                          width={11}
+                          height={11}
+                          className="absolute -top-0.5 -left-0.5 rounded-[2px]"
+                        />
+                      )}
                       {u.isAbsent && cfgOf(u.status).icon && (
                         <span className="absolute -bottom-0.5 -right-0.5 text-[9px] leading-none">
                           {cfgOf(u.status).icon}

@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { AdjuntarDocs, type DocAdjunto } from './AdjuntarDocs';
 import { MIN_JUSTIFICATION, cfgOf } from '../statusConfig';
 import { Shell, DateField, Actions, missingLabel } from './modalParts';
 
@@ -10,13 +11,14 @@ import { Shell, DateField, Actions, missingLabel } from './modalParts';
 export function DateRangeModal({ status, onClose, onConfirm }: {
   status: string;
   onClose: () => void;
-  onConfirm: (startAt: string, endAt: string, justification?: string) => void;
+  onConfirm: (startAt: string, endAt: string, justification?: string, adjuntos?: DocAdjunto[]) => void;
 }) {
   const [from, setFrom] = useState('');
   const [to, setTo] = useState('');
   const [text, setText] = useState('');
   const cfg = cfgOf(status);
   const needsJustification = status === 'INCAPACIDAD';
+  const [docs, setDocs] = useState<DocAdjunto[]>([]);
   const missing = needsJustification ? Math.max(0, MIN_JUSTIFICATION - text.trim().length) : 0;
   const rangeInvalid = !!from && !!to && to < from;
   const invalid = !from || !to || rangeInvalid || missing > 0;
@@ -54,11 +56,12 @@ export function DateRangeModal({ status, onClose, onConfirm }: {
           placeholder="Reposo médico por 5 días, adjunto la boleta de incapacidad"
         />
       )}
+      {needsJustification && <AdjuntarDocs docs={docs} onChange={setDocs} />}
       <Actions
         onClose={onClose}
         disabled={invalid}
         confirmLabel={missing > 0 ? missingLabel(missing) : 'Confirmar'}
-        onConfirm={() => onConfirm(from, to, needsJustification ? text.trim() : undefined)}
+        onConfirm={() => onConfirm(from, to, needsJustification ? text.trim() : undefined, needsJustification ? docs : undefined)}
       />
     </Shell>
   );

@@ -26,6 +26,9 @@ export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true
   const dotCx = s - dotR - 1;
   const dotCy = s - dotR - 1;
 
+  // El emoji va DENTRO del avatar, no encima: cuando sobresalía (-top-3) pisaba
+  // el nombre de la fila de arriba en la grilla de la oficina. El borde blanco
+  // lo despega del avatar sin necesidad de reservarle espacio propio.
   const emoji = cfg?.emoji;
 
   // ── Initials avatar ──────────────────────────────────────────────────────────
@@ -40,7 +43,7 @@ export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true
     const PALETTE = ['#6366f1','#8b5cf6','#ec4899','#f43f5e','#f97316','#eab308','#22c55e','#14b8a6','#0ea5e9','#3b82f6'];
     const bgColor = PALETTE[(name ?? '').split('').reduce((a, c) => a + c.charCodeAt(0), 0) % PALETTE.length];
     return (
-      <div className="relative inline-flex flex-col items-center" style={{ width: s, height: s + (emoji ? 14 : 0) }}>
+      <div className="relative inline-flex flex-col items-center" style={{ width: s, height: s }}>
         <div style={{ width: s, height: s, opacity: isCheckedIn ? 1 : 0.45, position: 'relative' }}>
           <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`}>
             <circle cx={s / 2} cy={s / 2} r={s / 2} fill={bgColor} />
@@ -60,9 +63,12 @@ export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true
   // ── Photo avatar ────────────────────────────────────────────────────────────
   if (photoUrl && !photoFailed) {
     return (
-      <div className="relative inline-flex flex-col items-center" style={{ width: s, height: s + (emoji ? 14 : 0) }}>
+      <div className="relative inline-flex flex-col items-center" style={{ width: s, height: s }}>
         {emoji && (
-          <span className="absolute -top-3 select-none" style={{ fontSize: s * 0.3, zIndex: 1 }}>{emoji}</span>
+          <span
+            className="absolute -top-0.5 -right-1 select-none leading-none"
+            style={{ fontSize: s * 0.34, zIndex: 1, textShadow: '0 0 2px #fff, 0 0 2px #fff' }}
+          >{emoji}</span>
         )}
         <div style={{ width: s, height: s, opacity: isCheckedIn ? 1 : 0.35, position: 'relative' }}>
           <img
@@ -104,9 +110,12 @@ export function AvatarSVG({ cfg, photoUrl, size = 40, status, isCheckedIn = true
   };
 
   return (
-    <div className="relative inline-flex flex-col items-center" style={{ width: s, height: s + (emoji ? 14 : 0) }}>
+    <div className="relative inline-flex flex-col items-center" style={{ width: s, height: s }}>
       {emoji && (
-        <span className="absolute -top-3 select-none" style={{ fontSize: s * 0.3 }}>{emoji}</span>
+        <span
+            className="absolute -top-0.5 -right-1 select-none leading-none"
+            style={{ fontSize: s * 0.34, zIndex: 1, textShadow: '0 0 2px #fff, 0 0 2px #fff' }}
+          >{emoji}</span>
       )}
       <svg width={s} height={s} viewBox={`0 0 ${s} ${s}`} style={{ opacity: isCheckedIn ? 1 : 0.35 }}>
         <ellipse cx={cx} cy={s * 0.88} rx={r * 1.15} ry={r * 0.7} fill={shirt} />

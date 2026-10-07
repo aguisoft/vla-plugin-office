@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { urlAdjunto } from '../api';
 import { listAbsences, deleteAbsence, ApiError } from '../api';
 import { cfgOf } from '../statusConfig';
 import { fmtDate, fmtTime, absenceLastDay } from '../format';
@@ -136,6 +137,19 @@ export function MyAbsencesModal({ onClose, onChanged }: {
 
               <p className="mt-1 text-[11px] text-gray-500">{cuando(a)}</p>
 
+              {!!a.adjuntos?.length && (
+                <p className="mt-1 flex flex-wrap gap-2">
+                  {a.adjuntos.map(d => (
+                    <a
+                      key={d.id}
+                      href={urlAdjunto(d.id)}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-[11px] text-sky-700 underline decoration-dotted underline-offset-2 hover:text-sky-900"
+                    >📎 {d.nombre}</a>
+                  ))}
+                </p>
+              )}
               {a.justification && (
                 <p className="mt-1 text-[11px] italic text-gray-400">«{a.justification}»</p>
               )}

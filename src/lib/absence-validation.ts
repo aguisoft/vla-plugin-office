@@ -1,15 +1,19 @@
 import { localDateString } from './local-date';
 import { MIN_JUSTIFICATION, type AbsenceType, type ValidationError } from './status-rules';
 
-export const ABSENCE_TYPES: AbsenceType[] = ['PERMISO', 'VACACIONES', 'INCAPACIDAD'];
+export const ABSENCE_TYPES: AbsenceType[] = ['PERMISO', 'CITA_MEDICA', 'VACACIONES', 'INCAPACIDAD'];
 
 export const NEEDS_ABSENCE_JUSTIFICATION = new Set<AbsenceType>([
-  'PERMISO', 'INCAPACIDAD',
+  'PERMISO', 'CITA_MEDICA', 'INCAPACIDAD',
 ]);
 
-/** Ausencias cuya justificación solo ven el dueño, su jefe y office.manage. */
+/**
+ * Ausencias cuya justificación solo ven el dueño, su jefe y office.manage.
+ * CITA_MEDICA entra por lo mismo que INCAPACIDAD: el motivo es un dato de
+ * salud —propio o de un familiar— y no tiene por qué leerlo todo el equipo.
+ */
 export const RESTRICTED_ABSENCES = new Set<AbsenceType>([
-  'PERMISO', 'INCAPACIDAD',
+  'PERMISO', 'CITA_MEDICA', 'INCAPACIDAD',
 ]);
 
 /**

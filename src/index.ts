@@ -1,3 +1,4 @@
+import fsSync from 'fs';
 import type { Request, Response } from 'express';
 import type { PluginDefinition } from '@vla/plugin-sdk';
 import { compararVentana } from './lib/absence-window';
@@ -24,6 +25,10 @@ import { armarContactos } from './lib/im-contactos';
 import { reaccionValida, idMensajeValido, bytesDeBase64, nombreArchivoSeguro, MAX_ARCHIVO_BYTES } from './lib/im-chat';
 import { chatIdDe, tituloGrupo, idsDeUsuarios, armarMiembros, silenciadoPor } from './lib/im-grupos';
 import { RESTRICTED_ABSENCES } from './lib/absence-validation';
+import { resumenMensual } from './lib/absence-usage';
+import { validarAdjuntos } from './lib/adjuntos';
+import { estadoDePlanta } from './lib/planta';
+import { AdjuntosService } from './services/adjuntos.service';
 import { DEFAULT_TZ, localDateString } from './lib/local-date';
 import { cumplimientoToCsv } from './lib/compliance-csv';
 import { validateStatusInput, type StatusInput, type OfficeStatus } from './lib/status-rules';
@@ -89,6 +94,7 @@ const plugin: PluginDefinition = {
     const presence = new PresenceService(ctx);
     const layout   = new LayoutService(ctx);
     const absences = new AbsenceService(ctx);
+    const adjuntos = new AdjuntosService(ctx);
     const tz = () => (ctx.plugin.config.TIMEZONE as string) || DEFAULT_TZ;
     // org va ANTES que bitrix: el sync del organigrama le pasa el catálogo de
     // departamentos para que los nombres queden guardados. OrgService no depende
@@ -439,6 +445,15 @@ const plugin: PluginDefinition = {
         return res.status(403).json({ message: 'Solo office.manage puede registrar ausencias de otros' });
       }
 
+      // Documentos de respaldo. Se validan ANTES de crear la ausencia para no
+      // dejar una solicitud a medias si el archivo no sirve, y se guardan
+      // después, cuando ya existe el id al que pertenecen.
+      const adjuntosPedidos = Array.isArray(req.body?.adjuntos) ? req.body.adjuntos : [];
+      if (adjuntosPedidos.length) {
+        const malos = validarAdjuntos(adjuntosPedidos);
+        if (malos.length) return res.status(400).json({ message: 'Documento inválido', errors: malos });
+      }
+
       const result = await absences.create(targetUserId, req.body, requesterId, tz());
       if ('errors' in result) return res.status(400).json({ message: 'Datos inválidos', errors: result.errors });
       if ('conflict' in result) {
@@ -447,7 +462,20 @@ const plugin: PluginDefinition = {
           conflict: result.conflict,
         });
       }
-      res.status(201).json({ id: result.id });
+
+      let adjuntosGuardados: Array<{ id: string; nombre: string }> = [];
+      if (adjuntosPedidos.length) {
+        try {
+          const filas = await adjuntos.guardar(result.id, targetUserId, requesterId, adjuntosPedidos);
+          adjuntosGuardados = filas.map(f => ({ id: f.id, nombre: f.nombre }));
+        } catch (e: any) {
+          // La ausencia ya quedó registrada: perderla por un fallo de disco
+          // sería peor que quedarse sin el documento. Se avisa en la respuesta.
+          ctx.logger.error(`[office] adjuntos de ${result.id} no se guardaron: ${e?.message ?? e}`);
+          return res.status(201).json({ id: result.id, adjuntos: [], avisoAdjuntos: 'La solicitud quedó registrada, pero el documento no se pudo guardar. Adjuntalo de nuevo.' });
+        }
+      }
+      res.status(201).json({ id: result.id, adjuntos: adjuntosGuardados });
     }));
 
     // Ausencias de uno mismo (por defecto) o de ?userId= si quien pregunta es
@@ -468,13 +496,95 @@ const plugin: PluginDefinition = {
       const to = req.query.to ? new Date(req.query.to as string) : undefined;
       const rows = await absences.listForUserDetailed(targetUserId, from, to);
 
+      // Los documentos siguen la misma regla que la justificación: si no se
+      // puede leer el motivo, tampoco se listan los respaldos — el solo nombre
+      // de archivo ("incapacidad-psiquiatria.pdf") ya dice de más.
+      const porAusencia = new Map<string, Array<{ id: string; nombre: string; tipo: string; bytes: number }>>();
+      if (canSeeRestricted) {
+        for (const f of await adjuntos.listar(rows.map(r => r.id))) {
+          const lista = porAusencia.get(f.absence_id) ?? [];
+          lista.push({ id: f.id, nombre: f.nombre, tipo: f.tipo, bytes: f.bytes });
+          porAusencia.set(f.absence_id, lista);
+        }
+      }
+
       res.json(rows.map(a => {
+        const adj = porAusencia.get(a.id) ?? [];
         if (RESTRICTED_ABSENCES.has(a.type) && !canSeeRestricted) {
           const { justification, ...rest } = a;
-          return rest;
+          return { ...rest, adjuntos: [] };
         }
-        return a;
+        return { ...a, adjuntos: adj };
       }));
+    }));
+
+    /**
+     * Consumo de ausencias con tope: la hora mensual de permiso y las citas
+     * médicas del mes, con su exceso sobre las 3 h.
+     *
+     * Lo consulta el formulario antes de registrar (para avisar que se pasa) y
+     * el líder para ver si su gente ya agotó el mes. A diferencia de
+     * GET /absences, acá NO viaja la justificación: son minutos, no motivos, y
+     * así el líder puede ver el saldo sin leer datos de salud.
+     */
+    ctx.router.get('/absences/usage', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      const requesterId = (req as any).user?.sub;
+      if (!requesterId) return res.status(401).json({ message: 'Unauthorized' });
+
+      const targetUserId = (req.query.userId as string) || requesterId;
+      if (targetUserId !== requesterId
+          && !can(req, PERMS.MANAGE)
+          && !await org.isManagerOf(requesterId, targetUserId)) {
+        return res.status(403).json({ message: 'Solo tu propio consumo o el de tu equipo' });
+      }
+
+      const zona = tz();
+      const hoy = new Intl.DateTimeFormat('en-CA', { timeZone: zona, year: 'numeric', month: '2-digit' })
+        .formatToParts(new Date());
+      const parte = (t: string) => Number(hoy.find(p => p.type === t)?.value ?? 0);
+      const anio = Number(req.query.anio) || parte('year');
+      const mes  = Number(req.query.mes)  || parte('month');
+      if (mes < 1 || mes > 12) return res.status(400).json({ message: 'mes fuera de rango' });
+
+      // Se pide un margen de un día a cada lado porque el mes que consume una
+      // ausencia se decide por su fecha LOCAL, y el filtro por rango es en UTC.
+      const desde = new Date(Date.UTC(anio, mes - 1, 1, 0, 0, 0));
+      desde.setUTCDate(desde.getUTCDate() - 1);
+      const hasta = new Date(Date.UTC(anio, mes, 1, 0, 0, 0));
+      hasta.setUTCDate(hasta.getUTCDate() + 1);
+
+      const rows = await absences.listForUserDetailed(targetUserId, desde, hasta);
+      res.json(resumenMensual(rows, anio, mes, zona));
+    }));
+
+
+    /**
+     * Descarga de un documento de respaldo. La regla es la misma que la de la
+     * justificación —la persona, su jefe directo y RRHH— y se aplica acá, no
+     * en el nombre del archivo: el id es un uuid, pero un uuid no es un
+     * permiso. Sin esto, cualquiera con el enlace vería una constancia médica.
+     */
+    ctx.router.get('/absences/adjuntos/:id', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      const requesterId = (req as any).user?.sub;
+      if (!requesterId) return res.status(401).json({ message: 'Unauthorized' });
+
+      const fila = await adjuntos.porId(String(req.params.id));
+      if (!fila) return res.status(404).json({ message: 'No encontrado' });
+
+      const puede =
+        fila.user_id === requesterId ||
+        can(req, PERMS.MANAGE) ||
+        await org.isManagerOf(requesterId, fila.user_id);
+      if (!puede) return res.status(403).json({ message: 'Sin acceso a este documento' });
+
+      const ruta = adjuntos.rutaDe(fila);
+      if (!fsSync.existsSync(ruta)) return res.status(410).json({ message: 'El documento ya no está' });
+
+      res.setHeader('Content-Type', fila.tipo);
+      res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(fila.nombre)}`);
+      // Los navegadores no deben cachear un documento con control de acceso.
+      res.setHeader('Cache-Control', 'private, no-store');
+      fsSync.createReadStream(ruta).pipe(res);
     }));
 
     ctx.router.delete('/absences/:id', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
@@ -483,7 +593,61 @@ const plugin: PluginDefinition = {
       const canManage = can(req, PERMS.MANAGE);
       const done = await absences.remove(req.params.id, requesterId, canManage);
       if (!done) return res.status(404).json({ message: 'Ausencia no encontrada' });
+      // Sus documentos se van con ella: no deja una constancia médica huérfana
+      // en el disco sin nada que la referencie.
+      await adjuntos.borrarDeAusencia(req.params.id)
+        .catch(e => ctx.logger.warn(`[office] adjuntos de ${req.params.id} no se borraron: ${e?.message ?? e}`));
       res.status(204).end();
+    }));
+
+
+    // ── La planta de la oficina ───────────────────────────────────────────
+    // Un objeto compartido que pide agua cada tanto. Su estado sale del tiempo
+    // desde el último riego (ver lib/planta.ts), no de un proceso de fondo.
+
+    ctx.router.get('/planta', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      const userId = (req as any).user?.sub;
+      const [ultimo] = await ctx.query<{ user_id: string; regado_en: string }>(
+        `SELECT user_id, regado_en FROM office_planta_riegos ORDER BY regado_en DESC LIMIT 1`);
+      const [mios] = await ctx.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM office_planta_riegos WHERE user_id = $1`, [userId]);
+
+      res.json({
+        ...estadoDePlanta(ultimo?.regado_en ?? null),
+        ultimoRiegoPor: ultimo?.user_id ?? null,
+        ultimoRiegoEn: ultimo?.regado_en ?? null,
+        misRiegos: mios?.n ?? 0,
+      });
+    }));
+
+    ctx.router.post('/planta/regar', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
+      const userId = (req as any).user?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+
+      const [ultimo] = await ctx.query<{ regado_en: string }>(
+        `SELECT regado_en FROM office_planta_riegos ORDER BY regado_en DESC LIMIT 1`);
+      const antes = estadoDePlanta(ultimo?.regado_en ?? null);
+      // Se vuelve a mirar en el servidor: el botón ya está deshabilitado en la
+      // pantalla, pero dos personas pueden clickear a la vez y la que llega
+      // segunda no debería sumar un riego sobre una planta ya regada.
+      if (!antes.puedeRegar) {
+        return res.status(409).json({ message: 'Ya está regada', ...antes });
+      }
+
+      await ctx.query(
+        `INSERT INTO office_planta_riegos (user_id, fue_rescate) VALUES ($1, $2)`,
+        [userId, antes.seriaRescate]);
+
+      const [mios] = await ctx.query<{ n: number }>(
+        `SELECT count(*)::int AS n FROM office_planta_riegos WHERE user_id = $1`, [userId]);
+
+      res.json({
+        ...estadoDePlanta(new Date()),
+        ultimoRiegoPor: userId,
+        ultimoRiegoEn: new Date().toISOString(),
+        misRiegos: mios?.n ?? 1,
+        fueRescate: antes.seriaRescate,
+      });
     }));
 
     // ── Feriados (calendario por país + override personal) ────────────────────
@@ -1694,7 +1858,7 @@ const plugin: PluginDefinition = {
     });
     ctx.hooks.declareHook('office.absence.created', {
       description: 'Se registró una ausencia (permiso, vacaciones o incapacidad)',
-      payload: { userId: 'string', type: 'PERMISO | VACACIONES | INCAPACIDAD', startAt: 'Date', endAt: 'Date' },
+      payload: { userId: 'string', type: 'PERMISO | CITA_MEDICA | VACACIONES | INCAPACIDAD', startAt: 'Date', endAt: 'Date' },
     });
 
     /**

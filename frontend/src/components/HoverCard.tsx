@@ -1,3 +1,6 @@
+import { ResumenMes } from './ResumenMes';
+import iconoEscritorio from '../assets/app-escritorio.png';
+import { Cronometro } from './Cronometro';
 import { createPortal } from 'react-dom';
 import { AvatarSVG } from './AvatarSVG';
 import { cfgOf } from '../statusConfig';
@@ -139,16 +142,34 @@ export function HoverCard({ user, zoneName, anchorRect }: HoverCardProps) {
             </p>
           )}
 
-          {/* Almuerzo: el rango es informativo y no se revierte solo, así que el
-              vencimiento se marca acá. También hace visible quién se pasa. */}
+          {/* Almuerzo: el rango elegido sigue siendo informativo. */}
           {user.status === 'LUNCH' && user.statusEndsAt && (
-            <p className="mt-1 text-[10px]">
-              {new Date(user.statusEndsAt) < new Date()
-                ? <span className="text-orange-500">⚠ Venció {duration(user.statusEndsAt)} atrás</span>
-                : <span className="text-gray-400">Hasta {fmtTime(user.statusEndsAt)}</span>}
+            <p className="mt-1 text-[10px] text-gray-400">Hasta {fmtTime(user.statusEndsAt)}</p>
+          )}
+
+          {/* Cronómetro con semáforo para los estados con plazo: vuelvo pronto,
+              almuerzo, permiso y cita médica. Sustituye al aviso suelto que
+              tenía solo el almuerzo. */}
+          <Cronometro
+            status={user.status}
+            desde={user.absenceStartsAt ?? user.statusStartsAt}
+            verAlertas={!!user.canSeeTimeAlerts}
+            className="mt-1"
+          />
+
+          {/* En la tarjeta hay lugar para decirlo con palabras: el ícono de la
+              grilla es pequeño y no todos lo van a reconocer al principio. */}
+          {user.tieneEscritorio && (
+            <p className="mt-1 flex items-center gap-1 text-[10px] text-gray-400">
+              <img src={iconoEscritorio} alt="" width={11} height={11} className="rounded-[2px]" />
+              Usa la app de escritorio
             </p>
           )}
 
+          {/* Acumulado del mes: lo ve la propia persona, su jefe y RRHH. */}
+          {(user.status === 'PERMISO' || user.status === 'CITA_MEDICA') && (
+            <ResumenMes userId={user.userId} className="mt-2" />
+          )}
           {/* Con quién está reunido. */}
           {user.meetingWith?.length ? (
             <p className="mt-1 text-[10px] text-gray-400">

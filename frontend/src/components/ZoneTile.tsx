@@ -1,3 +1,6 @@
+import { CronometroMini } from './CronometroMini';
+import { ZonaIcon } from './ZonaIcon';
+import iconoEscritorio from '../assets/app-escritorio.png';
 import { useState } from 'react';
 import { AvatarSVG } from './AvatarSVG';
 import { HoverCard } from './HoverCard';
@@ -12,11 +15,13 @@ import type { Zone, UserSnapshot } from '../types';
  * absoluto quedaban huecos en blanco donde estaban. El tamaño se conserva en
  * los dos modos.
  */
-export function ZoneTile({ zone, users, usePhotos, compacto }: {
+export function ZoneTile({ zone, users, usePhotos, compacto, regadoPor }: {
   zone: Zone;
   users: UserSnapshot[];
   usePhotos?: boolean;
   compacto?: boolean;
+  /** Quien regó la planta por última vez: lleva una marca hasta el próximo riego. */
+  regadoPor?: string | null;
 }) {
   const [hoveredUser, setHoveredUser] = useState<string | null>(null);
   const [anchorRect, setAnchorRect] = useState<DOMRect | null>(null);
@@ -25,19 +30,32 @@ export function ZoneTile({ zone, users, usePhotos, compacto }: {
 
   return (
     <div
-      className={`${compacto ? 'relative flex-shrink-0' : 'absolute'} rounded-2xl border flex flex-col transition-shadow hover:shadow-md`}
+      className={`${compacto ? 'relative flex-shrink-0' : 'absolute'} rounded-2xl border border-gray-200 bg-white flex flex-col overflow-hidden transition-shadow hover:shadow-md`}
       style={{
         ...(compacto ? {} : { left: zone.x * TILE, top: zone.y * TILE }),
         width: zone.width * TILE,
-        height: zone.height * TILE,
-        backgroundColor: zone.color ? `${zone.color}44` : '#F9FAFB',
-        borderColor: zone.color ? `${zone.color}99` : '#E5E7EB',
-        overflow: 'visible',
+        // Fluyendo, la altura la manda el contenido: la del plano dejaba a una
+        // persona fuera de la tarjeta en las zonas llenas (Renee, en Academia)
+        // y media tarjeta vacía en las de poca gente.
+        // Fluyendo: un mínimo propio (encabezado + una fila) en vez del alto del
+        // plano. Con el del plano, una zona de una persona quedaba con medio
+        // metro de blanco debajo solo porque en el mapa ocupa mucho.
+        ...(compacto
+          // Fluyendo, el ancho del plano no manda: a ACADEMY le tocaba uno tan
+          // angosto que el título se desbordaba y la gente caía de a uno por
+          // fila. El mínimo da para tres avatares y para el nombre completo.
+          ? { minHeight: 120, minWidth: 176 }
+          : { height: zone.height * TILE }),
       }}
     >
+      {/* Franja del departamento: el color identifica la zona sin teñir el fondo,
+          así el color saturado queda reservado para el estado de las personas. */}
+      <div className="h-1 flex-shrink-0" style={{ backgroundColor: zone.color || '#E5E7EB' }} />
+
       {/* Header */}
-      <div className="flex items-center gap-1.5 px-2.5 pt-2 pb-1 flex-shrink-0">
-        <span className="text-[10px] font-bold text-gray-600 truncate leading-tight uppercase tracking-wide">
+      <div className="flex items-start gap-1.5 px-2.5 pt-2 pb-1 flex-shrink-0">
+        <ZonaIcon icon={zone.icon} color={zone.color} size={13} />
+        <span className="min-w-0 break-words text-[10px] font-bold text-gray-500 leading-tight uppercase tracking-wide">
           {zone.name}
         </span>
         {online.length > 0 && (
@@ -48,7 +66,7 @@ export function ZoneTile({ zone, users, usePhotos, compacto }: {
       </div>
 
       {/* Avatars — pt-4 leaves room for emoji badges that extend above the avatar */}
-      <div className="flex-1 flex flex-wrap gap-2 px-2 pb-2 content-start pt-4" style={{ overflow: 'visible' }}>
+      <div className="flex-1 flex flex-wrap gap-x-2 gap-y-3 px-2 pb-3 pt-1 content-start">
         {users.map(u => {
           // Un ausente tiene isCheckedIn en false pero igual se pinta: si no, se vería
           // gris, idéntico a un desconectado.
@@ -101,6 +119,24 @@ export function ZoneTile({ zone, users, usePhotos, compacto }: {
                     name={`${u.firstName} ${u.lastName}`}
                   />
                 </div>
+                {u.tieneEscritorio && (
+                  /* El ícono real de la app, no un emoji: a este tamaño el 🖥
+                     del sistema no se distinguía de una mancha. */
+                  <img
+                    src={iconoEscritorio}
+                    alt=""
+                    title="Tiene la app de escritorio"
+                    width={11}
+                    height={11}
+                    className="absolute -top-0.5 -left-0.5 rounded-[2px]"
+                  />
+                )}
+                {regadoPor === u.userId && (
+                  <span
+                    className="absolute -bottom-0.5 -left-0.5 text-[9px] leading-none"
+                    title="Regó la planta de la oficina"
+                  >🌱</span>
+                )}
                 {u.isAbsent && cfgOf(u.status).icon && (
                   <span className="absolute -bottom-0.5 -right-0.5 text-[9px] leading-none">
                     {cfgOf(u.status).icon}
@@ -121,6 +157,11 @@ export function ZoneTile({ zone, users, usePhotos, compacto }: {
               >
                 {u.firstName}
               </span>
+              <CronometroMini
+                status={u.status}
+                desde={u.absenceStartsAt ?? u.statusStartsAt}
+                verAlertas={!!u.canSeeTimeAlerts}
+              />
             </div>
           );
         })}

@@ -9,7 +9,7 @@ export type OfficeStatus =
   | 'BRB'
   | 'OFFLINE';
 
-export type AbsenceType = 'PERMISO' | 'VACACIONES' | 'INCAPACIDAD';
+export type AbsenceType = 'PERMISO' | 'CITA_MEDICA' | 'VACACIONES' | 'INCAPACIDAD';
 
 /** Lo que ve la oficina: estado del día, ausencia o feriado. */
 export type ResolvedStatus = OfficeStatus | AbsenceType | 'FERIADO';

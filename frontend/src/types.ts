@@ -25,6 +25,11 @@ export interface UserSnapshot {
   justification?: string;
   statusStartsAt?: string;
   statusEndsAt?: string;
+  /** Tiene la app de escritorio con latido reciente. */
+  tieneEscritorio?: boolean;
+  /** El viewer puede ver el ámbar/rojo del cronómetro de esta persona. */
+  canSeeTimeAlerts?: boolean;
+  absenceStartsAt?: string;
   absenceEndsAt?: string;
   meetingId?: string;
   meetingWith?: { userId: string; firstName: string; lastName: string }[];
@@ -41,10 +46,12 @@ export interface UserSnapshot {
 export interface Absence {
   id: string;
   userId: string;
-  type: 'PERMISO' | 'VACACIONES' | 'INCAPACIDAD';
+  type: 'PERMISO' | 'CITA_MEDICA' | 'VACACIONES' | 'INCAPACIDAD';
   startAt: string;
   endAt: string;
   justification?: string;
+  /** Documentos de respaldo. Vacío si quien mira no puede ver el motivo. */
+  adjuntos?: Array<{ id: string; nombre: string; tipo: string; bytes: number }>;
 }
 
 export interface Holiday {
@@ -352,4 +359,17 @@ export interface Cumplimiento {
    * `key` basada en el nombre las confundiría.
    */
   porDepartamento: Array<{ departamentoId: string | null; departamento: string; total: number; sinMarcar: number }> | null;
+}
+
+/** Respuesta de GET /absences/usage: minutos, sin motivos. */
+export interface UsoAusencias {
+  anio: number;
+  mes: number;
+  permisoMin: number;
+  permisoTopeMin: number;
+  permisoRestanteMin: number;
+  permisoExcedido: boolean;
+  citas: Array<{ inicio: string; minutos: number; excesoMin: number }>;
+  citasMin: number;
+  citasExcesoMin: number;
 }

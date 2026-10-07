@@ -13,6 +13,9 @@ export interface Resolved {
   status: ResolvedStatus;
   justification: string | null;
   isAbsent: boolean;
+  /** Inicio de la ausencia activa: el cronómetro de permiso y cita médica
+   *  cuenta desde acá, no desde que se abrió la app. */
+  absenceStartsAt: Date | null;
   absenceEndsAt: Date | null;
 }
 
@@ -38,6 +41,7 @@ export function resolveStatus(input: ResolveInput): Resolved {
       status: absence.type,
       justification: absence.justification,
       isAbsent: true,
+      absenceStartsAt: absence.startAt,
       absenceEndsAt: absence.endAt,
     };
   }
@@ -47,6 +51,7 @@ export function resolveStatus(input: ResolveInput): Resolved {
       status: 'FERIADO',
       justification: null,
       isAbsent: true,
+      absenceStartsAt: null,
       absenceEndsAt: null,
     };
   }
@@ -55,6 +60,7 @@ export function resolveStatus(input: ResolveInput): Resolved {
     status: input.presenceStatus,
     justification: input.presenceJustification,
     isAbsent: false,
+    absenceStartsAt: null,
     absenceEndsAt: null,
   };
 }

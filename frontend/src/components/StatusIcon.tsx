@@ -35,6 +35,8 @@ const TRAZOS: Record<ResolvedStatus, { d: string; extra?: string }> = {
   OFFLINE: { d: 'M12 3.8v7.4', extra: 'M7.1 6.9a7.2 7.2 0 1 0 9.8 0' },
   // Documento: el permiso queda por escrito.
   PERMISO: { d: 'M6.5 3.2h7.2L18 7.6v13.2H6.5V3.2Z', extra: 'M13.4 3.4v4.4H18M9.3 12.4h5.4M9.3 16.1h5.4' },
+  // Estetoscopio: la consulta médica, distinta de la cruz de incapacidad.
+  CITA_MEDICA: { d: 'M7.2 3.4v5a4.3 4.3 0 0 0 8.6 0v-5', extra: 'M11.5 12.6v2.3a4.3 4.3 0 0 0 8.6 0v-1.3M20.1 9.4a1.9 1.9 0 1 0 0 3.8 1.9 1.9 0 0 0 0-3.8Z' },
   // Sombrilla de playa.
   VACACIONES: { d: 'M3.6 12.4a8.4 8.4 0 0 1 16.8 0H3.6Z', extra: 'M12 12.4v8.4M12 20.8a2 2 0 0 0 2.6-1' },
   // Cruz médica.
