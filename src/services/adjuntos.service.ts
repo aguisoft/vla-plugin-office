@@ -3,6 +3,7 @@ import path from 'path';
 import crypto from 'crypto';
 import type { PluginContext } from '@vla/plugin-sdk';
 import { nombreSeguro, TIPOS_PERMITIDOS, type AdjuntoEntrada } from '../lib/adjuntos';
+import { listaIn } from './holiday.service';
 
 /**
  * Dónde viven los documentos de respaldo de las solicitudes.
@@ -63,14 +64,20 @@ export class AdjuntosService {
     return out;
   }
 
+  /**
+   * `IN ($1, $2, …)` y no `= ANY($1)`: `ctx.query` manda el arreglo como
+   * «a,b» y Postgres responde «malformed array literal» (ver listaIn en
+   * holiday.service.ts). Con una sola ausencia andaba; con dos o más, «Mis
+   * ausencias» no cargaba (7-oct-2026).
+   */
   async listar(absenceIds: string[]): Promise<AdjuntoFila[]> {
     if (!absenceIds.length) return [];
     return this.ctx.query<AdjuntoFila>(
       `SELECT id, absence_id, user_id, nombre, archivo, tipo, bytes, subido_por, creado_en
          FROM office_absence_adjuntos
-        WHERE absence_id = ANY($1::text[])
+        WHERE absence_id IN (${listaIn(absenceIds.length)})
         ORDER BY creado_en`,
-      [absenceIds],
+      absenceIds,
     );
   }
 
