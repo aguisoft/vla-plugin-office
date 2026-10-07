@@ -172,12 +172,23 @@ describe('panel del día', () => {
     expect(p.quitables).toEqual([1]);
   });
 
-  it('pide las tareas propias y las cerradas desde el comienzo del día local', async () => {
+  it('pide las tareas propias, aquellas en que participa y las cerradas desde el comienzo del día local', async () => {
     const { svc, llamadas } = armar(respuestas);
     await svc.panel('ana', AHORA);
     const listas = llamadas.filter(l => l.method === 'tasks.task.list');
     expect(listas[0].params.filter).toEqual({ RESPONSIBLE_ID: 949, REAL_STATUS: [2, 3] });
-    expect(listas[1].params.filter).toEqual({ RESPONSIBLE_ID: 949, '>=CLOSED_DATE': '2026-10-02T00:00:00-06:00' });
+    expect(listas[1].params.filter).toEqual({ ACCOMPLICE: 949, REAL_STATUS: [2, 3] });
+    expect(listas[2].params.filter).toEqual({ RESPONSIBLE_ID: 949, '>=CLOSED_DATE': '2026-10-02T00:00:00-06:00' });
+  });
+
+  it('una tarea en la que participa aparece marcada como participante', async () => {
+    const { svc } = armar({
+      ...respuestas,
+      'tasks.task.list': (p) => p.filter.ACCOMPLICE ? { tasks: [tarea(226015, 'LINK TREE VLA', '3')] }
+        : p.filter.REAL_STATUS ? { tasks: [tarea(1, 'Propia', '2')] } : { tasks: [] },
+    });
+    const { tareas } = await svc.panel('ana', AHORA);
+    expect(tareas.map(t => [t.id, t.rol])).toEqual(expect.arrayContaining([[226015, 'participante'], [1, 'responsable']]));
   });
 
   it('si el planificador de Bitrix falla, queda el plan de la oficina', async () => {
@@ -196,7 +207,7 @@ describe('panel del día', () => {
     let pedidas = 0;
     const { svc, llamadas } = armar({
       'tasks.task.list': (p) => {
-        if (!p.filter.REAL_STATUS) return { tasks: [] };
+        if (!p.filter.REAL_STATUS || p.filter.ACCOMPLICE) return { tasks: [] };
         pedidas++;
         const n = p.start === 0 ? 50 : 3;
         return { tasks: Array.from({ length: n }, (_, i) => tarea(p.start + i + 1, `T${i}`, '2')) };
@@ -204,7 +215,7 @@ describe('panel del día', () => {
     });
     expect((await svc.panel('ana', AHORA)).tareas).toHaveLength(53);
     expect(pedidas).toBe(2);
-    expect(llamadas.filter(l => l.method === 'tasks.task.list' && l.params.filter.REAL_STATUS).map(l => l.params.start)).toEqual([0, 50]);
+    expect(llamadas.filter(l => l.method === 'tasks.task.list' && l.params.filter.RESPONSIBLE_ID && l.params.filter.REAL_STATUS).map(l => l.params.start)).toEqual([0, 50]);
   });
 });
 

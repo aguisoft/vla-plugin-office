@@ -166,6 +166,25 @@ export interface Tarea {
   cerrada: string | null;
   tiempoSeg: number;
   grupo: string | null;
+  /** Mi rol en la tarea. Participante: la ve y le carga tiempo, pero no la cierra ni cambia la fecha. */
+  rol?: 'responsable' | 'participante';
+}
+
+/**
+ * Las tareas abiertas de una persona: las que tiene como responsable y las
+ * que tiene como participante. Antes solo las primeras: el 7-oct-2026 Esteban
+ * sumó a Carlos como participante de una tarea y no aparecía en la app. Una
+ * tarea que está en las dos listas cuenta como propia. Ordenadas por vencimiento
+ * (las sin fecha al final).
+ */
+export function unirTareas(responsable: Tarea[], participante: Tarea[]): Tarea[] {
+  const propias = new Set(responsable.map(t => t.id));
+  const todas = [
+    ...responsable.map(t => ({ ...t, rol: 'responsable' as const })),
+    ...participante.filter(t => !propias.has(t.id)).map(t => ({ ...t, rol: 'participante' as const })),
+  ];
+  const clave = (t: Tarea) => (t.vence ? Date.parse(t.vence) : Number.MAX_SAFE_INTEGER);
+  return todas.sort((a, b) => clave(a) - clave(b) || a.id - b.id);
 }
 
 /** 4 es «supuestamente completada» (espera que la revise quien la creó): para quien la hizo, ya está. */

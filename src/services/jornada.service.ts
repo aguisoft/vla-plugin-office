@@ -2,7 +2,7 @@ import type { PluginContext } from '@vla/plugin-sdk';
 import {
   leerJornada, leerTareas, leerEventos, idsDelPlan, armarBorrador, horaLocal, problemaConSalida,
   isoConZona, horaTexto, armarResumen, textoResumen, segundosDe, trabajadoSegundos,
-  LARGO_MAXIMO_INFORME, type Jornada, type Tarea, type Evento, type TimemanStatus, type FilaInforme, type Resumen,
+  LARGO_MAXIMO_INFORME, type Jornada, type Tarea, type Evento, type TimemanStatus, type FilaInforme, type Resumen, unirTareas,
 } from '../lib/jornada';
 import { localDateString, localDayStart, localDayEnd } from '../lib/local-date';
 import { periodBounds, type Span } from '../lib/timesheet';
@@ -327,7 +327,10 @@ export class JornadaService {
   }
 
   private async tareasAbiertas(userId: string, bid: number): Promise<Tarea[]> {
-    return this.listarTareas(userId, { RESPONSIBLE_ID: bid, REAL_STATUS: [2, 3] }, { DEADLINE: 'asc' });
+    // De a una (el portal tiene ~2 llamadas/s, compartidas con cobros).
+    const propias = await this.listarTareas(userId, { RESPONSIBLE_ID: bid, REAL_STATUS: [2, 3] }, { DEADLINE: 'asc' });
+    const comoParticipante = await this.listarTareas(userId, { ACCOMPLICE: bid, REAL_STATUS: [2, 3] }, { DEADLINE: 'asc' });
+    return unirTareas(propias, comoParticipante);
   }
 
   private async completadasDesde(userId: string, bid: number, desde: Date, hasta?: Date): Promise<Tarea[]> {

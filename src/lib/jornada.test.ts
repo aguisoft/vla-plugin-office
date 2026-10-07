@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   segundosDe, leerJornada, trabajadoSegundos, duracionTexto, horaLocal, problemaConSalida, isoConZona,
   leerTareas, leerEventos, idsDelPlan, armarBorrador, armarResumen, textoResumen, horaTexto, horaDelTexto,
+  unirTareas,
 } from './jornada';
 
 const TZ = 'America/Costa_Rica';
@@ -242,5 +243,20 @@ describe('resumen del período', () => {
     expect(txt).toContain('Tareas completadas (2):\n- A\n- B');
     expect(txt).toContain('martes 29/9:\nCerré la cotización');
     expect(txt).toContain('jueves 1/10:\nCapacitación');
+  });
+});
+
+describe('unirTareas (responsable + participante)', () => {
+  const t = (id: number, vence: string | null) => ({ id, titulo: `T${id}`, estado: 'pendiente' as const, vence, cerrada: null, tiempoSeg: 0, grupo: null });
+  it('el caso de Esteban: la de participante aparece, marcada', () => {
+    const r = unirTareas([t(1, '2026-10-08T00:00:00Z')], [t(226015, '2026-10-07T00:00:00Z')]);
+    expect(r.map(x => [x.id, x.rol])).toEqual([[226015, 'participante'], [1, 'responsable']]);
+  });
+  it('si está en las dos listas cuenta como propia, sin repetir', () => {
+    const r = unirTareas([t(5, null)], [t(5, null), t(6, null)]);
+    expect(r.map(x => [x.id, x.rol])).toEqual([[5, 'responsable'], [6, 'participante']]);
+  });
+  it('las sin fecha van al final', () => {
+    expect(unirTareas([t(2, null), t(3, '2026-10-09T00:00:00Z')], []).map(x => x.id)).toEqual([3, 2]);
   });
 });
