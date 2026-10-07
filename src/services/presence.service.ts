@@ -11,9 +11,11 @@ export interface StatusExtra {
   startsAt?: Date | null;
   endsAt?: Date | null;
   meetingId?: string | null;
+  /** Quién hizo el cambio, para el historial de tiempos. AUTO = un estado que venció solo. */
+  source?: CheckSource;
 }
 
-export type CheckSource = 'WEB' | 'BITRIX' | 'MOBILE';
+export type CheckSource = 'WEB' | 'BITRIX' | 'MOBILE' | 'AUTO';
 
 export interface PresenceRecord {
   userId: string;
@@ -252,7 +254,7 @@ export class PresenceService {
     await this.ctx.redis.setJson(`presence:${userId}`, record, PRESENCE_CACHE_TTL);
     await this.ctx.hooks.doAction('office.user.status_changed', { userId, status });
     this.broadcast({ type: 'user:status', userId, status });
-    await this.recordTransition(userId, status, now, extra.justification ?? null, 'WEB');
+    await this.recordTransition(userId, status, now, extra.justification ?? null, extra.source ?? 'WEB');
 
     return record;
   }

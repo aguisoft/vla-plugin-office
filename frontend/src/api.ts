@@ -157,6 +157,10 @@ export const listSolicitudesFeriadoPendientes = () =>
 export const decidirSolicitudFeriado = (id: string, accion: 'approve' | 'reject', note?: string) =>
   api.post<{ ok: true }>(`${PLUGIN}/holidays/overrides/${id}/${accion}`, { note: note ?? '' });
 
+/** «Tu almuerzo terminó a las …»: lo deja office cuando un estado vence solo. */
+export const getAvisoVencido = () => api.get<import('./permisoHorario').AvisoVencido | null>(`${PLUGIN}/presence/me/aviso`);
+export const marcarAvisoVisto = () => api.post<{ ok: true }>(`${PLUGIN}/presence/me/aviso/visto`, {});
+
 export const listInvites = () => api.get<PendingInvite[]>(`${PLUGIN}/meetings/invites`);
 
 export const respondInvite = (id: string, action: 'accept' | 'decline') =>

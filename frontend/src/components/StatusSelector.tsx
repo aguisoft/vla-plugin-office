@@ -2,8 +2,10 @@ import { useState } from 'react';
 import { ABSENCE_GROUP, DAY_GROUP, STATUS_CFG, cfgOf } from '../statusConfig';
 import type { ResolvedStatus } from '../statusConfig';
 
-export function StatusSelector({ current, onPick, onManageAbsences, disabled, dropUp }: {
+export function StatusSelector({ current, onPick, onManageAbsences, disabled, dropUp, hasta }: {
   current: string;
+  /** Hora de fin del estado actual (almuerzo, vuelvo pronto…), ya formateada. */
+  hasta?: string | null;
   onPick: (s: ResolvedStatus) => void;
   /** Abre la lista de ausencias propias, el único lugar donde se cancelan. */
   onManageAbsences: () => void;
@@ -27,6 +29,7 @@ export function StatusSelector({ current, onPick, onManageAbsences, disabled, dr
       >
         <span className={`w-2 h-2 rounded-full ${st.dot}`} />
         <span className={`text-xs font-medium ${st.text}`}>{st.label}</span>
+        {hasta && <span className="text-[10px] text-gray-500" data-testid="estado-hasta">· hasta {hasta}</span>}
         <svg className={`w-3 h-3 text-gray-400 transition-transform ${dropUp ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
         </svg>

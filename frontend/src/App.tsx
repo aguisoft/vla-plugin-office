@@ -26,7 +26,7 @@ import { EscritorioModal } from './components/EscritorioModal';
 import { resultadoBitrix, enlaceEscritorio, type ResultadoBitrix, type EnlaceEscritorio, type UsoEscritorio } from './lib/escritorio';
 import { OfertaEscritorio } from './components/OfertaEscritorio';
 import { InformeSalidaModal } from './components/InformeSalidaModal';
-import { getEscritorioMio } from './api';
+import { getEscritorioMio, getAvisoVencido, marcarAvisoVisto } from './api';
 import { Shell } from './components/modalParts';
 import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant, PendingInvite } from './types';
 import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
@@ -34,6 +34,7 @@ import type { ResolvedStatus, PayloadKind } from './statusConfig';
 import { setStatus, createAbsence, listInvites, respondInvite, setHolidayOverride, ApiError } from './api';
 import type { StatusPayload, StatusError } from './api';
 import { fmtDate, fmtDateOnly, fmtTime, absenceLastDay } from './format';
+import { textoAvisoVencido, type AvisoVencido } from './permisoHorario';
 
 export const TILE = 20;
 
@@ -69,6 +70,10 @@ export default function App() {
   const [connected, setConnected]         = useState(false);
   const [isCheckedIn, setIsCheckedIn]     = useState(false);
   const [myStatus, setMyStatus]           = useState('OFFLINE');
+  /** Hasta cuándo dura mi estado (almuerzo, vuelvo pronto…), para mostrarlo. */
+  const [myStatusEndsAt, setMyStatusEndsAt] = useState<string | null>(null);
+  /** «Tu almuerzo terminó a las …»: el estado venció solo mientras no estaba. */
+  const [avisoVencido, setAvisoVencido]   = useState<AvisoVencido | null>(null);
   const [showAvatarModal, setShowAvatarModal]       = useState(false);
   const [showBitrixSettings, setShowBitrixSettings] = useState(false);
   // Al volver de Bitrix el core redirige a /dashboard/office?bitrix=…; se abre
@@ -129,6 +134,8 @@ export default function App() {
         if (me) {
           setIsCheckedIn(me.isCheckedIn);
           setMyStatus(me.status);
+          setMyStatusEndsAt(me.statusEndsAt ?? null);
+          getAvisoVencido().then(setAvisoVencido).catch(() => {});
         }
       }
     } finally {
@@ -169,7 +176,12 @@ export default function App() {
       // cualquier mensaje, así que un `msg.type` no reconocido (o el mensaje
       // no siendo JSON parseable) no pierde nada más que estas dos ramas.
       try {
-        const msg = JSON.parse(event.data) as { type?: string; meetingId?: string };
+        const msg = JSON.parse(event.data) as { type?: string; meetingId?: string; userId?: string };
+        // Mi propio estado cambió desde afuera (p. ej. el almuerzo venció solo):
+        // recargar trae el estado, la hora de fin y el aviso.
+        if (msg.type === 'user:status' && msg.userId && msg.userId === currentUser?.id) {
+          void loadData();
+        }
         if (msg.type === 'meeting:invite') {
           void listInvites().then(setInvites).catch(() => {});
         }
@@ -257,7 +269,13 @@ export default function App() {
     }
   };
 
+  const cerrarAvisoVencido = () => {
+    setAvisoVencido(null);
+    void marcarAvisoVisto().catch(() => {});
+  };
+
   const handlePick = (status: ResolvedStatus) => {
+    if (avisoVencido) cerrarAvisoVencido();
     const kind = STATUS_CFG[status].payload;
     if (kind === 'none') { void applyStatus({ status }); return; }
     setPending({ status, kind });
@@ -299,7 +317,12 @@ export default function App() {
         const fem = `${masc.slice(0, -1)}a`;
         return body.type === 'VACACIONES' ? `${fem}s` : fem;
       };
-      setNotice(startsLater
+      // Un permiso que ya terminó no se «aplica»: decía «Permiso aplicado» y
+      // la persona esperaba verse con permiso (6-oct-2026).
+      const yaTermino = new Date(body.endAt) <= new Date();
+      setNotice(yaTermino
+        ? `${label} ${agree('registrado')} ${schedule} (ya terminó)`
+        : startsLater
         ? `${label} ${agree('registrado')} ${schedule}`
         : `${label} ${agree('aplicado')}`);
     } catch (e) {
@@ -579,6 +602,7 @@ export default function App() {
       {isCheckedIn && (
         <StatusSelector
           current={myStatus}
+          hasta={myStatusEndsAt && ['LUNCH', 'BRB', 'FOCUS'].includes(myStatus) ? fmtTime(myStatusEndsAt) : null}
           onPick={handlePick}
           onManageAbsences={() => setShowAbsences(true)}
           disabled={actionLoading}
@@ -656,6 +680,12 @@ export default function App() {
         </Shell>
       )}
 
+      {avisoVencido && !notice && (
+        <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-amber-500 px-4 py-2 text-xs font-medium text-white shadow-lg" data-testid="aviso-vencido">
+          {textoAvisoVencido(avisoVencido, fmtTime)}
+          <button onClick={cerrarAvisoVencido} className="rounded-lg bg-white/20 px-2 py-0.5 font-semibold hover:bg-white/30">Entendido</button>
+        </div>
+      )}
       {notice && (
         <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-gray-800 px-4 py-2 text-xs font-medium text-white shadow-lg">
           {notice}

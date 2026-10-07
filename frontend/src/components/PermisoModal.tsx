@@ -4,6 +4,7 @@ import { getUsoAusencias } from '../api';
 import type { UsoAusencias } from '../types';
 import { Shell, DateField, TimeField, Actions, missingLabel } from './modalParts';
 import { AdjuntarDocs, type DocAdjunto } from './AdjuntarDocs';
+import { horarioInicial, yaPaso, sugerirTarde } from '../permisoHorario';
 
 /**
  * Permiso es una ausencia corta dentro de un mismo día: fecha + rango de
@@ -16,14 +17,21 @@ export function PermisoModal({ status, onClose, onConfirm }: {
   onClose: () => void;
   onConfirm: (startAt: string, endAt: string, justification: string, adjuntos?: DocAdjunto[]) => void;
 }) {
-  const [date, setDate] = useState('');
-  const [from, setFrom] = useState('09:00');
-  const [to, setTo] = useState('10:00');
+  // Arranca hoy, desde la hora actual: antes arrancaba vacío y en 09:00, y un
+  // «5:35» de la tarde se guardaba a la mañana (ver permisoHorario.ts).
+  const [inicial] = useState(() => horarioInicial(new Date()));
+  const [date, setDate] = useState(inicial.fecha);
+  const [from, setFrom] = useState(inicial.desde);
+  const [to, setTo] = useState(inicial.hasta);
   const [text, setText] = useState('');
   const [docs, setDocs] = useState<DocAdjunto[]>([]);
   const missing = Math.max(0, MIN_JUSTIFICATION - text.trim().length);
   const timeInvalid = to <= from;
   const invalid = !date || timeInvalid || missing > 0;
+  // Un horario que ya pasó se puede registrar (un permiso olvidado de la
+  // mañana), pero se avisa y el botón lo dice.
+  const pasado = !timeInvalid && yaPaso(date, to, new Date());
+  const tarde = pasado ? sugerirTarde(date, from, to, new Date()) : null;
 
   // Saldo del mes, solo para PERMISO: la cita médica no tiene tope mensual,
   // su límite es por cita y lo vigila el cronómetro.
@@ -60,6 +68,17 @@ export function PermisoModal({ status, onClose, onConfirm }: {
         <TimeField label="Hasta" value={to} onChange={setTo} />
       </div>
       {timeInvalid && <p className="mt-2 text-xs text-red-500">La hora de fin debe ser posterior.</p>}
+      {pasado && (
+        <div className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800" data-testid="permiso-pasado">
+          Ese horario ya pasó{tarde ? ' (es de la mañana)' : ''}. Se registra igual, pero no vas a aparecer con permiso.
+          {tarde && (
+            <button type="button" onClick={() => { setFrom(tarde.desde); setTo(tarde.hasta); }}
+              className="mt-1 block font-semibold underline" data-testid="usar-tarde">
+              ¿Querías decir de {tarde.desde} a {tarde.hasta}? Usar ese horario
+            </button>
+          )}
+        </div>
+      )}
       {/* Saldo del mes. Avisa, no bloquea: una urgencia real no se resuelve
           con una validación, y el dato queda para que el líder lo converse. */}
       {status === 'PERMISO' && uso && (
@@ -87,7 +106,7 @@ export function PermisoModal({ status, onClose, onConfirm }: {
       <Actions
         onClose={onClose}
         disabled={invalid}
-        confirmLabel={missing > 0 ? missingLabel(missing) : 'Confirmar'}
+        confirmLabel={missing > 0 ? missingLabel(missing) : pasado ? 'Registrar igual' : 'Confirmar'}
         onConfirm={() => onConfirm(toIso(from), toIso(to), text.trim(), docs)}
       />
     </Shell>

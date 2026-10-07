@@ -50,6 +50,9 @@ function can(req: any, permission: string): boolean {
   return (req.user?.permissions ?? []).includes(permission);
 }
 
+/** Aviso de un estado que venció solo (almuerzo, vuelvo pronto, concentrado), por persona. */
+const claveAvisoVencido = (userId: string) => `aviso-vencido:${userId}`;
+
 const plugin: PluginDefinition = {
   async register(ctx) {
     ctx.logger.log('Office plugin iniciado');
@@ -321,6 +324,15 @@ const plugin: PluginDefinition = {
 
     ctx.router.get('/presence', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (_req, res) => {
       res.json(await presence.getAll());
+    }));
+
+    // El aviso de «tu almuerzo terminó» de quien mira (ver vencerEstados).
+    ctx.router.get('/presence/me/aviso', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      res.json(await ctx.redis.getJson(claveAvisoVencido((req as any).user?.sub)).catch(() => null) ?? null);
+    }));
+    ctx.router.post('/presence/me/aviso/visto', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      await ctx.redis.del(claveAvisoVencido((req as any).user?.sub)).catch(() => undefined);
+      res.json({ ok: true });
     }));
 
     ctx.router.get('/presence/all', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (_req, res) => {
@@ -1910,7 +1922,13 @@ const plugin: PluginDefinition = {
           where: { isCheckedIn: true, statusEndsAt: { lte: new Date() } },
         }) as any[];
         for (const f of estadosVencidos(filas, new Date())) {
-          await presence.updateStatus(f.userId, 'AVAILABLE', {});
+          await presence.updateStatus(f.userId, 'AVAILABLE', { source: 'AUTO' });
+          // La persona suele no estar mirando: el aviso queda para cuando vuelva
+          // (Renee, 6-oct-2026: volvió del almuerzo, se vio en Disponible y
+          // creyó que el almuerzo no se había registrado).
+          await ctx.redis.setJson(claveAvisoVencido(f.userId), {
+            status: f.status, terminaba: new Date(f.statusEndsAt).toISOString(), vencioEn: new Date().toISOString(),
+          }, 8 * 3600).catch(() => undefined);
           ctx.logger.log(`Estado vencido: ${f.userId} ${f.status} → AVAILABLE`);
         }
       } catch (e) {
