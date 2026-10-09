@@ -51,13 +51,26 @@ export function fmtTime(iso: string): string {
  * `fmtDate` -- el cálculo se comparte, el estilo visual de cada uno no.
  */
 export function absenceLastDay(endsAtIso: string): string {
-  return fmtDate(endsAtIso);
+  return fmtDateOnly(fechaOperacion(endsAtIso));
 }
 
+/**
+ * El día de vuelta se calcula en la zona de la OPERACIÓN, no la del navegador:
+ * el 9-oct-2026 unas vacaciones de un solo día (8-oct, fin 23:59 de Costa Rica)
+ * decían «vuelve el 9» a quien miraba desde Costa Rica y «vuelve el 10» desde
+ * Colombia (una hora adelante, el fin ya caía el 9). El `Date` que devuelve es
+ * medianoche local de ese día: sirve solo para formatear día y mes.
+ */
 export function absenceReturnDate(endsAtIso: string): Date {
-  const next = new Date(endsAtIso);
-  next.setDate(next.getDate() + 1);
-  return next;
+  const [y, m, d] = fechaOperacion(endsAtIso).split('-').map(Number);
+  return new Date(y, m - 1, d + 1);
+}
+
+/** `YYYY-MM-DD` de un instante en la zona de la operación (ver hoyLocal). */
+export function fechaOperacion(iso: string): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: TZ_OPERACION, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(new Date(iso));
 }
 
 /**
