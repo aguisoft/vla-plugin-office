@@ -696,7 +696,7 @@ const plugin: PluginDefinition = {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
       const country = await org.countryOf(userId);
-      res.json(await holidays.movableForUser(userId, country));
+      res.json(await holidays.movableForUser(userId, country, tz()));
     }));
 
     // ── Solicitudes de feriado movido ─────────────────────────────────────
@@ -716,7 +716,7 @@ const plugin: PluginDefinition = {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
       const aCargo = await org.managedUserIds(userId);
-      res.json(await holidays.pendientesDe([...aCargo]));
+      res.json(await holidays.pendientesDe([...aCargo], localDateString(new Date(), tz())));
     }));
 
     for (const accion of ['approve', 'reject'] as const) {
@@ -767,8 +767,10 @@ const plugin: PluginDefinition = {
     ctx.router.delete('/holidays/:id/override', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-      const done = await holidays.clearOverride(userId, req.params.id);
-      if (!done) return res.status(404).json({ message: 'No hay override para ese feriado' });
+      const r = await holidays.clearOverride(userId, req.params.id, tz());
+      if (r === 'no_existe') return res.status(404).json({ message: 'No hay un pedido para ese feriado' });
+      if (r === 'ya_respondida') return res.status(409).json({ message: 'Tu jefe ya respondió ese pedido: si querés cambiarlo, hablalo con él' });
+      if (r === 'ya_llego') return res.status(409).json({ message: 'El feriado ya llegó: ese pedido no se puede retirar' });
       res.status(204).end();
     }));
 

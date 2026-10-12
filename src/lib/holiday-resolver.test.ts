@@ -354,3 +354,34 @@ describe('bordes de mes', () => {
     expect(finDeMes(new Date('2026-12-10T00:00:00Z')).toISOString().slice(0, 10)).toBe('2026-12-31');
   });
 });
+
+describe('pedir mover un feriado: antes del día y a un día hábil (12-oct-2026)', () => {
+  const JUST = 'trabajo ese día por cierre y lo tomo otro';
+  const doce = new Date('2026-10-12T00:00:00Z'); // lunes, feriado en CO y AR
+  const op = (hoy: string, otrosFeriados: string[] = []) => ({ hoy, otrosFeriados });
+
+  it('el caso de Yeraldine: pedirlo el mismo día del feriado no vale', () => {
+    expect(validateOverrideInput(doce, new Date('2026-10-20T00:00:00Z'), JUST, TZ, op('2026-10-12')))
+      .toEqual([{ field: 'holidayId', message: 'El cambio se pide antes del feriado: ese día ya llegó' }]);
+  });
+  it('pedirlo antes, a un día hábil futuro del mismo mes: vale', () => {
+    expect(validateOverrideInput(doce, new Date('2026-10-20T00:00:00Z'), JUST, TZ, op('2026-10-09'))).toEqual([]);
+  });
+  it('no al mismo día del feriado, ni a un día que ya pasó', () => {
+    expect(validateOverrideInput(doce, doce, JUST, TZ, op('2026-10-09'))[0].message).toBe('Elegí un día distinto al del feriado');
+    expect(validateOverrideInput(doce, new Date('2026-10-05T00:00:00Z'), JUST, TZ, op('2026-10-09'))[0].message).toBe('Elegí un día que todavía no pasó');
+  });
+  it('no a un sábado o domingo, ni a otro feriado', () => {
+    expect(validateOverrideInput(doce, new Date('2026-10-17T00:00:00Z'), JUST, TZ, op('2026-10-09'))[0].message).toBe('Elegí un día hábil (de lunes a viernes)');
+    expect(validateOverrideInput(doce, new Date('2026-10-21T00:00:00Z'), JUST, TZ, op('2026-10-09', ['2026-10-21']))[0].message).toBe('Ese día ya es feriado');
+  });
+});
+
+describe('movableHolidays: solo los que todavía no llegaron', () => {
+  it('con hoy, no ofrece ni el de hoy ni los pasados', () => {
+    const pasado = { ...indep, id: 'p', date: new Date('2026-09-15T00:00:00Z') };
+    const hoyF = { ...indep, id: 'h', date: new Date('2026-10-12T00:00:00Z') };
+    const futuro = { ...indep, id: 'f', date: new Date('2026-12-01T00:00:00Z') };
+    expect(movableHolidays([pasado, hoyF, futuro], [], indep.country, '2026-10-12').map(h => h.id)).toEqual(['f']);
+  });
+});

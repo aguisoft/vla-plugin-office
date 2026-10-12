@@ -147,6 +147,10 @@ export const setHolidayOverride = (holidayId: string, body: { newDate: string; j
 export const getOrgChart = () =>
   api.get<{ personas: PersonaChart[] }>(`${PLUGIN}/org/chart`);
 
+/** Retira un pedido pendiente (solo antes del feriado; el servidor lo verifica). */
+export const retirarSolicitudFeriado = (holidayId: string) =>
+  api.delete<void>(`${PLUGIN}/holidays/${holidayId}/override`);
+
 export const listMisSolicitudesFeriado = () =>
   api.get<SolicitudFeriado[]>(`${PLUGIN}/holidays/overrides/mine`);
 

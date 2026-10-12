@@ -171,12 +171,13 @@ export class HolidayService {
     return out;
   }
 
-  async movableForUser(userId: string, country: string): Promise<HolidayRow[]> {
+  /** Los feriados que esta persona todavía puede pedir mover: los de su país que no llegaron. */
+  async movableForUser(userId: string, country: string, tz: string, ahora = new Date()): Promise<HolidayRow[]> {
     const [holidays, overrides] = await Promise.all([
       this.list(undefined, country),
       this.overridesForUser(userId),
     ]);
-    return movableHolidays(holidays, overrides, country);
+    return movableHolidays(holidays, overrides, country, localDateString(ahora, tz));
   }
 
   async overridesForUser(userId: string): Promise<OverrideRow[]> {
@@ -216,7 +217,11 @@ export class HolidayService {
    * mezclarlo obligaría a inyectarle OrgService y crearía un ciclo entre los
    * dos servicios.
    */
-  async pendientesDe(subordinadoIds: string[]): Promise<SolicitudDetalle[]> {
+  /**
+   * `hoy` (`YYYY-MM-DD`): los pedidos de un feriado que ya pasó no aplican y
+   * no se muestran (el mismo día del feriado todavía se puede responder).
+   */
+  async pendientesDe(subordinadoIds: string[], hoy?: string): Promise<SolicitudDetalle[]> {
     if (subordinadoIds.length === 0) return [];
     const rows = await this.ctx.query<OverrideDbRow & { holiday_name: string | null; holiday_date: Date | null }>(
       `SELECT o.id, o.user_id, o.holiday_id, o.new_date, o.justification, o.status,
@@ -225,8 +230,9 @@ export class HolidayService {
          FROM office_holiday_overrides o
          LEFT JOIN virtual_office."Holiday" h ON h.id = o.holiday_id
         WHERE o.status = 'PENDING' AND o.user_id IN (${listaIn(subordinadoIds.length)})
+          ${hoy ? `AND (h.date IS NULL OR h.date >= $${subordinadoIds.length + 1}::date)` : ''}
         ORDER BY o.created_at ASC`,
-      subordinadoIds,
+      hoy ? [...subordinadoIds, hoy] : subordinadoIds,
     );
     return rows.map(toDetalle);
   }
@@ -253,7 +259,11 @@ export class HolidayService {
       return { ok: false, errors: [{ field: 'holidayId', message: 'El feriado no corresponde a tu país' }] };
     }
 
-    const errors = validateOverrideInput((holiday as any).date, newDate, justification, tz);
+    const otrosFeriados = (await this.list(undefined, country))
+      .filter(h => h.id !== holidayId).map(h => dateOnly(h.date));
+    const errors = validateOverrideInput((holiday as any).date, newDate, justification, tz, {
+      hoy: localDateString(new Date(), tz), otrosFeriados,
+    });
     if (errors.length) return { ok: false, errors };
 
     // Sin jefe directo no hay quién apruebe. Se registra ya aprobada, pero con
@@ -281,12 +291,25 @@ export class HolidayService {
     return { ok: true, status: status as OverrideStatus };
   }
 
-  async clearOverride(userId: string, holidayId: string): Promise<boolean> {
-    const rows = await this.ctx.query<{ id: string }>(
-      'DELETE FROM office_holiday_overrides WHERE user_id = $1 AND holiday_id = $2 RETURNING id',
+  /**
+   * La persona retira su pedido. Solo uno PENDIENTE y antes del feriado: uno ya
+   * respondido es una decisión del jefe (deshacerlo se habla con él), y uno de
+   * un feriado que ya llegó no tiene nada que retirar.
+   */
+  async clearOverride(userId: string, holidayId: string, tz: string, ahora = new Date()): Promise<'ok' | 'no_existe' | 'ya_respondida' | 'ya_llego'> {
+    const [fila] = await this.ctx.query<{ status: string }>(
+      'SELECT status FROM office_holiday_overrides WHERE user_id = $1 AND holiday_id = $2',
       [userId, holidayId],
     );
-    return rows.length > 0;
+    if (!fila) return 'no_existe';
+    if (fila.status !== 'PENDING') return 'ya_respondida';
+    const holiday = await this.ctx.prisma.holiday.findUnique({ where: { id: holidayId } });
+    if (holiday && dateOnly((holiday as any).date) <= localDateString(ahora, tz)) return 'ya_llego';
+    await this.ctx.query(
+      `DELETE FROM office_holiday_overrides WHERE user_id = $1 AND holiday_id = $2 AND status = 'PENDING'`,
+      [userId, holidayId],
+    );
+    return 'ok';
   }
 
   /**

@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
-import { listMovableHolidays, listMisSolicitudesFeriado } from '../api';
+import { listMovableHolidays, listMisSolicitudesFeriado, retirarSolicitudFeriado, ApiError } from '../api';
 import { MIN_JUSTIFICATION } from '../statusConfig';
-import { fmtDateOnly, monthName } from '../format';
-import { Shell, DateField, Actions, missingLabel } from './modalParts';
+import { fmtDateOnly, monthName, hoyLocal } from '../format';
+import { Shell, Actions, missingLabel } from './modalParts';
+import { semanasDelMes, motivoNoElegible, solicitudVigente } from '../feriadosUx';
 import type { Holiday, SolicitudFeriado } from '../types';
 
 /**
@@ -13,9 +14,11 @@ import type { Holiday, SolicitudFeriado } from '../types';
  * "listo" cuando todavía falta el visto bueno haría que alguien no viniera a
  * trabajar un día que no tiene libre.
  *
- * El backend exige que la fecha nueva caiga en el mismo mes que el feriado;
- * `monthBounds` acota el `<input type="date">` a eso para que el 400 del
- * backend quede como red y no como la única defensa.
+ * Reglas (las mismas del servidor, ver feriadosUx.ts): se pide ANTES del
+ * feriado —el 12-oct-2026 llegó un pedido hecho el mismo día y «a» ese mismo
+ * día—, y el día nuevo es hábil, del mismo mes, futuro y no feriado. Por eso
+ * el día se elige en un calendario del mes con lo que no vale apagado, en vez
+ * del `<input type="date">`, que dejaba elegir fines de semana y días pasados.
  */
 export function HolidayOverrideModal({ onClose, onConfirm }: {
   onClose: () => void;
@@ -26,84 +29,148 @@ export function HolidayOverrideModal({ onClose, onConfirm }: {
   const [holidayId, setHolidayId] = useState('');
   const [newDate, setNewDate] = useState('');
   const [text, setText] = useState('');
+  const hoy = hoyLocal();
 
-  useEffect(() => {
-    // Sin `.catch`, un 401/500 acá queda como rejection sin manejar. Si la
-    // carga falla, el modal cae en el mismo estado vacío que "no hay
-    // feriados" -- no hay nada mejor que mostrar de todas formas.
-    void listMovableHolidays().then(setHolidays).catch(() => setHolidays([]));
+  const cargarSolicitudes = () =>
     // El historial es accesorio: si falla, el modal sigue sirviendo para pedir.
     void listMisSolicitudesFeriado().then(setSolicitudes).catch(() => setSolicitudes([]));
+
+  useEffect(() => {
+    // El servidor ya devuelve solo los que todavía no llegaron.
+    void listMovableHolidays()
+      .then(h => {
+        setHolidays(h);
+        if (h.length === 1) setHolidayId(h[0].id);
+      })
+      .catch(() => setHolidays([]));
+    cargarSolicitudes();
   }, []);
 
   const chosen = holidays?.find(h => h.id === holidayId);
-  // Mismo mes que el feriado: el backend exige exactamente esto.
-  const bounds = chosen ? monthBounds(chosen.date) : null;
+  const fechaFeriado = chosen?.date.slice(0, 10) ?? '';
+  const otrosFeriados = (holidays ?? []).filter(h => h.id !== holidayId).map(h => h.date.slice(0, 10));
   const missing = Math.max(0, MIN_JUSTIFICATION - text.trim().length);
   const ready = !!chosen && !!newDate && missing === 0;
+  const vigentes = solicitudes.filter(s => solicitudVigente(s, hoy));
 
   if (holidays && holidays.length === 0) {
-    // Tres causas distintas para la misma lista vacía -- ya pidió mover todos
-    // los feriados de su país, tiene solicitudes en curso, o RRHH todavía no
-    // cargó el calendario. El historial de abajo desambigua las dos primeras.
     return (
-      <Shell title="Feriados" onClose={onClose}>
+      <Shell title="Mover un feriado" onClose={onClose}>
         <p className="text-xs text-gray-500">
-          No hay feriados disponibles para pedir. Ya pediste mover todos los de
-          tu país, o RRHH todavía no cargó el calendario.
+          No tenés feriados próximos para mover. Un feriado se puede cambiar de día solo
+          antes de que llegue, y cada uno una vez.
         </p>
-        <Historial solicitudes={solicitudes} />
+        <Historial solicitudes={vigentes} hoy={hoy} onCambio={cargarSolicitudes} />
       </Shell>
     );
   }
 
   return (
-    <Shell title="Pedir mover un feriado" onClose={onClose}>
+    <Shell title="Mover un feriado" onClose={onClose}>
       <p className="mb-3 text-[10px] leading-relaxed text-gray-500">
-        Lo aprueba tu jefe directo. Hasta que responda, el feriado sigue en su
-        fecha original.
+        Trabajás el feriado y lo tomás otro día del mismo mes. Lo aprueba tu jefe
+        directo; hasta que responda, el feriado sigue en su fecha original.
       </p>
-      <select
-        value={holidayId}
-        onChange={e => { setHolidayId(e.target.value); setNewDate(''); }}
-        className="mb-3 w-full rounded-xl border border-gray-200 p-2 text-xs"
-      >
-        <option value="">Elegí el feriado…</option>
-        {holidays?.map(h => (
-          <option key={h.id} value={h.id}>{h.name} — {fmtDateOnly(h.date)}</option>
-        ))}
-      </select>
 
-      {bounds && (
-        <DateField
-          label="Lo tomo el"
-          value={newDate}
-          min={bounds.min}
-          max={bounds.max}
-          onChange={setNewDate}
-        />
+      {(holidays?.length ?? 0) > 1 && (
+        <select
+          value={holidayId}
+          onChange={e => { setHolidayId(e.target.value); setNewDate(''); }}
+          aria-label="Feriado"
+          className="mb-3 w-full rounded-xl border border-gray-200 p-2 text-xs"
+        >
+          <option value="">Elegí el feriado…</option>
+          {holidays?.map(h => (
+            <option key={h.id} value={h.id}>{h.name} — {fmtDateOnly(h.date)}</option>
+          ))}
+        </select>
       )}
+
       {chosen && (
-        <p className="mt-1 text-[10px] text-gray-400">
-          Solo se puede mover a otra fecha de {monthName(chosen.date)}.
-        </p>
+        <>
+          <p className="mb-2 text-xs text-gray-700">
+            <span className="font-semibold">{chosen.name}</span> · {fmtDateOnly(chosen.date)}
+          </p>
+          <p className="mb-1 text-[11px] text-gray-500">
+            ¿Qué día de {monthName(chosen.date)} lo tomás?
+          </p>
+          <CalendarioMes
+            feriado={fechaFeriado}
+            elegido={newDate}
+            onElegir={setNewDate}
+            motivo={f => motivoNoElegible(f, { hoy, feriado: fechaFeriado, otrosFeriados })}
+          />
+          <p className="mt-1 text-[10px] text-gray-400">
+            Días hábiles de {monthName(chosen.date)} que todavía no pasaron. Podés pedirlo
+            hasta el día anterior al feriado.
+          </p>
+        </>
       )}
 
       <textarea
         value={text}
         onChange={e => setText(e.target.value)}
         rows={2}
-        placeholder="Trabajo el 15 por cierre de mes y lo tomo el 25"
+        aria-label="Motivo"
+        placeholder="Trabajo el feriado por cierre de mes y lo tomo el 25"
         className="mt-3 w-full resize-none rounded-xl border border-gray-200 p-2.5 text-xs"
       />
       <Actions
         onClose={onClose}
         disabled={!ready}
-        confirmLabel={missing > 0 ? missingLabel(missing) : 'Enviar solicitud'}
+        confirmLabel={!chosen ? 'Elegí el feriado' : !newDate ? 'Elegí el día' : missing > 0 ? missingLabel(missing) : 'Enviar solicitud'}
         onConfirm={() => onConfirm(holidayId, newDate, text.trim())}
       />
-      <Historial solicitudes={solicitudes} />
+      <Historial solicitudes={vigentes} hoy={hoy} onCambio={cargarSolicitudes} />
     </Shell>
+  );
+}
+
+const DIAS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
+
+/** El mes del feriado; los días que no se pueden elegir quedan apagados con su motivo. */
+function CalendarioMes({ feriado, elegido, onElegir, motivo }: {
+  feriado: string;
+  elegido: string;
+  onElegir: (fecha: string) => void;
+  motivo: (fecha: string) => string | null;
+}) {
+  return (
+    <div className="rounded-xl border border-gray-100 p-2" data-testid="calendario-feriado">
+      <div className="mb-1 grid grid-cols-7 text-center text-[9px] font-semibold text-gray-400">
+        {DIAS.map((d, i) => <span key={i}>{d}</span>)}
+      </div>
+      {semanasDelMes(feriado).map((semana, i) => (
+        <div key={i} className="grid grid-cols-7 gap-0.5">
+          {semana.map((d, j) => {
+            if (!d) return <span key={j} />;
+            const no = motivo(d.fecha);
+            const esFeriado = d.fecha === feriado;
+            const sel = d.fecha === elegido;
+            return (
+              <button
+                key={j}
+                type="button"
+                disabled={!!no}
+                title={no ?? 'Tomarlo este día'}
+                onClick={() => onElegir(d.fecha)}
+                data-testid={`dia-${d.fecha}`}
+                className={`h-7 rounded-lg text-[11px] ${
+                  sel ? 'bg-gray-900 font-semibold text-white'
+                  : esFeriado ? 'bg-amber-50 font-semibold text-amber-700'
+                  : no ? 'cursor-not-allowed text-gray-300'
+                  : 'text-gray-700 hover:bg-gray-100'}`}
+              >
+                {d.dia}
+              </button>
+            );
+          })}
+        </div>
+      ))}
+      <p className="mt-1.5 flex items-center gap-1.5 text-[9px] text-gray-400">
+        <span className="inline-block h-2 w-2 rounded-sm bg-amber-100" /> el feriado
+      </p>
+    </div>
   );
 }
 
@@ -114,20 +181,35 @@ const ETIQUETA: Record<SolicitudFeriado['status'], { texto: string; clase: strin
 };
 
 /**
- * Las solicitudes propias. Se muestra la nota del jefe solo cuando rechazó:
- * quien se quedó sin mover su feriado tiene que poder leer por qué sin
- * preguntar. Una aprobación no necesita defensa.
+ * Las solicitudes propias que todavía importan (pendientes, o de hace menos
+ * de un mes). Se muestra la nota del jefe solo cuando rechazó: quien se quedó
+ * sin mover su feriado tiene que poder leer por qué sin preguntar. Una
+ * pendiente se puede retirar mientras el feriado no llegue.
  */
-function Historial({ solicitudes }: { solicitudes: SolicitudFeriado[] }) {
+function Historial({ solicitudes, hoy, onCambio }: { solicitudes: SolicitudFeriado[]; hoy: string; onCambio: () => void }) {
+  const [error, setError] = useState<string | null>(null);
   if (solicitudes.length === 0) return null;
+
+  async function retirar(s: SolicitudFeriado) {
+    setError(null);
+    try {
+      await retirarSolicitudFeriado(s.holidayId);
+      onCambio();
+    } catch (e) {
+      setError(e instanceof ApiError ? ((e.detail as { message?: string } | undefined)?.message ?? 'No se pudo retirar') : 'No se pudo retirar');
+    }
+  }
+
   return (
     <div className="mt-4 border-t border-gray-100 pt-3">
       <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-gray-400">
         Tus solicitudes
       </p>
+      {error && <p className="mb-2 text-[10px] text-red-600">{error}</p>}
       <ul className="space-y-2">
         {solicitudes.map(s => {
           const e = ETIQUETA[s.status];
+          const retirable = s.status === 'PENDING' && !!s.holidayDate && s.holidayDate.slice(0, 10) > hoy;
           return (
             <li key={s.id} className="text-[11px] text-gray-600">
               <div className="flex items-baseline justify-between gap-2">
@@ -140,13 +222,15 @@ function Historial({ solicitudes }: { solicitudes: SolicitudFeriado[] }) {
                   {e.texto}
                 </span>
               </div>
+              {retirable && (
+                <button onClick={() => void retirar(s)} className="mt-0.5 text-[10px] text-gray-500 underline hover:text-gray-700">
+                  Retirar pedido
+                </button>
+              )}
               {s.status === 'REJECTED' && s.decisionNote && (
                 <p className="mt-0.5 text-[10px] text-gray-500">Motivo: {s.decisionNote}</p>
               )}
               {s.sinRevisor && (
-                /* Antes decía «no tenés jefe directo asignado», que para un
-                   gerente general se lee como un dato faltante y no como un
-                   hecho: no hay a quién pedírselo, y eso es correcto. */
                 <p className="mt-0.5 text-[10px] text-gray-400">
                   Quedó aprobada directamente: estás en la cima del organigrama.
                 </p>
@@ -157,16 +241,4 @@ function Historial({ solicitudes }: { solicitudes: SolicitudFeriado[] }) {
       </ul>
     </div>
   );
-}
-
-function monthBounds(dateIso: string): { min: string; max: string } {
-  // Sin la `Z`: el navegador lo lee en hora local (medianoche local), no en
-  // UTC. Con `Z` el mes se puede correr en los bordes -- p. ej. un feriado
-  // guardado como "2026-09-01" se leería como 31 de agosto en zonas al oeste
-  // de UTC, y los límites calculados serían los de agosto.
-  const d = new Date(`${dateIso.slice(0, 10)}T00:00:00`);
-  const y = d.getFullYear(), m = d.getMonth();
-  const last = new Date(y, m + 1, 0).getDate();
-  const p = (n: number) => String(n).padStart(2, '0');
-  return { min: `${y}-${p(m + 1)}-01`, max: `${y}-${p(m + 1)}-${p(last)}` };
 }

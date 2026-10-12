@@ -5,7 +5,8 @@ import {
 import type { StatusError } from '../api';
 import { COUNTRIES, countryOf } from '../countries';
 import { monthOf, dayOf } from '../calendar';
-import { fmtDateOnly } from '../format';
+import { fmtDateOnly, hoyLocal } from '../format';
+import { feriadoVigente } from '../feriadosUx';
 import { HolidayCalendar } from './HolidayCalendar';
 import type { Department, Holiday, MapZone, RosterUser } from '../types';
 
@@ -272,9 +273,18 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
     }
   }
 
+  // La lista oculta los que pasaron hace más de un mes (ya no aplican); el
+  // calendario de arriba los sigue mostrando todos.
+  const [verAnteriores, setVerAnteriores] = useState(false);
+  const anteriores = useMemo(() => delPais.filter(h => !feriadoVigente(h.date, hoyLocal())).length, [delPais]);
+  const enLista = useMemo(
+    () => (verAnteriores ? delPais : delPais.filter(h => feriadoVigente(h.date, hoyLocal()))),
+    [delPais, verAnteriores],
+  );
+
   const porMes = useMemo(() => {
     const m = new Map<number, Holiday[]>();
-    for (const h of delPais) {
+    for (const h of enLista) {
       // monthOf lee los caracteres del string; `new Date(iso)` correría un
       // feriado de día 1 al mes anterior en UTC-6.
       const mes = monthOf(h.date);
@@ -283,7 +293,7 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
     }
     for (const list of m.values()) list.sort((a, b) => a.date.localeCompare(b.date));
     return [...m.entries()].sort((a, b) => a[0] - b[0]);
-  }, [delPais]);
+  }, [enLista]);
 
   const cfgPais = countryOf(country);
 
@@ -486,6 +496,12 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
                   <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-gray-400">
                     {delPais.length} en {year}
                   </p>
+                  {anteriores > 0 && (
+                    <button onClick={() => setVerAnteriores(v => !v)} data-testid="feriados-anteriores"
+                      className="mb-2 text-[10px] text-gray-500 underline hover:text-gray-700">
+                      {verAnteriores ? 'Ocultar los de hace más de un mes' : `Mostrar ${anteriores} de hace más de un mes`}
+                    </button>
+                  )}
                   {delPais.length === 0 ? (
                     <p className="text-[11px] leading-relaxed text-gray-400">
                       Sin feriados cargados para {cfgPais.name} en {year}.

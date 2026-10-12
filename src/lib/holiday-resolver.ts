@@ -91,11 +91,14 @@ export function movableHolidays(
   holidays: HolidayRow[],
   overrides: OverrideRow[],
   country: string,
+  /** Hoy `YYYY-MM-DD` en la zona de la operación: solo se ofrecen los que todavía no llegaron. */
+  hoy?: string,
 ): HolidayRow[] {
   const tomados = new Set(
     overrides.filter(o => o.status !== 'REJECTED').map(o => o.holidayId),
   );
-  return holidays.filter(h => h.country === country && !tomados.has(h.id));
+  return holidays.filter(h => h.country === country && !tomados.has(h.id)
+    && (!hoy || dateOnly(h.date) > hoy));
 }
 
 /**
@@ -193,11 +196,32 @@ export function validateOverrideInput(
   newDate: Date,
   justification: string,
   tz: string,
+  /**
+   * `hoy` (`YYYY-MM-DD`, zona de la operación) y las fechas de los otros
+   * feriados del país. El 12-oct-2026 se pidió mover un feriado el mismo día y
+   * «a» ese mismo día: el cambio se pide ANTES del feriado y a un día hábil que
+   * todavía no pasó.
+   */
+  opciones: { hoy?: string; otrosFeriados?: string[] } = {},
 ): ValidationError[] {
   const errors: ValidationError[] = [];
 
   if (Number.isNaN(newDate.getTime())) {
     return [{ field: 'newDate', message: 'Fecha inválida' }];
+  }
+  const feriado = dateOnly(holidayDate);
+  const nueva = dateOnly(newDate);
+  if (opciones.hoy && feriado <= opciones.hoy) {
+    return [{ field: 'holidayId', message: 'El cambio se pide antes del feriado: ese día ya llegó' }];
+  }
+  if (nueva === feriado) {
+    errors.push({ field: 'newDate', message: 'Elegí un día distinto al del feriado' });
+  } else if (opciones.hoy && nueva <= opciones.hoy) {
+    errors.push({ field: 'newDate', message: 'Elegí un día que todavía no pasó' });
+  } else if ([0, 6].includes(new Date(`${nueva}T00:00:00Z`).getUTCDay())) {
+    errors.push({ field: 'newDate', message: 'Elegí un día hábil (de lunes a viernes)' });
+  } else if (opciones.otrosFeriados?.includes(nueva)) {
+    errors.push({ field: 'newDate', message: 'Ese día ya es feriado' });
   }
   // holidayDate y newDate son columnas @db.Date (medianoche UTC, sin hora
   // real): se comparan como fechas de calendario en UTC, igual que dateOnly()
