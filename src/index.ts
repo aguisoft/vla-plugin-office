@@ -28,6 +28,9 @@ import { RESTRICTED_ABSENCES } from './lib/absence-validation';
 import { resumenMensual } from './lib/absence-usage';
 import { validarAdjuntos } from './lib/adjuntos';
 import { estadoDePlanta } from './lib/planta';
+import { SolicitudesService, type Solicitud } from './services/solicitudes.service';
+import { textoRango, NOMBRE_TIPO } from './lib/solicitudes';
+import { nombresPorUsuario } from './lib/user-names';
 import { AdjuntosService } from './services/adjuntos.service';
 import { DEFAULT_TZ, localDateString } from './lib/local-date';
 import { cumplimientoToCsv } from './lib/compliance-csv';
@@ -154,6 +157,43 @@ const plugin: PluginDefinition = {
     // Mensajería de Bitrix como cada persona (widget de escritorio).
     const bitrixUser = new BitrixUserService(ctx);
     const mensajeria = new MensajeriaService(ctx, bitrixUser, presence);
+
+    // ── Solicitudes de ausencia y avisos ──────────────────────────────────
+    // Al jefe le llega cada pedido (en vivo a la web y a la app de escritorio,
+    // y por Bitrix), y a la persona la respuesta. Antes el jefe no se enteraba.
+    const URL_SOLICITUDES = `${String(ctx.plugin.config.URL_PUBLICA || 'https://system.somosvla.com').replace(/\/+$/, '')}/dashboard/office?solicitudes=1`;
+    const nombreDe = async (userId: string): Promise<string> => {
+      const n = (await nombresPorUsuario(ctx, [userId]))?.get(userId);
+      return n ? `${n.firstName} ${n.lastName}`.trim() : 'Alguien del equipo';
+    };
+    /** Aviso de sistema de Bitrix a una persona. Si falla, queda en el log: el aviso en vivo igual salió. */
+    const avisarBitrix = async (userId: string, mensaje: string): Promise<void> => {
+      try {
+        if (!ctx.bitrix) return;
+        const bid = await bitrix.getBitrixIdForVlaUser(userId);
+        if (!bid) return;
+        await ctx.bitrix.call('im.notify.system.add', { USER_ID: bid, MESSAGE: mensaje });
+      } catch (e) {
+        ctx.logger.warn(`Aviso de Bitrix a ${userId} falló: ${e}`);
+      }
+    };
+    const solicitudes = new SolicitudesService(ctx, absences, org, {
+      async nueva(sol: Solicitud, aprobadorId: string | null) {
+        if (!aprobadorId) return; // sin jefe la ve RRHH en su bandeja
+        const quien = await nombreDe(sol.userId);
+        const texto = `${quien} pidió ${NOMBRE_TIPO[sol.tipo] ?? 'una ausencia'} ${textoRango(sol.tipo, sol.startAt, sol.endAt, tz())}`;
+        presence.broadcastToUser(aprobadorId, { type: 'solicitud:nueva', solicitudId: sol.id, texto });
+        await avisarBitrix(aprobadorId, `${texto}. Respondé en la oficina: [URL=${URL_SOLICITUDES}]Solicitudes[/URL]`);
+      },
+      async resuelta(sol: Solicitud, porId: string) {
+        const por = await nombreDe(porId);
+        const que = `Tu ${NOMBRE_TIPO[sol.tipo] ?? 'ausencia'} ${textoRango(sol.tipo, sol.startAt, sol.endAt, tz())}`;
+        const verbo = sol.estado === 'aprobada' ? 'fue aprobada' : sol.estado === 'rechazada' ? 'no fue aprobada' : 'fue cancelada';
+        const texto = `${que} ${verbo} por ${por}${sol.motivoResolucion ? `: «${sol.motivoResolucion}»` : ''}`;
+        presence.broadcastToUser(sol.userId, { type: 'solicitud:resuelta', solicitudId: sol.id, estado: sol.estado, texto });
+        await avisarBitrix(sol.userId, texto);
+      },
+    });
     // Jornada de Bitrix desde el widget, también como cada persona.
     const jornada = new JornadaService(
       ctx,
@@ -447,6 +487,11 @@ const plugin: PluginDefinition = {
     // gusto: es la corrección de la regresión donde el navegador convertía
     // esas dos fechas a instante con SU zona antes de mandarlas.
 
+    /** Lo que la pantalla necesita para decir «quedó pendiente de {jefe}». */
+    function resumenCreada(r: { solicitud: Solicitud; aprobadorId: string | null }) {
+      return { id: r.solicitud.absenceId ?? r.solicitud.id, solicitudId: r.solicitud.id, estado: r.solicitud.estado, aprobadorId: r.aprobadorId };
+    }
+
     ctx.router.post('/absences', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
       const requesterId = (req as any).user?.sub;
       if (!requesterId) return res.status(401).json({ message: 'Unauthorized' });
@@ -466,7 +511,7 @@ const plugin: PluginDefinition = {
         if (malos.length) return res.status(400).json({ message: 'Documento inválido', errors: malos });
       }
 
-      const result = await absences.create(targetUserId, req.body, requesterId, tz());
+      const result = await solicitudes.crear(targetUserId, req.body, requesterId, { esRrhh: can(req, PERMS.MANAGE) }, tz());
       if ('errors' in result) return res.status(400).json({ message: 'Datos inválidos', errors: result.errors });
       if ('conflict' in result) {
         return res.status(409).json({
@@ -478,16 +523,16 @@ const plugin: PluginDefinition = {
       let adjuntosGuardados: Array<{ id: string; nombre: string }> = [];
       if (adjuntosPedidos.length) {
         try {
-          const filas = await adjuntos.guardar(result.id, targetUserId, requesterId, adjuntosPedidos);
+          const filas = await adjuntos.guardar(result.idAdjuntos, targetUserId, requesterId, adjuntosPedidos);
           adjuntosGuardados = filas.map(f => ({ id: f.id, nombre: f.nombre }));
         } catch (e: any) {
           // La ausencia ya quedó registrada: perderla por un fallo de disco
           // sería peor que quedarse sin el documento. Se avisa en la respuesta.
-          ctx.logger.error(`[office] adjuntos de ${result.id} no se guardaron: ${e?.message ?? e}`);
-          return res.status(201).json({ id: result.id, adjuntos: [], avisoAdjuntos: 'La solicitud quedó registrada, pero el documento no se pudo guardar. Adjuntalo de nuevo.' });
+          ctx.logger.error(`[office] adjuntos de ${result.idAdjuntos} no se guardaron: ${e?.message ?? e}`);
+          return res.status(201).json({ ...resumenCreada(result), adjuntos: [], avisoAdjuntos: 'La solicitud quedó registrada, pero el documento no se pudo guardar. Adjuntalo de nuevo.' });
         }
       }
-      res.status(201).json({ id: result.id, adjuntos: adjuntosGuardados });
+      res.status(201).json({ ...resumenCreada(result), adjuntos: adjuntosGuardados });
     }));
 
     // Ausencias de uno mismo (por defecto) o de ?userId= si quien pregunta es
@@ -602,14 +647,78 @@ const plugin: PluginDefinition = {
     ctx.router.delete('/absences/:id', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
       const requesterId = (req as any).user?.sub;
       if (!requesterId) return res.status(401).json({ message: 'Unauthorized' });
-      const canManage = can(req, PERMS.MANAGE);
-      const done = await absences.remove(req.params.id, requesterId, canManage);
-      if (!done) return res.status(404).json({ message: 'Ausencia no encontrada' });
-      // Sus documentos se van con ella: no deja una constancia médica huérfana
-      // en el disco sin nada que la referencie.
-      await adjuntos.borrarDeAusencia(req.params.id)
-        .catch(e => ctx.logger.warn(`[office] adjuntos de ${req.params.id} no se borraron: ${e?.message ?? e}`));
+      // Ya no se borra: se cancela la solicitud (queda en el historial con
+      // quién y cuándo). Antes se podía borrar una ausencia ya usada y
+      // liberar los minutos del mes sin dejar rastro.
+      const solicitudId = await solicitudes.idPorAusencia(req.params.id);
+      if (!solicitudId) return res.status(404).json({ message: 'Ausencia no encontrada' });
+      const r = await solicitudes.cancelar(solicitudId, requesterId, String(req.query.motivo ?? ''), can(req, PERMS.MANAGE));
+      if (!r.ok) return res.status(r.status).json({ message: r.message });
       res.status(204).end();
+    }));
+
+    // ── Solicitudes: las propias, la bandeja del jefe/RRHH y las respuestas ──
+    /** Los documentos de cada solicitud: cuelgan de su ausencia o, si no la tiene (vacaciones pendientes, rechazadas), de la solicitud. */
+    async function conAdjuntos<T extends Solicitud>(lista: T[]) {
+      const ids = lista.flatMap(x => [x.id, x.absenceId].filter((v): v is string => !!v));
+      const porId = new Map<string, Array<{ id: string; nombre: string; tipo: string; bytes: number }>>();
+      for (const a of ids.length ? await adjuntos.listar(ids) : []) {
+        const l = porId.get(a.absence_id) ?? [];
+        l.push({ id: a.id, nombre: a.nombre, tipo: a.tipo, bytes: a.bytes });
+        porId.set(a.absence_id, l);
+      }
+      return lista.map(x => ({ ...x, adjuntos: [...(porId.get(x.id) ?? []), ...(x.absenceId ? porId.get(x.absenceId) ?? [] : [])] }));
+    }
+
+    /** Minutos de permiso y de citas del mes de esa solicitud (el saldo que mira el jefe). */
+    async function usoDelMes(userId: string, fechaIso: string) {
+      const zona = tz();
+      const partes = new Intl.DateTimeFormat('en-CA', { timeZone: zona, year: 'numeric', month: '2-digit' }).formatToParts(new Date(fechaIso));
+      const anio = Number(partes.find(p => p.type === 'year')?.value);
+      const mes = Number(partes.find(p => p.type === 'month')?.value);
+      const desde = new Date(Date.UTC(anio, mes - 1, 0));
+      const hasta = new Date(Date.UTC(anio, mes, 2));
+      return resumenMensual(await absences.listForUserDetailed(userId, desde, hasta), anio, mes, zona);
+    }
+
+    ctx.router.get('/solicitudes/mias', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      res.json(await conAdjuntos(await solicitudes.mias((req as any).user?.sub)));
+    }));
+
+    /** Todo lo que este viewer tiene para responder: ausencias y feriados movidos. */
+    ctx.router.get('/solicitudes/bandeja', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      const viewerId = (req as any).user?.sub;
+      const aCargo = await org.managedUserIds(viewerId);
+      const [ausencias, feriados] = await Promise.all([
+        solicitudes.bandeja(viewerId, can(req, PERMS.MANAGE)),
+        holidays.pendientesDe([...aCargo], localDateString(new Date(), tz())),
+      ]);
+      const nombres = feriados.length ? await nombresPorUsuario(ctx, [...new Set(feriados.map(f => f.userId))]) : null;
+      const conSaldo = await Promise.all((await conAdjuntos(ausencias)).map(async a =>
+        (a.tipo === 'PERMISO' || a.tipo === 'CITA_MEDICA') ? { ...a, usoMes: await usoDelMes(a.userId, a.startAt).catch(() => null) } : a));
+      res.json({
+        ausencias: conSaldo,
+        feriados: feriados.map(f => {
+          const n = nombres?.get(f.userId);
+          return { ...f, nombre: n ? `${n.firstName} ${n.lastName}`.trim() : null };
+        }),
+        esJefe: aCargo.size > 0,
+        esRrhh: can(req, PERMS.MANAGE),
+      });
+    }));
+
+    for (const accion of ['aprobar', 'rechazar'] as const) {
+      ctx.router.post(`/solicitudes/:id/${accion}`, ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
+        const r = await solicitudes.resolver(req.params.id, (req as any).user?.sub, accion, String(req.body?.motivo ?? ''), can(req, PERMS.MANAGE));
+        if (!r.ok) return res.status(r.status).json({ message: r.message });
+        res.json(r.solicitud);
+      }));
+    }
+
+    ctx.router.post('/solicitudes/:id/cancelar', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
+      const r = await solicitudes.cancelar(req.params.id, (req as any).user?.sub, String(req.body?.motivo ?? ''), can(req, PERMS.MANAGE));
+      if (!r.ok) return res.status(r.status).json({ message: r.message });
+      res.json(r.solicitud);
     }));
 
 
@@ -729,7 +838,17 @@ const plugin: PluginDefinition = {
           req.params.id, userId, accion, note ?? '',
           solicitanteId => org.isManagerOf(userId, solicitanteId),
         );
-        if (result.ok) return res.json({ ok: true });
+        if (result.ok) {
+          const [o] = await ctx.query<{ user_id: string; new_date: Date | string; decision_note: string | null }>(
+            'SELECT user_id, new_date, decision_note FROM office_holiday_overrides WHERE id = $1', [req.params.id]).catch(() => []);
+          if (o) {
+            const dia = new Intl.DateTimeFormat('es-CR', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(o.new_date)).replace('.', '');
+            const texto = `Tu pedido de tomar el feriado el ${dia} ${accion === 'approve' ? 'fue aprobado' : 'no fue aprobado'} por ${await nombreDe(userId)}${o.decision_note ? `: «${o.decision_note}»` : ''}`;
+            presence.broadcastToUser(o.user_id, { type: 'solicitud:resuelta', texto });
+            await avisarBitrix(o.user_id, texto);
+          }
+          return res.json({ ok: true });
+        }
 
         if ('errors' in result) {
           return res.status(400).json({ message: 'Datos inválidos', errors: result.errors });
@@ -761,6 +880,16 @@ const plugin: PluginDefinition = {
         userId, req.params.id, new Date(newDate), justification ?? '', country, tz(), tieneJefe,
       );
       if (!result.ok) return res.status(400).json({ message: 'Datos inválidos', errors: result.errors });
+      if (result.status === 'PENDING') {
+        const jefe = await org.managerOf(userId);
+        if (jefe) {
+          const h = await ctx.prisma.holiday.findUnique({ where: { id: req.params.id } }).catch(() => null) as any;
+          const fecha = (d: string) => new Intl.DateTimeFormat('es-CR', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(`${d.slice(0, 10)}T00:00:00Z`)).replace('.', '');
+          const texto = `${await nombreDe(userId)} pidió trabajar el feriado${h ? ` «${h.name}» (${fecha(new Date(h.date).toISOString())})` : ''} y tomarlo el ${fecha(newDate)}`;
+          presence.broadcastToUser(jefe, { type: 'solicitud:nueva', texto });
+          await avisarBitrix(jefe, `${texto}. Respondé en la oficina: [URL=${URL_SOLICITUDES}]Solicitudes[/URL]`);
+        }
+      }
       res.status(201).json({ ok: true, status: result.status });
     }));
 
@@ -2103,6 +2232,23 @@ const plugin: PluginDefinition = {
     }));
 
     // ── Cron: sincronizar timeman de Bitrix cada 2 minutos ────────────────────
+    ctx.cron('0 15 * * 1-5', async () => {
+      try {
+        const viejas = await solicitudes.pendientesViejas(20);
+        const porJefe = new Map<string, number>();
+        for (const sol of viejas) {
+          const jefe = await org.managerOf(sol.userId);
+          if (jefe) porJefe.set(jefe, (porJefe.get(jefe) ?? 0) + 1);
+        }
+        for (const [jefe, n] of porJefe) {
+          await avisarBitrix(jefe, `Tenés ${n === 1 ? '1 solicitud' : `${n} solicitudes`} de tu equipo sin responder desde ayer. [URL=${URL_SOLICITUDES}]Responder[/URL]`);
+        }
+        if (porJefe.size) ctx.logger.log(`Recordatorio de solicitudes: ${porJefe.size} jefes`);
+      } catch (e) {
+        ctx.logger.warn(`Recordatorio de solicitudes falló: ${e}`);
+      }
+    });
+
     ctx.cron('*/2 * * * *', async () => {
       await runTimemanSync();
     });
