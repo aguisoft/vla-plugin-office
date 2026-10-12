@@ -18,6 +18,9 @@ import { PermisoModal } from './components/PermisoModal';
 import { ParticipantPicker } from './components/ParticipantPicker';
 import { MeetingInviteModal } from './components/MeetingInviteModal';
 import { HolidayOverrideModal } from './components/HolidayOverrideModal';
+import { BandejaSolicitudesModal } from './components/BandejaSolicitudesModal';
+import { pantallaInicial } from './solicitudesUx';
+import { AvisoFeriado } from './components/AvisoFeriado';
 import { MyAbsencesModal } from './components/MyAbsencesModal';
 import { HolidayManager } from './components/HolidayManager';
 import { TimesheetScreen } from './components/TimesheetScreen';
@@ -26,7 +29,7 @@ import { EscritorioModal } from './components/EscritorioModal';
 import { resultadoBitrix, enlaceEscritorio, type ResultadoBitrix, type EnlaceEscritorio, type UsoEscritorio } from './lib/escritorio';
 import { OfertaEscritorio } from './components/OfertaEscritorio';
 import { InformeSalidaModal } from './components/InformeSalidaModal';
-import { getEscritorioMio, getAvisoVencido, marcarAvisoVisto } from './api';
+import { getEscritorioMio, getAvisoVencido, marcarAvisoVisto, getBandejaSolicitudes } from './api';
 import { Shell } from './components/modalParts';
 import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant, PendingInvite } from './types';
 import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
@@ -96,7 +99,13 @@ export default function App() {
   useEffect(() => { getEscritorioMio().then(setUsoEscritorio).catch(() => undefined); }, []);
   const faltaEscritorio = !!usoEscritorio?.publicada && !usoEscritorio.instalada;
   const [showHolidayAdmin, setShowHolidayAdmin]     = useState(false);
-  const [showAbsences, setShowAbsences]             = useState(false);
+  // La app de escritorio y el aviso de Bitrix abren pantallas con ?solicitudes=1, ?ausencias=1 o ?feriado=1.
+  const [inicial] = useState(() => {
+    let dePadre: string | null = null;
+    try { dePadre = window.parent !== window ? window.parent.location.search : null; } catch { /* otro origen */ }
+    return pantallaInicial(window.location.search, dePadre);
+  });
+  const [showAbsences, setShowAbsences]             = useState(inicial === 'ausencias');
   const [usePhotos, setUsePhotos] = useState(() => localStorage.getItem('vla-use-photos') !== 'false');
   const sseRef = useRef<EventSource | null>(null);
   const [viewMode, setViewMode]         = useState<'list' | 'map'>('list');
@@ -104,8 +113,18 @@ export default function App() {
   // hasta que otra persona la riegue.
   const [regadoPor, setRegadoPor] = useState<string | null>(null);
   const [isDrawerOpen, setIsDrawerOpen] = useState(false);
-  const [pending, setPending]           = useState<PendingPick>(null);
+  const [pending, setPending]           = useState<PendingPick>(inicial === 'feriado' ? { status: 'FERIADO', kind: 'holidayOverride' } : null);
   const [notice, setNotice]             = useState<string | null>(null);
+  /** Bandeja de solicitudes (jefes y RRHH): abierta y cuántas esperan respuesta. */
+  const [showBandeja, setShowBandeja]   = useState(inicial === 'solicitudes');
+  const [bandeja, setBandeja]           = useState<{ n: number; aprueba: boolean }>({ n: 0, aprueba: false });
+  const cargarBandeja = useCallback(async () => {
+    try {
+      const b = await getBandejaSolicitudes();
+      setBandeja({ n: b.ausencias.length + b.feriados.length, aprueba: b.esJefe || b.esRrhh });
+    } catch { /* la bandeja es accesoria: sin ella el resto sigue */ }
+  }, []);
+  useEffect(() => { void cargarBandeja(); }, [cargarBandeja]);
   const [error, setError]               = useState<string | null>(null);
   const [blockedParticipants, setBlockedParticipants] = useState<UnavailableParticipant[] | null>(null);
   const [invites, setInvites]           = useState<PendingInvite[]>([]);
@@ -160,6 +179,13 @@ export default function App() {
         const msg = JSON.parse(event.data) as { type?: string; de?: string; preview?: string; nuevos?: number };
         // Es para la app de escritorio: la web no tiene nada que hacer.
         if (msg.type === 'app:update' || msg.type === 'bitrix:conectado') return;
+        if (msg.type === 'solicitud:nueva' || msg.type === 'solicitud:resuelta') {
+          const t = (msg as { texto?: string }).texto;
+          if (t) setNotice(t);
+          void cargarBandeja();
+          if (msg.type === 'solicitud:resuelta') void loadData();
+          return;
+        }
         if (msg.type === 'im:new') {
           setNotice(msg.de
             ? `${msg.de} te escribió: ${msg.preview ?? ''}`
@@ -292,7 +318,7 @@ export default function App() {
   const applyAbsence = async (body: { type: string; startAt: string; endAt: string; justification?: string; adjuntos?: Array<{ nombre: string; tipo: string; contenido: string }> }) => {
     setActionLoading(true);
     try {
-      await createAbsence(body);
+      const creada = await createAbsence(body);
       await loadData();
       // El selector hace dos cosas: los estados del día se aplican ya, las
       // ausencias se agendan. Si empieza después de hoy el avatar no cambia
@@ -302,9 +328,11 @@ export default function App() {
       // así que ese caso además necesita la hora.
       const label = cfgOf(body.type).label;
       const isPermiso = body.type === 'PERMISO';
+      // Permiso y cita llevan hora; vacaciones e incapacidad son días.
+      const conHora = isPermiso || body.type === 'CITA_MEDICA';
       const starts = new Date(body.startAt);
       const startsLater = starts > new Date();
-      const schedule = isPermiso
+      const schedule = conHora
         ? `el ${fmtDate(body.startAt)} de ${fmtTime(body.startAt)} a ${fmtTime(body.endAt)}`
         : `del ${fmtDateOnly(body.startAt)} al ${fmtDateOnly(body.endAt)}`;
       // Concordancia del participio con el tipo: "Permiso" es masculino
@@ -320,11 +348,16 @@ export default function App() {
       // Un permiso que ya terminó no se «aplica»: decía «Permiso aplicado» y
       // la persona esperaba verse con permiso (6-oct-2026).
       const yaTermino = new Date(body.endAt) <= new Date();
-      setNotice(yaTermino
-        ? `${label} ${agree('registrado')} ${schedule} (ya terminó)`
+      // Con aprobación: las vacaciones no valen hasta que el jefe las apruebe;
+      // lo demás vale ya y el jefe lo aprueba después.
+      const pendiente = creada.estado === 'pendiente';
+      setNotice(pendiente && body.type === 'VACACIONES'
+        ? `Vacaciones pedidas ${schedule}. Tu jefe tiene que aprobarlas: hasta entonces no valen.`
+        : yaTermino
+        ? `${label} ${agree('registrado')} ${schedule} (ya terminó)${pendiente ? '. Le llegó a tu jefe para aprobar.' : ''}`
         : startsLater
-        ? `${label} ${agree('registrado')} ${schedule}`
-        : `${label} ${agree('aplicado')}`);
+        ? `${label} ${agree('registrado')} ${schedule}${pendiente ? '. Le llegó a tu jefe para aprobar.' : ''}`
+        : `${label} ${agree('aplicado')}${pendiente ? '. Le llegó a tu jefe para aprobar.' : ''}`);
     } catch (e) {
       const detail = e instanceof ApiError ? (e.detail as StatusError | undefined) : undefined;
       setError(detail?.errors?.[0]?.message ?? detail?.message ?? 'No se pudo registrar la ausencia');
@@ -577,6 +610,18 @@ export default function App() {
         {faltaEscritorio && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-orange-400 ring-2 ring-white" />}
       </button>
 
+      {bandeja.aprueba && (
+        <button onClick={() => setShowBandeja(true)} data-testid="boton-solicitudes"
+          className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] text-gray-500 hover:bg-gray-100 transition-colors"
+          title="Solicitudes de tu equipo">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Solicitudes
+          {bandeja.n > 0 && <span className="rounded-full bg-red-500 px-1.5 text-[9px] font-semibold leading-4 text-white">{bandeja.n}</span>}
+        </button>
+      )}
+
       {/* Sin gating por office.manage: es un reporte de lo propio, cualquiera
           lo puede ver (y quien tenga gente a cargo, también lo suyo). */}
       <button onClick={() => irA('tiempos')}
@@ -655,8 +700,13 @@ export default function App() {
       {showHolidayAdmin && canManageHolidays && (
         <HolidayManager onClose={() => setShowHolidayAdmin(false)} />
       )}
+      {showBandeja && (
+        <BandejaSolicitudesModal onClose={() => setShowBandeja(false)} onCambio={() => { void cargarBandeja(); void loadData(); }} />
+      )}
+      <AvisoFeriado onMover={() => setPending({ status: 'FERIADO', kind: 'holidayOverride' })} />
       {showAbsences && (
-        <MyAbsencesModal onClose={() => setShowAbsences(false)} onChanged={() => void loadData()} />
+        <MyAbsencesModal onClose={() => setShowAbsences(false)} onChanged={() => void loadData()}
+          onMoverFeriado={() => { setShowAbsences(false); setPending({ status: 'FERIADO', kind: 'holidayOverride' }); }} />
       )}
       {renderPendingModal()}
 

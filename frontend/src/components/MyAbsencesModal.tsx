@@ -1,191 +1,151 @@
 import { useEffect, useState } from 'react';
-import { urlAdjunto } from '../api';
-import { listAbsences, deleteAbsence, ApiError } from '../api';
+import { urlAdjunto, listMisSolicitudes, cancelarSolicitud, ApiError } from '../api';
 import { cfgOf } from '../statusConfig';
 import { fmtDate, fmtTime, absenceLastDay } from '../format';
 import { Shell } from './modalParts';
-import type { Absence } from '../types';
+import { etiquetaSolicitud, cancelable, vigenteEnHistorial } from '../solicitudesUx';
+import type { SolicitudAusencia } from '../types';
 
 /**
- * Lista las ausencias propias y deja cancelarlas.
+ * Las ausencias propias como SOLICITUDES: cada una con su estado (aplicada y
+ * esperando aprobación, aprobada, no aprobada con el motivo, cancelada).
  *
- * Existe porque sin esto una ausencia era irreversible desde la interfaz: el
- * backend ya exponía `DELETE /absences/:id` y `api.ts` ya tenía el cliente,
- * pero ningún componente los llamaba. Quien se marcaba vacaciones por error
- * quedaba fuera del mapa hasta que alguien corriera SQL a mano — y como la
- * ausencia le gana al estado del día en el resolver, tampoco podía taparla
- * poniéndose Disponible.
- *
- * Solo pide las propias (`listAbsences()` sin userId). Ver las de otro exige
- * ser su jefe directo o tener office.manage, y esa es otra pantalla.
+ * Cancelar ya no borra: deja la solicitud cancelada en el historial, y solo
+ * se puede antes de que empiece (antes se podía borrar una ausencia ya usada
+ * y liberar los minutos del mes sin dejar rastro). Lo resuelto de hace más de
+ * un mes se oculta, con un botón para verlo.
  */
 
-type Tramo = 'activa' | 'proxima' | 'pasada';
-
-function tramoDe(a: Absence, ahora: number): Tramo {
-  const inicio = new Date(a.startAt).getTime();
-  const fin = new Date(a.endAt).getTime();
-  if (ahora < inicio) return 'proxima';
-  if (ahora > fin) return 'pasada';
-  return 'activa';
-}
-
-/**
- * PERMISO viaja como dos instantes reales dentro del mismo día; VACACIONES e
- * INCAPACIDAD como un rango de días cuyo `endAt` es el último instante del
- * último día fuera. Mostrarlos con el mismo formato haría que un permiso de
- * dos horas se leyera como un día entero.
- */
-function cuando(a: Absence): string {
-  if (a.type === 'PERMISO') {
-    return `${fmtDate(a.startAt)}, de ${fmtTime(a.startAt)} a ${fmtTime(a.endAt)}`;
+function cuando(s: SolicitudAusencia): string {
+  if (s.tipo === 'PERMISO' || s.tipo === 'CITA_MEDICA') {
+    return `${fmtDate(s.startAt)}, de ${fmtTime(s.startAt)} a ${fmtTime(s.endAt)}`;
   }
-  const desde = fmtDate(a.startAt);
-  const hasta = absenceLastDay(a.endAt);
+  const desde = absenceLastDay(s.startAt);
+  const hasta = absenceLastDay(s.endAt);
   return desde === hasta ? desde : `${desde} a ${hasta}`;
 }
 
-const ETIQUETA: Record<Tramo, { texto: string; clase: string }> = {
-  activa:   { texto: 'En curso',  clase: 'bg-green-100 text-green-700' },
-  proxima:  { texto: 'Programada', clase: 'bg-blue-100 text-blue-700' },
-  pasada:   { texto: 'Terminada', clase: 'bg-gray-100 text-gray-500' },
-};
-
-export function MyAbsencesModal({ onClose, onChanged }: {
+export function MyAbsencesModal({ onClose, onChanged, onMoverFeriado }: {
   onClose: () => void;
   /** Se llama tras cancelar, para que el mapa y el estado propio se refresquen. */
   onChanged: () => void;
+  /** Abre «Mover un feriado». */
+  onMoverFeriado?: () => void;
 }) {
-  const [rows, setRows] = useState<Absence[] | null>(null);
+  const [rows, setRows] = useState<SolicitudAusencia[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [confirmando, setConfirmando] = useState<string | null>(null);
-  const [borrando, setBorrando] = useState<string | null>(null);
+  const [cancelando, setCancelando] = useState<string | null>(null);
+  const [verAnteriores, setVerAnteriores] = useState(false);
 
   const cargar = async () => {
     setError(null);
     try {
-      setRows(await listAbsences());
+      setRows(await listMisSolicitudes());
     } catch (e) {
       setRows([]);
       const detail = e instanceof ApiError ? (e.detail as { message?: string } | undefined) : undefined;
-      setError(detail?.message ?? 'No se pudieron cargar las ausencias');
+      setError(detail?.message ?? 'No se pudieron cargar tus solicitudes');
     }
   };
 
   useEffect(() => { void cargar(); }, []);
 
   const cancelar = async (id: string) => {
-    setBorrando(id);
+    setCancelando(id);
     setError(null);
     try {
-      await deleteAbsence(id);
+      await cancelarSolicitud(id);
       setConfirmando(null);
       await cargar();
       onChanged();
     } catch (e) {
       const detail = e instanceof ApiError ? (e.detail as { message?: string } | undefined) : undefined;
-      setError(detail?.message ?? 'No se pudo cancelar la ausencia');
+      setError(detail?.message ?? 'No se pudo cancelar');
     } finally {
-      setBorrando(null);
+      setCancelando(null);
     }
   };
 
   const ahora = Date.now();
-  // Vigentes primero (en curso, luego programadas) y las terminadas al final:
-  // lo accionable queda arriba sin tener que esconder el historial.
-  const orden: Record<Tramo, number> = { activa: 0, proxima: 1, pasada: 2 };
-  const ordenadas = rows
-    ? [...rows].sort((a, b) => {
-        const d = orden[tramoDe(a, ahora)] - orden[tramoDe(b, ahora)];
-        return d !== 0 ? d : new Date(a.startAt).getTime() - new Date(b.startAt).getTime();
-      })
-    : [];
+  const todas = rows ?? [];
+  const vigentes = todas.filter(s => vigenteEnHistorial(s, ahora));
+  const ocultas = todas.length - vigentes.length;
+  // Lo que espera respuesta primero, después lo próximo, y lo pasado al final.
+  const peso = (s: SolicitudAusencia) => (s.estado === 'pendiente' ? 0 : new Date(s.endAt).getTime() >= ahora ? 1 : 2);
+  const lista = [...(verAnteriores ? todas : vigentes)].sort((a, b) =>
+    peso(a) - peso(b) || new Date(a.startAt).getTime() - new Date(b.startAt).getTime());
 
   return (
-    <Shell title="Mis ausencias" onClose={onClose}>
-      {error && (
-        <div className="mb-2 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">{error}</div>
+    <Shell title="Mis ausencias y solicitudes" onClose={onClose}>
+      {error && <div className="mb-2 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">{error}</div>}
+
+      {onMoverFeriado && (
+        <button onClick={onMoverFeriado} data-testid="mover-feriado"
+          className="mb-3 w-full rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-left text-[11px] text-amber-800 hover:bg-amber-100">
+          🎉 <span className="font-semibold">Mover un feriado</span> — trabajarlo y tomarlo otro día del mes
+        </button>
       )}
 
-      {rows === null && (
-        <p className="py-6 text-center text-xs text-gray-400">Cargando…</p>
+      {rows === null && <p className="py-6 text-center text-xs text-gray-400">Cargando…</p>}
+      {rows !== null && lista.length === 0 && !error && (
+        <p className="py-6 text-center text-xs text-gray-400">No tenés solicitudes recientes.</p>
       )}
 
-      {rows !== null && ordenadas.length === 0 && !error && (
-        <p className="py-6 text-center text-xs text-gray-400">
-          No tenés ausencias registradas.
-        </p>
-      )}
-
-      <div className="max-h-80 space-y-2 overflow-y-auto">
-        {ordenadas.map(a => {
-          const cfg = cfgOf(a.type);
-          const tramo = tramoDe(a, ahora);
-          const et = ETIQUETA[tramo];
-          const enConfirmacion = confirmando === a.id;
-
+      <div className="max-h-80 space-y-2 overflow-y-auto" data-testid="mis-solicitudes">
+        {lista.map(s => {
+          const cfg = cfgOf(s.tipo);
+          const et = etiquetaSolicitud(s, ahora);
+          const enConfirmacion = confirmando === s.id;
           return (
-            <div key={a.id} className="rounded-xl border border-gray-100 p-3">
+            <div key={s.id} className="rounded-xl border border-gray-100 p-3">
               <div className="flex items-center gap-2">
                 <span className={`h-2 w-2 flex-shrink-0 rounded-full ${cfg.dot}`} />
                 <span className={`text-xs font-semibold ${cfg.text}`}>{cfg.label}</span>
                 {cfg.icon && <span className="text-xs">{cfg.icon}</span>}
-                <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium ${et.clase}`}>
-                  {et.texto}
-                </span>
+                <span className={`ml-auto rounded-full px-2 py-0.5 text-[10px] font-medium ${et.clase}`}>{et.texto}</span>
               </div>
+              <p className="mt-1 text-[11px] text-gray-500">{cuando(s)}</p>
 
-              <p className="mt-1 text-[11px] text-gray-500">{cuando(a)}</p>
+              {s.estado === 'rechazada' && (
+                <p className="mt-1 text-[11px] text-rose-700">
+                  {s.nombreResolvio ?? 'Tu jefe'} no la aprobó{s.motivoResolucion ? `: «${s.motivoResolucion}»` : ''}
+                </p>
+              )}
+              {s.estado === 'aprobada' && s.nombreResolvio && (
+                <p className="mt-1 text-[10px] text-gray-400">Aprobada por {s.nombreResolvio}</p>
+              )}
+              {s.estado === 'cancelada' && s.motivoResolucion && (
+                <p className="mt-1 text-[10px] text-gray-400">Cancelada: «{s.motivoResolucion}»</p>
+              )}
 
-              {!!a.adjuntos?.length && (
+              {!!s.adjuntos?.length && (
                 <p className="mt-1 flex flex-wrap gap-2">
-                  {a.adjuntos.map(d => (
-                    <a
-                      key={d.id}
-                      href={urlAdjunto(d.id)}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-[11px] text-sky-700 underline decoration-dotted underline-offset-2 hover:text-sky-900"
-                    >📎 {d.nombre}</a>
+                  {s.adjuntos.map(d => (
+                    <a key={d.id} href={urlAdjunto(d.id)} target="_blank" rel="noreferrer"
+                      className="text-[11px] text-sky-700 underline decoration-dotted underline-offset-2 hover:text-sky-900">📎 {d.nombre}</a>
                   ))}
                 </p>
               )}
-              {a.justification && (
-                <p className="mt-1 text-[11px] italic text-gray-400">«{a.justification}»</p>
-              )}
+              {s.justificacion && <p className="mt-1 text-[11px] italic text-gray-400">«{s.justificacion}»</p>}
 
-              {/* Las terminadas no se cancelan: borrarlas no cambia nada del
-                  presente y solo destruye el historial. */}
-              {tramo !== 'pasada' && !enConfirmacion && (
-                <button
-                  onClick={() => { setConfirmando(a.id); setError(null); }}
-                  className="mt-2 rounded-xl px-2 py-1 text-[11px] font-medium text-red-500 hover:bg-red-50"
-                >
-                  Cancelar ausencia
+              {cancelable(s, ahora) && !enConfirmacion && (
+                <button onClick={() => { setConfirmando(s.id); setError(null); }}
+                  className="mt-2 rounded-xl px-2 py-1 text-[11px] font-medium text-red-500 hover:bg-red-50">
+                  Cancelar
                 </button>
               )}
-
-              {tramo !== 'pasada' && enConfirmacion && (
+              {cancelable(s, ahora) && enConfirmacion && (
                 <div className="mt-2 rounded-xl bg-red-50 p-2">
                   <p className="text-[11px] text-red-700">
-                    {tramo === 'activa'
-                      ? 'Se cancela ahora y volvés al mapa enseguida. No se puede deshacer.'
-                      : 'Se elimina del calendario. No se puede deshacer.'}
+                    Queda cancelada en tu historial{s.estado === 'pendiente' ? ' y tu jefe ya no la ve' : ''}.
                   </p>
                   <div className="mt-1.5 flex items-center justify-end gap-2">
-                    <button
-                      onClick={() => setConfirmando(null)}
-                      disabled={borrando === a.id}
-                      className="rounded-xl px-2 py-1 text-[11px] text-gray-500 hover:bg-white disabled:opacity-50"
-                    >
-                      No
-                    </button>
-                    <button
-                      onClick={() => void cancelar(a.id)}
-                      disabled={borrando === a.id}
-                      className="rounded-xl bg-red-500 px-2.5 py-1 text-[11px] font-semibold text-white disabled:bg-red-300"
-                    >
-                      {borrando === a.id ? 'Cancelando…' : 'Sí, cancelar'}
+                    <button onClick={() => setConfirmando(null)} disabled={cancelando === s.id}
+                      className="rounded-xl px-2 py-1 text-[11px] text-gray-500 hover:bg-white disabled:opacity-50">No</button>
+                    <button onClick={() => void cancelar(s.id)} disabled={cancelando === s.id}
+                      className="rounded-xl bg-red-500 px-2.5 py-1 text-[11px] font-semibold text-white disabled:bg-red-300">
+                      {cancelando === s.id ? 'Cancelando…' : 'Sí, cancelar'}
                     </button>
                   </div>
                 </div>
@@ -195,10 +155,13 @@ export function MyAbsencesModal({ onClose, onChanged }: {
         })}
       </div>
 
-      <div className="mt-3 flex justify-end">
-        <button onClick={onClose} className="rounded-xl px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100">
-          Cerrar
-        </button>
+      <div className="mt-3 flex items-center justify-between">
+        {ocultas > 0 ? (
+          <button onClick={() => setVerAnteriores(v => !v)} className="text-[10px] text-gray-500 underline hover:text-gray-700">
+            {verAnteriores ? 'Ocultar las de hace más de un mes' : `Mostrar ${ocultas} de hace más de un mes`}
+          </button>
+        ) : <span />}
+        <button onClick={onClose} className="rounded-xl px-3 py-1.5 text-xs text-gray-500 hover:bg-gray-100">Cerrar</button>
       </div>
     </Shell>
   );

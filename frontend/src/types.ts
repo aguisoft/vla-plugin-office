@@ -373,3 +373,32 @@ export interface UsoAusencias {
   citasMin: number;
   citasExcesoMin: number;
 }
+
+/** Una solicitud de ausencia (ver el ciclo en src/lib/solicitudes.ts del servidor). */
+export interface SolicitudAusencia {
+  id: string;
+  userId: string;
+  tipo: 'PERMISO' | 'CITA_MEDICA' | 'VACACIONES' | 'INCAPACIDAD';
+  startAt: string;
+  endAt: string;
+  justificacion: string | null;
+  estado: 'pendiente' | 'aprobada' | 'rechazada' | 'cancelada';
+  absenceId: string | null;
+  resueltaPor: string | null;
+  resueltaEn: string | null;
+  motivoResolucion: string | null;
+  creadaPor: string;
+  creadaEn: string;
+  nombre?: string | null;
+  nombreResolvio?: string | null;
+  adjuntos?: Array<{ id: string; nombre: string; tipo: string; bytes: number }>;
+  /** Solo en la bandeja, para permiso y cita: lo que lleva en el mes. */
+  usoMes?: { permisoMin: number; permisoTopeMin: number; permisoRestanteMin: number } | null;
+}
+
+export interface BandejaSolicitudes {
+  ausencias: SolicitudAusencia[];
+  feriados: Array<SolicitudFeriado & { nombre: string | null }>;
+  esJefe: boolean;
+  esRrhh: boolean;
+}

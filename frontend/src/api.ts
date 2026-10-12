@@ -1,7 +1,7 @@
 import type {
   Absence, Department, Holiday, MapZone, PendingInvite, RosterUser, UnavailableParticipant,
   TimesheetOfficeResponse, TimesheetScope, TimesheetTeamResponse, Cumplimiento,
-  SolicitudFeriado, EstadoSolicitud,
+  SolicitudFeriado, EstadoSolicitud, SolicitudAusencia, BandejaSolicitudes,
 } from './types';
 // La forma de una persona del organigrama la define el módulo que arma el
 // árbol, no `types.ts`: es él quien la consume y quien la tiene probada.
@@ -106,9 +106,17 @@ export const createAbsence = (body: {
   type: string; startAt: string; endAt: string; justification?: string;
   /** Documentos de respaldo en base64; viajan con la solicitud. */
   adjuntos?: Array<{ nombre: string; tipo: string; contenido: string }>;
-}) => api.post<{ id: string; adjuntos?: Array<{ id: string; nombre: string }>; avisoAdjuntos?: string }>(`${PLUGIN}/absences`, body);
+}) => api.post<{ id: string; solicitudId?: string; estado?: 'pendiente' | 'aprobada'; aprobadorId?: string | null; adjuntos?: Array<{ id: string; nombre: string }>; avisoAdjuntos?: string }>(`${PLUGIN}/absences`, body);
 
 /** URL de descarga de un documento. El servidor decide si quien pide puede verlo. */
+// ── Solicitudes de ausencia (con aprobación del jefe) ─────────────────────
+export const listMisSolicitudes = () => api.get<SolicitudAusencia[]>(`${PLUGIN}/solicitudes/mias`);
+export const getBandejaSolicitudes = () => api.get<BandejaSolicitudes>(`${PLUGIN}/solicitudes/bandeja`);
+export const responderSolicitud = (id: string, accion: 'aprobar' | 'rechazar', motivo?: string) =>
+  api.post<SolicitudAusencia>(`${PLUGIN}/solicitudes/${id}/${accion}`, { motivo: motivo ?? '' });
+export const cancelarSolicitud = (id: string, motivo?: string) =>
+  api.post<SolicitudAusencia>(`${PLUGIN}/solicitudes/${id}/cancelar`, { motivo: motivo ?? '' });
+
 export const urlAdjunto = (id: string) => `${BASE}${PLUGIN}/absences/adjuntos/${id}`;
 
 export const listAbsences = (userId?: string) =>
