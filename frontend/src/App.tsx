@@ -26,6 +26,8 @@ import { MyAbsencesModal } from './components/MyAbsencesModal';
 import { HolidayManager } from './components/HolidayManager';
 import { PersonasAdmin, type FiltroPersonas } from './components/PersonasAdmin';
 import { MenuAdministrar, type OpcionAdmin } from './components/MenuAdministrar';
+import { MenuPersonal } from './components/MenuPersonal';
+import { NavegacionVistas } from './components/NavegacionVistas';
 import { TimesheetScreen } from './components/TimesheetScreen';
 import { OrgChart } from './components/OrgChart';
 import { EscritorioModal } from './components/EscritorioModal';
@@ -563,7 +565,6 @@ export default function App() {
     ? `${onlineCount} persona${onlineCount !== 1 ? 's' : ''} en la oficina ahora`
     : 'Nadie en la oficina';
 
-  const officeUser = { id: currentUser?.id ?? '', firstName: myUser?.firstName ?? '', lastName: myUser?.lastName ?? '', role: currentUser?.role ?? '', email: '', permissions: [] };
 
   // Gating de `office.manage`, no de rol: a diferencia del botón de Bitrix24
   // (que solo mira `role === 'ADMIN'`), el calendario de feriados lo puede
@@ -581,39 +582,32 @@ export default function App() {
     ] : []),
   ];
 
+  /**
+   * El encabezado, de izquierda a derecha: las pantallas (pestañas, al lado
+   * del título), lo que espera mi atención (solicitudes, avisos), la
+   * administración, y lo mío (estado, salir, mi menú). Antes era una fila de
+   * botones sin orden donde Tiempos y Organigrama parecían acciones.
+   */
   const officeActions = (
-    <div className="hidden md:flex items-center gap-2">
-      <span className="flex items-center gap-1.5 text-[10px] text-gray-400">
-        <span className={`w-1.5 h-1.5 rounded-full ${connected ? 'bg-green-400 animate-pulse' : 'bg-gray-300'}`} />
-        {connected ? 'En vivo' : 'Reconectando...'}
+    <div className="hidden md:flex items-center gap-1.5">
+      {/* La conexión: un punto, y el texto solo cuando se cortó. */}
+      <span className="flex items-center gap-1.5 px-1 text-[10px] text-amber-600" title={connected ? 'En vivo' : 'Reconectando…'} data-testid="estado-conexion">
+        <span className={`h-1.5 w-1.5 rounded-full ${connected ? 'bg-green-400 animate-pulse' : 'bg-amber-400'}`} />
+        {!connected && 'Reconectando…'}
       </span>
 
-
-      <MenuAdministrar opciones={opcionesAdmin} />
-
-      {/* Visible para todos: es quién depende de quién, no un dato de
-          administración. El endpoint que lo alimenta (/org/chart) devuelve
-          solo nombre, jefe y departamento — sin correos ni el origen de cada
-          campo, que sí exigen office.manage en /org/roster. */}
-      <button onClick={() => irA('organigrama')}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] text-gray-500 hover:bg-gray-100 transition-colors"
-        title="Organigrama">
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v4m0 0H8a2 2 0 00-2 2v2m6-4h4a2 2 0 012 2v2M6 16h2a2 2 0 002-2v-2m8 4h-2a2 2 0 01-2-2v-2" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 2h4v4h-4zM4 16h4v4H4zM16 16h4v4h-4z" />
-        </svg>
-        Organigrama
-      </button>
-
-      <button onClick={() => setShowEscritorio(true)} data-testid="boton-escritorio"
-        className={`relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] transition-colors ${faltaEscritorio ? 'bg-gray-900 font-semibold text-white hover:bg-gray-700' : 'text-gray-500 hover:bg-gray-100'}`}
-        title="App de escritorio y mensajes de Bitrix">
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5h16a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zM8 20h8m-4-4v4" />
-        </svg>
-        {faltaEscritorio ? 'Instalar la app' : 'Escritorio'}
-        {faltaEscritorio && <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-orange-400 ring-2 ring-white" />}
-      </button>
+      {/* La app de escritorio se ofrece a quien no la tiene; si ya la tiene, vive en el menú personal. */}
+      {faltaEscritorio && (
+        <button onClick={() => setShowEscritorio(true)} data-testid="boton-escritorio"
+          className="relative flex items-center gap-1.5 rounded-xl bg-gray-900 px-2.5 py-1.5 text-[10px] font-semibold text-white transition-colors hover:bg-gray-700"
+          title="App de escritorio y mensajes de Bitrix">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 5h16a1 1 0 011 1v9a1 1 0 01-1 1H4a1 1 0 01-1-1V6a1 1 0 011-1zM8 20h8m-4-4v4" />
+          </svg>
+          Instalar la app
+          <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-orange-400 ring-2 ring-white" />
+        </button>
+      )}
 
       {bandeja.aprueba && (
         <button onClick={() => setShowBandeja(true)} data-testid="boton-solicitudes"
@@ -622,34 +616,16 @@ export default function App() {
           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
-          Solicitudes
+          <span className="hidden xl:inline">Solicitudes</span>
           {bandeja.n > 0 && <span className="rounded-full bg-red-500 px-1.5 text-[9px] font-semibold leading-4 text-white">{bandeja.n}</span>}
         </button>
       )}
 
       <CampanaAvisos recarga={recargaAvisos} onAbrir={abrirRuta} />
 
-      {/* Sin gating por office.manage: es un reporte de lo propio, cualquiera
-          lo puede ver (y quien tenga gente a cargo, también lo suyo). */}
-      <button onClick={() => irA('tiempos')}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] text-gray-500 hover:bg-gray-100 transition-colors"
-        title="Tiempos">
-        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-        </svg>
-        Tiempos
-      </button>
+      <MenuAdministrar opciones={opcionesAdmin} />
 
-      {myUser && (
-        <button onClick={() => setShowAvatarModal(true)}
-          className="flex items-center gap-2 px-2 py-1 rounded-xl hover:bg-gray-100 transition-colors group"
-          title="Personalizar avatar">
-          <AvatarSVG cfg={myUser.avatar} photoUrl={myUser.photoUrl} size={28} status={myStatus} name={`${myUser.firstName} ${myUser.lastName}`} />
-          <svg className="w-3 h-3 text-gray-300 group-hover:text-gray-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
-          </svg>
-        </button>
-      )}
+      <span className="mx-1 h-5 w-px bg-gray-200" aria-hidden />
 
       {isCheckedIn && (
         <StatusSelector
@@ -672,6 +648,19 @@ export default function App() {
           : <><svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 16l-4-4m0 0l4-4m-4 4h14m-5 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h7a3 3 0 013 3v1" /></svg>Entrar a la oficina</>
         }
       </button>
+
+      {myUser && (
+        <MenuPersonal
+          nombre={`${myUser.firstName} ${myUser.lastName}`}
+          avatar={myUser.avatar}
+          photoUrl={myUser.photoUrl}
+          status={myStatus}
+          faltaEscritorio={faltaEscritorio}
+          onAvatar={() => setShowAvatarModal(true)}
+          onAusencias={() => setShowAbsences(true)}
+          onEscritorio={() => setShowEscritorio(true)}
+        />
+      )}
     </div>
   );
 
@@ -754,7 +743,7 @@ export default function App() {
         </div>
       )}
 
-      <PluginShell title="Oficina Virtual" subtitle={officeSubtitle} headerActions={officeActions} user={officeUser}>
+      <PluginShell title="Oficina Virtual" subtitle={officeSubtitle} headerCenter={<NavegacionVistas vista={view} onCambiar={irA} />} headerActions={officeActions}>
         {/* Reemplaza al mapa, no se superpone: es una vista que se consulta,
             no un diálogo. Vive dentro del mismo PluginShell. */}
         {view === 'tiempos' ? (

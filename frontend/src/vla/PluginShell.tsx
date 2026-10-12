@@ -10,8 +10,11 @@ interface PluginShellProps {
   headerCenter?: ReactNode;
   /** Buttons/controls rendered on the right side of the header (before user info) */
   headerActions?: ReactNode;
-  /** Current authenticated user (from usePluginAuth) */
-  user: PluginUser;
+  /**
+   * Current authenticated user (from usePluginAuth). Opcional: office lo
+   * muestra en su propio menú personal (avatar + nombre) y no lo repite acá.
+   */
+  user?: PluginUser;
   /** Main content */
   children: ReactNode;
 }
@@ -35,8 +38,8 @@ export function PluginShell({ title, subtitle, headerCenter, headerActions, user
     <div className="h-full flex flex-col bg-gray-50 overflow-hidden">
       {/* ── Standard Header ── */}
       <div className="flex-shrink-0 flex items-center gap-3 px-5 py-2.5 bg-white border-b border-gray-100">
-        {/* Left: Title */}
-        <div className="min-w-0">
+        {/* Left: Title. No se encoge: con muchas acciones a la derecha desaparecía. */}
+        <div className="min-w-0 shrink-0">
           <h1 className="text-sm font-bold text-gray-800 leading-tight truncate">{title}</h1>
           {subtitle && (
             <p className="text-[10px] text-gray-500 leading-tight truncate">{subtitle}</p>
@@ -49,14 +52,16 @@ export function PluginShell({ title, subtitle, headerCenter, headerActions, user
         {/* Right: Actions + User */}
         <div className="ml-auto flex items-center gap-2">
           {headerActions}
-          <div className="flex items-center gap-1.5 pl-2 border-l border-gray-100">
-            <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">
-              {user.firstName[0]}{user.lastName[0]}
+          {user && (
+            <div className="flex items-center gap-1.5 pl-2 border-l border-gray-100">
+              <div className="w-6 h-6 rounded-full bg-gray-200 flex items-center justify-center text-[10px] font-bold text-gray-500">
+                {user.firstName[0]}{user.lastName[0]}
+              </div>
+              <span className="text-[11px] text-gray-500 hidden sm:inline">
+                {user.firstName} {user.lastName}
+              </span>
             </div>
-            <span className="text-[11px] text-gray-500 hidden sm:inline">
-              {user.firstName} {user.lastName}
-            </span>
-          </div>
+          )}
         </div>
       </div>
 
