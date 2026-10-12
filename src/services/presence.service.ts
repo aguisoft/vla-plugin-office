@@ -285,14 +285,15 @@ export class PresenceService {
 
   // ── SSE broadcast ─────────────────────────────────────────────────────────
 
-  private clients = new Map<(data: string) => void, string | null>();
+  /** Cada conexión en vivo: de quién es y si es la app de escritorio (si no, la web). */
+  private clients = new Map<(data: string) => void, { userId: string | null; escritorio: boolean }>();
 
-  subscribe(send: (data: string) => void, userId: string | null = null): () => void {
-    this.clients.set(send, userId);
+  subscribe(send: (data: string) => void, userId: string | null = null, escritorio = false): () => void {
+    this.clients.set(send, { userId, escritorio });
     return () => {
       this.clients.delete(send);
       // Se cerró su última pantalla: desde acá cuenta la inactividad (ver lib/inactividad.ts).
-      if (userId && ![...this.clients.values()].includes(userId)) {
+      if (userId && ![...this.clients.values()].some(c => c.userId === userId)) {
         void this.ctx.redis.set(claveUltimaConexion(userId), new Date().toISOString(), 2 * 86_400).catch(() => undefined);
       }
     };
@@ -345,15 +346,24 @@ export class PresenceService {
   /** Quiénes tienen ahora al menos una pantalla abierta (oficina o widget). */
   conectados(): string[] {
     const ids = new Set<string>();
-    for (const uid of this.clients.values()) if (uid) ids.add(uid);
+    for (const c of this.clients.values()) if (c.userId) ids.add(c.userId);
     return [...ids];
+  }
+
+  /**
+   * Tiene la app de escritorio conectada ahora. Con ella abierta, el aviso de
+   * Windows lo da la app y el del navegador sobra (ver services/avisos.service.ts).
+   */
+  escritorioConectado(userId: string): boolean {
+    for (const c of this.clients.values()) if (c.userId === userId && c.escritorio) return true;
+    return false;
   }
 
   /** Manda solo a las conexiones de ese usuario. Para invitaciones dirigidas. */
   broadcastToUser(userId: string, payload: object): void {
     const data = `data: ${JSON.stringify(payload)}\n\n`;
-    for (const [send, uid] of this.clients) {
-      if (uid !== userId) continue;
+    for (const [send, c] of this.clients) {
+      if (c.userId !== userId) continue;
       try { send(data); } catch { this.clients.delete(send); }
     }
   }

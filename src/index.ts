@@ -32,6 +32,8 @@ import { SolicitudesService, type Solicitud } from './services/solicitudes.servi
 import { textoRango, NOMBRE_TIPO } from './lib/solicitudes';
 import { nombresPorUsuario } from './lib/user-names';
 import { AdjuntosService } from './services/adjuntos.service';
+import { AvisosService } from './services/avisos.service';
+import { leerPedidoDeAviso } from './lib/avisos';
 import { DEFAULT_TZ, localDateString } from './lib/local-date';
 import { cumplimientoToCsv } from './lib/compliance-csv';
 import { validateStatusInput, type StatusInput, type OfficeStatus } from './lib/status-rules';
@@ -156,42 +158,56 @@ const plugin: PluginDefinition = {
     const compliance = new ComplianceService(ctx, tz, team, org, holidays, timesheet);
     // Mensajería de Bitrix como cada persona (widget de escritorio).
     const bitrixUser = new BitrixUserService(ctx);
-    const mensajeria = new MensajeriaService(ctx, bitrixUser, presence);
+    // ── Avisos ─────────────────────────────────────────────────────────────
+    // Todo lo que la oficina le avisa a alguien sale por AvisosService (ver
+    // services/avisos.service.ts): campana, en vivo (web y app de escritorio),
+    // navegador solo si no tiene la app abierta, y Bitrix.
+    const nombreDe = async (userId: string): Promise<string> => {
+      const n = (await nombresPorUsuario(ctx, [userId]))?.get(userId);
+      return n ? `${n.firstName} ${n.lastName}`.trim() : 'Alguien del equipo';
+    };
+    // Aviso de sistema de Bitrix; si falla, el servicio lo anota y los demás canales igual salieron.
+    const avisos = new AvisosService(ctx, presence, async (userId, mensaje) => {
+      if (!ctx.bitrix) return;
+      const bid = await bitrix.getBitrixIdForVlaUser(userId);
+      if (bid) await ctx.bitrix.call('im.notify.system.add', { USER_ID: bid, MESSAGE: mensaje });
+    });
+    // Los demás plugins avisan por el hook, sin conocer la oficina por dentro:
+    // { userId | userIds, tipo, titulo, cuerpo?, url?, guardar?, emergente?, bitrix? }
+    ctx.hooks.registerAction('office.avisar', async (payload: unknown) => {
+      const p = leerPedidoDeAviso(payload);
+      if (!p) { ctx.logger.warn('office.avisar sin destino, tipo o título: descartado'); return; }
+      await avisos.avisar(p.userIds, p.aviso);
+    });
+    const mensajeria = new MensajeriaService(ctx, bitrixUser, {
+      broadcastToUser: (userId, payload) => presence.broadcastToUser(userId, payload),
+      conectados: () => presence.conectados(),
+      push: (userId, aviso) => avisos.respaldo(userId, aviso),
+    });
 
     // ── Solicitudes de ausencia y avisos ──────────────────────────────────
     // Al jefe le llega cada pedido (en vivo a la web y a la app de escritorio,
     // y por Bitrix), y a la persona la respuesta. Antes el jefe no se enteraba.
     const URL_SOLICITUDES = `${String(ctx.plugin.config.URL_PUBLICA || 'https://system.somosvla.com').replace(/\/+$/, '')}/dashboard/office?solicitudes=1`;
-    const nombreDe = async (userId: string): Promise<string> => {
-      const n = (await nombresPorUsuario(ctx, [userId]))?.get(userId);
-      return n ? `${n.firstName} ${n.lastName}`.trim() : 'Alguien del equipo';
-    };
-    /** Aviso de sistema de Bitrix a una persona. Si falla, queda en el log: el aviso en vivo igual salió. */
-    const avisarBitrix = async (userId: string, mensaje: string): Promise<void> => {
-      try {
-        if (!ctx.bitrix) return;
-        const bid = await bitrix.getBitrixIdForVlaUser(userId);
-        if (!bid) return;
-        await ctx.bitrix.call('im.notify.system.add', { USER_ID: bid, MESSAGE: mensaje });
-      } catch (e) {
-        ctx.logger.warn(`Aviso de Bitrix a ${userId} falló: ${e}`);
-      }
-    };
+    const RUTA_BANDEJA = '/dashboard/office?solicitudes=1';
+    const RUTA_MIS_SOLICITUDES = '/dashboard/office?ausencias=1';
     const solicitudes = new SolicitudesService(ctx, absences, org, {
       async nueva(sol: Solicitud, aprobadorId: string | null) {
         if (!aprobadorId) return; // sin jefe la ve RRHH en su bandeja
         const quien = await nombreDe(sol.userId);
         const texto = `${quien} pidió ${NOMBRE_TIPO[sol.tipo] ?? 'una ausencia'} ${textoRango(sol.tipo, sol.startAt, sol.endAt, tz())}`;
-        presence.broadcastToUser(aprobadorId, { type: 'solicitud:nueva', solicitudId: sol.id, texto });
-        await avisarBitrix(aprobadorId, `${texto}. Respondé en la oficina: [URL=${URL_SOLICITUDES}]Solicitudes[/URL]`);
+        await avisos.avisar([aprobadorId], {
+          tipo: 'solicitud.nueva', titulo: 'Solicitud de tu equipo', cuerpo: texto, url: RUTA_BANDEJA,
+          bitrix: `${texto}. Respondé en la oficina: [URL=${URL_SOLICITUDES}]Solicitudes[/URL]`,
+        });
       },
       async resuelta(sol: Solicitud, porId: string) {
         const por = await nombreDe(porId);
         const que = `Tu ${NOMBRE_TIPO[sol.tipo] ?? 'ausencia'} ${textoRango(sol.tipo, sol.startAt, sol.endAt, tz())}`;
         const verbo = sol.estado === 'aprobada' ? 'fue aprobada' : sol.estado === 'rechazada' ? 'no fue aprobada' : 'fue cancelada';
         const texto = `${que} ${verbo} por ${por}${sol.motivoResolucion ? `: «${sol.motivoResolucion}»` : ''}`;
-        presence.broadcastToUser(sol.userId, { type: 'solicitud:resuelta', solicitudId: sol.id, estado: sol.estado, texto });
-        await avisarBitrix(sol.userId, texto);
+        const titulo = sol.estado === 'aprobada' ? 'Solicitud aprobada' : sol.estado === 'rechazada' ? 'Solicitud no aprobada' : 'Solicitud cancelada';
+        await avisos.avisar([sol.userId], { tipo: 'solicitud.resuelta', titulo, cuerpo: texto, url: RUTA_MIS_SOLICITUDES, bitrix: texto });
       },
     });
     // Jornada de Bitrix desde el widget, también como cada persona.
@@ -342,7 +358,9 @@ const plugin: PluginDefinition = {
       res.flushHeaders();
       res.write(': conectado\n\n');
 
-      const unsubscribe = presence.subscribe((data) => res.write(data), (req as any).user?.sub ?? null);
+      // La app de escritorio entra con su token como Bearer; la web, con la cookie.
+      const escritorio = /^Bearer\s/i.test(String(req.headers.authorization ?? ''));
+      const unsubscribe = presence.subscribe((data) => res.write(data), (req as any).user?.sub ?? null, escritorio);
       // Latido: sin datos, Node (la app) corta a los 300 s y los proxies cortan
       // por inactividad; con un socket muerto, la escritura falla y se limpia.
       // Medido el 2-oct-2026: todas las apps se reconectaban cada ~305 s.
@@ -439,6 +457,12 @@ const plugin: PluginDefinition = {
       if (status === 'IN_MEETING_INTERNAL' && participantIds.length) {
         const justification = body.justification!.trim();
         ({ meetingId } = await meetings.invite(userId, participantIds, justification));
+        // La app y la oficina muestran la invitación por su cuenta; esto es el
+        // aviso del navegador para quien no tiene ninguna de las dos abierta.
+        void nombreDe(userId).then(anfitrion => avisos.avisar(participantIds, {
+          tipo: 'reunion.invitacion', titulo: 'Invitación a reunión', cuerpo: `${anfitrion} te invita: ${justification}`,
+          url: '/dashboard/office', guardar: false, emergente: false,
+        }));
       }
 
       await presence.setManualOverride(userId);
@@ -844,8 +868,10 @@ const plugin: PluginDefinition = {
           if (o) {
             const dia = new Intl.DateTimeFormat('es-CR', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(o.new_date)).replace('.', '');
             const texto = `Tu pedido de tomar el feriado el ${dia} ${accion === 'approve' ? 'fue aprobado' : 'no fue aprobado'} por ${await nombreDe(userId)}${o.decision_note ? `: «${o.decision_note}»` : ''}`;
-            presence.broadcastToUser(o.user_id, { type: 'solicitud:resuelta', texto });
-            await avisarBitrix(o.user_id, texto);
+            await avisos.avisar([o.user_id], {
+              tipo: 'feriado.resuelto', titulo: accion === 'approve' ? 'Feriado aprobado' : 'Feriado no aprobado',
+              cuerpo: texto, url: '/dashboard/office', bitrix: texto,
+            });
           }
           return res.json({ ok: true });
         }
@@ -886,8 +912,10 @@ const plugin: PluginDefinition = {
           const h = await ctx.prisma.holiday.findUnique({ where: { id: req.params.id } }).catch(() => null) as any;
           const fecha = (d: string) => new Intl.DateTimeFormat('es-CR', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(`${d.slice(0, 10)}T00:00:00Z`)).replace('.', '');
           const texto = `${await nombreDe(userId)} pidió trabajar el feriado${h ? ` «${h.name}» (${fecha(new Date(h.date).toISOString())})` : ''} y tomarlo el ${fecha(newDate)}`;
-          presence.broadcastToUser(jefe, { type: 'solicitud:nueva', texto });
-          await avisarBitrix(jefe, `${texto}. Respondé en la oficina: [URL=${URL_SOLICITUDES}]Solicitudes[/URL]`);
+          await avisos.avisar([jefe], {
+            tipo: 'feriado.nuevo', titulo: 'Solicitud de tu equipo', cuerpo: texto, url: RUTA_BANDEJA,
+            bitrix: `${texto}. Respondé en la oficina: [URL=${URL_SOLICITUDES}]Solicitudes[/URL]`,
+          });
         }
       }
       res.status(201).json({ ok: true, status: result.status });
@@ -1847,6 +1875,24 @@ const plugin: PluginDefinition = {
 
     // La app avisa que está viva y con qué versión: así la oficina sabe a quién
     // ofrecérsela y cuántos la usan. Solo con un token de la app de escritorio.
+    // ── Avisos: la campana de cada persona ─────────────────────────────────────
+    ctx.router.get('/avisos', ctx.requireAuth(), asyncRoute(async (req, res) => {
+      const userId = (req as any).user?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      res.json(await avisos.lista(userId));
+    }));
+    ctx.router.post('/avisos/leer', ctx.requireAuth(), asyncRoute(async (req, res) => {
+      const userId = (req as any).user?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      // Sin ids, todos.
+      const ids = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).map(String) : undefined;
+      res.json({ marcados: await avisos.marcarLeidos(userId, ids) });
+    }));
+    // La clave pública de los avisos del navegador, para volver a activarlos desde la campana.
+    ctx.router.get('/avisos/clave-navegador', ctx.requireAuth(), (_req, res) => {
+      res.json({ clave: process.env.VAPID_PUBLIC_KEY || null });
+    });
+
     ctx.router.post('/escritorio/latido', ctx.requireAuth(), asyncRoute(async (req, res) => {
       const u = (req as any).user;
       if (!u?.dispositivo || !u?.sub) { res.status(403).json({ message: 'Solo la app de escritorio' }); return; }
@@ -2231,7 +2277,7 @@ const plugin: PluginDefinition = {
       res.json(await runTimemanSync());
     }));
 
-    // ── Cron: sincronizar timeman de Bitrix cada 2 minutos ────────────────────
+    // ── Cron: recordarle al jefe lo que su equipo espera desde ayer ───────────
     ctx.cron('0 15 * * 1-5', async () => {
       try {
         const viejas = await solicitudes.pendientesViejas(20);
@@ -2241,7 +2287,12 @@ const plugin: PluginDefinition = {
           if (jefe) porJefe.set(jefe, (porJefe.get(jefe) ?? 0) + 1);
         }
         for (const [jefe, n] of porJefe) {
-          await avisarBitrix(jefe, `Tenés ${n === 1 ? '1 solicitud' : `${n} solicitudes`} de tu equipo sin responder desde ayer. [URL=${URL_SOLICITUDES}]Responder[/URL]`);
+          const texto = `Tenés ${n === 1 ? '1 solicitud' : `${n} solicitudes`} de tu equipo sin responder desde ayer`;
+          // Recordatorio: sale en vivo y por Bitrix, pero no se guarda (la bandeja ya las lista).
+          await avisos.avisar([jefe], {
+            tipo: 'solicitud.recordatorio', titulo: 'Solicitudes sin responder', cuerpo: texto, url: RUTA_BANDEJA,
+            guardar: false, bitrix: `${texto}. [URL=${URL_SOLICITUDES}]Responder[/URL]`,
+          });
         }
         if (porJefe.size) ctx.logger.log(`Recordatorio de solicitudes: ${porJefe.size} jefes`);
       } catch (e) {
@@ -2249,6 +2300,17 @@ const plugin: PluginDefinition = {
       }
     });
 
+    // ── Cron: limpiar la campana (avisos de hace más de 90 días) ──────────────
+    ctx.cron('23 4 * * *', async () => {
+      try {
+        const n = await avisos.limpiar(90);
+        if (n) ctx.logger.log(`Avisos viejos borrados: ${n}`);
+      } catch (e) {
+        ctx.logger.warn(`Limpieza de avisos falló: ${e}`);
+      }
+    });
+
+    // ── Cron: sincronizar timeman de Bitrix cada 2 minutos ────────────────────
     ctx.cron('*/2 * * * *', async () => {
       await runTimemanSync();
     });

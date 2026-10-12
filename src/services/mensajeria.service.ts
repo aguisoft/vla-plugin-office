@@ -19,6 +19,8 @@ export interface Avisador {
   broadcastToUser(userId: string, payload: object): void;
   /** Usuarios con al menos una conexión SSE viva (widget u oficina abierta). */
   conectados(): string[];
+  /** Aviso del navegador, que el centro de avisos solo manda si no tiene la app abierta. */
+  push(userId: string, aviso: { titulo: string; cuerpo: string; url?: string | null }): Promise<void>;
 }
 
 interface EstadoConsulta {
@@ -370,9 +372,7 @@ export class MensajeriaService {
       de: nombre,
       preview,
     });
-    await this.ctx.hooks.doAction('core.push.send', {
-      userId: destino.userId, title: `${nombre} te escribió`, body: preview, url: URL_OFICINA,
-    });
+    await this.avisador.push(destino.userId, { titulo: `${nombre} te escribió`, cuerpo: preview, url: URL_OFICINA });
   }
 
   /**
@@ -392,10 +392,9 @@ export class MensajeriaService {
       const estado = this.estados.get(d.userId);
       if (estado) estado.previo = sumarAvisado(estado.previo, dialogId);
       this.avisador.broadcastToUser(d.userId, { type: 'im:new', dialogId, de: nombre, grupo: info.titulo, mencion: d.mencion, preview });
-      await this.ctx.hooks.doAction('core.push.send', {
-        userId: d.userId,
-        title: d.mencion ? `${nombre} te mencionó en ${info.titulo}` : `${nombre} en ${info.titulo}`,
-        body: preview,
+      await this.avisador.push(d.userId, {
+        titulo: d.mencion ? `${nombre} te mencionó en ${info.titulo}` : `${nombre} en ${info.titulo}`,
+        cuerpo: preview,
         url: URL_OFICINA,
       });
     }
@@ -412,7 +411,7 @@ export class MensajeriaService {
     const nombre = r ? `${r.firstName} ${r.lastName}`.trim() : 'Alguien';
     for (const userId of destinos) {
       this.avisador.broadcastToUser(userId, { type: 'im:new', dialogId, de: nombre, grupo: titulo, mencion: false, preview: `Te agregó al grupo «${titulo}»` });
-      await this.ctx.hooks.doAction('core.push.send', { userId, title: `${nombre} te agregó a ${titulo}`, body: 'Abrí VLA Oficina para verlo', url: URL_OFICINA });
+      await this.avisador.push(userId, { titulo: `${nombre} te agregó a ${titulo}`, cuerpo: 'Abrí VLA Oficina para verlo', url: URL_OFICINA });
     }
   }
 
@@ -489,7 +488,7 @@ export class MensajeriaService {
   private avisarRespaldo(userId: string, nuevos: number, detalle?: string): void {
     this.avisador.broadcastToUser(userId, { type: 'im:new', nuevos, ...(detalle ? { detalle } : {}) });
     const body = detalle ?? (nuevos === 1 ? 'Tenés 1 mensaje nuevo sin leer' : `Tenés ${nuevos} mensajes nuevos sin leer`);
-    void this.ctx.hooks.doAction('core.push.send', { userId, title: 'Mensajes nuevos en Bitrix', body, url: URL_OFICINA })
+    void this.avisador.push(userId, { titulo: 'Mensajes nuevos en Bitrix', cuerpo: body, url: URL_OFICINA })
       .catch(e => this.ctx.logger.warn(`Push de mensajes nuevos falló: ${e}`));
   }
 }

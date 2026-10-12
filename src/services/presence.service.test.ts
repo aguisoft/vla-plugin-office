@@ -128,3 +128,23 @@ describe('PresenceService.recordTransition — forma del SQL', () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('PresenceService.escritorioConectado', () => {
+  it('distingue la app de escritorio de la web, y deja de contarla al desconectarse', () => {
+    const { ctx } = makeCtx({});
+    // Al cerrarse la última pantalla se anota en Redis desde cuándo no está.
+    const service = new PresenceService({ ...ctx, redis: { set: vi.fn(async () => 'OK') } } as unknown as PluginContext);
+    const salirWeb = service.subscribe(() => undefined, 'ana');
+    expect(service.escritorioConectado('ana')).toBe(false);
+
+    const salirApp = service.subscribe(() => undefined, 'ana', true);
+    expect(service.escritorioConectado('ana')).toBe(true);
+    expect(service.escritorioConectado('beto')).toBe(false);
+
+    salirApp();
+    expect(service.escritorioConectado('ana')).toBe(false);
+    expect(service.conectados()).toEqual(['ana']);
+    salirWeb();
+    expect(service.conectados()).toEqual([]);
+  });
+});

@@ -41,12 +41,14 @@ function armar(opts: {
     conectados: vi.fn(async () => Object.keys(tokensPorUsuario).filter(u => tokensPorUsuario[u])),
   };
   const avisos: Array<{ userId: string; payload: any }> = [];
+  const pushes: Array<{ userId: string; titulo: string; cuerpo: string }> = [];
   const avisador = {
     broadcastToUser: (userId: string, payload: object) => { avisos.push({ userId, payload }); },
     conectados: () => opts.conectados ?? ['ana', 'beto'],
+    push: async (userId: string, a: { titulo: string; cuerpo: string }) => { pushes.push({ userId, titulo: a.titulo, cuerpo: a.cuerpo }); },
   };
   const svc = new MensajeriaService(ctx, tokens as any, avisador, async () => undefined);
-  return { svc, callAsUser, doAction, avisos };
+  return { svc, callAsUser, doAction, avisos, pushes };
 }
 
 describe('MensajeriaService: el proxy habla como quien pregunta', () => {
@@ -136,11 +138,11 @@ describe('MensajeriaService: el proxy habla como quien pregunta', () => {
 
 describe('MensajeriaService: aviso inmediato', () => {
   it('avisa al destinatario del equipo, con quién escribe y cómo responderle', async () => {
-    const { svc, avisos, doAction } = armar();
+    const { svc, avisos, pushes } = armar();
     await svc.enviar('ana', '1001', 'hola Beto');
 
     expect(avisos).toEqual([{ userId: 'beto', payload: { type: 'im:new', dialogId: '949', de: 'Ana Pérez', preview: 'hola Beto' } }]);
-    expect(doAction).toHaveBeenCalledWith('core.push.send', expect.objectContaining({ userId: 'beto', title: 'Ana Pérez te escribió' }));
+    expect(pushes).toEqual([{ userId: 'beto', titulo: 'Ana Pérez te escribió', cuerpo: 'hola Beto' }]);
   });
 
   it('quien escribe no se avisa a sí mismo', async () => {
@@ -318,10 +320,10 @@ describe('MensajeriaService: grupos', () => {
   }
 
   it('un mensaje de grupo avisa a los miembros del equipo con el nombre del grupo', async () => {
-    const { svc, avisos, doAction } = armarGrupo();
+    const { svc, avisos, pushes } = armarGrupo();
     await svc.enviar('ana', 'chat77', 'reunión a las 3');
     expect(avisos).toEqual([{ userId: 'beto', payload: { type: 'im:new', dialogId: 'chat77', de: 'Ana Pérez', grupo: 'Ventas', mencion: false, preview: 'reunión a las 3' } }]);
-    expect(doAction).toHaveBeenCalledWith('core.push.send', expect.objectContaining({ userId: 'beto', title: 'Ana Pérez en Ventas' }));
+    expect(pushes).toEqual([expect.objectContaining({ userId: 'beto', titulo: 'Ana Pérez en Ventas' })]);
   });
 
   it('quien silenció el grupo no recibe aviso, salvo que lo mencionen', async () => {
@@ -332,7 +334,7 @@ describe('MensajeriaService: grupos', () => {
     const b = armarGrupo([1001]);
     await b.svc.enviar('ana', 'chat77', 'ojo [USER=1001]Beto[/USER]');
     expect(b.avisos[0].payload).toMatchObject({ mencion: true });
-    expect(b.doAction).toHaveBeenCalledWith('core.push.send', expect.objectContaining({ title: 'Ana Pérez te mencionó en Ventas' }));
+    expect(b.pushes).toEqual([expect.objectContaining({ titulo: 'Ana Pérez te mencionó en Ventas' })]);
   });
 
   it('los datos del grupo se guardan un minuto: dos mensajes, una sola consulta', async () => {

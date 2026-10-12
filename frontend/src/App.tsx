@@ -20,6 +20,7 @@ import { MeetingInviteModal } from './components/MeetingInviteModal';
 import { HolidayOverrideModal } from './components/HolidayOverrideModal';
 import { BandejaSolicitudesModal } from './components/BandejaSolicitudesModal';
 import { pantallaInicial } from './solicitudesUx';
+import { CampanaAvisos } from './components/CampanaAvisos';
 import { AvisoFeriado } from './components/AvisoFeriado';
 import { MyAbsencesModal } from './components/MyAbsencesModal';
 import { HolidayManager } from './components/HolidayManager';
@@ -125,6 +126,19 @@ export default function App() {
     } catch { /* la bandeja es accesoria: sin ella el resto sigue */ }
   }, []);
   useEffect(() => { void cargarBandeja(); }, [cargarBandeja]);
+  /** Sube cuando llega un aviso en vivo: la campana se recarga. */
+  const [recargaAvisos, setRecargaAvisos] = useState(0);
+  /** Abre lo que señala un aviso: las pantallas de la oficina acá mismo; lo demás, en la página del sistema. */
+  const abrirRuta = useCallback((url: string) => {
+    if (url.startsWith('/dashboard/office')) {
+      const p = pantallaInicial(new URL(url, window.location.origin).search);
+      if (p === 'solicitudes') setShowBandeja(true);
+      else if (p === 'ausencias') setShowAbsences(true);
+      else if (p === 'feriado') setPending({ status: 'FERIADO', kind: 'holidayOverride' });
+      return;
+    }
+    try { (window.top ?? window).location.href = url; } catch { window.location.href = url; }
+  }, []);
   const [error, setError]               = useState<string | null>(null);
   const [blockedParticipants, setBlockedParticipants] = useState<UnavailableParticipant[] | null>(null);
   const [invites, setInvites]           = useState<PendingInvite[]>([]);
@@ -179,11 +193,14 @@ export default function App() {
         const msg = JSON.parse(event.data) as { type?: string; de?: string; preview?: string; nuevos?: number };
         // Es para la app de escritorio: la web no tiene nada que hacer.
         if (msg.type === 'app:update' || msg.type === 'bitrix:conectado') return;
-        if (msg.type === 'solicitud:nueva' || msg.type === 'solicitud:resuelta') {
-          const t = (msg as { texto?: string }).texto;
-          if (t) setNotice(t);
-          void cargarBandeja();
-          if (msg.type === 'solicitud:resuelta') void loadData();
+        // El centro de avisos: suma a la campana y, si es emergente, el cartel.
+        if (msg.type === 'aviso') {
+          const { aviso, emergente } = msg as { aviso?: { tipo: string; titulo: string; cuerpo: string }; emergente?: boolean };
+          if (!aviso) return;
+          if (emergente) setNotice(aviso.cuerpo ? `${aviso.titulo}: ${aviso.cuerpo}` : aviso.titulo);
+          setRecargaAvisos(n => n + 1);
+          if (/^(solicitud|feriado)\./.test(aviso.tipo)) void cargarBandeja();
+          if (aviso.tipo === 'solicitud.resuelta' || aviso.tipo === 'feriado.resuelto') void loadData();
           return;
         }
         if (msg.type === 'im:new') {
@@ -622,6 +639,8 @@ export default function App() {
         </button>
       )}
 
+      <CampanaAvisos recarga={recargaAvisos} onAbrir={abrirRuta} />
+
       {/* Sin gating por office.manage: es un reporte de lo propio, cualquiera
           lo puede ver (y quien tenga gente a cargo, también lo suyo). */}
       <button onClick={() => irA('tiempos')}
@@ -731,19 +750,19 @@ export default function App() {
       )}
 
       {avisoVencido && !notice && (
-        <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-amber-500 px-4 py-2 text-xs font-medium text-white shadow-lg" data-testid="aviso-vencido">
+        <div className="fixed top-[4.25rem] left-1/2 z-50 flex max-w-[92vw] -translate-x-1/2 items-center gap-3 rounded-xl bg-amber-500 px-4 py-2 text-xs font-medium text-white shadow-lg" data-testid="aviso-vencido">
           {textoAvisoVencido(avisoVencido, fmtTime)}
           <button onClick={cerrarAvisoVencido} className="rounded-lg bg-white/20 px-2 py-0.5 font-semibold hover:bg-white/30">Entendido</button>
         </div>
       )}
       {notice && (
-        <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-gray-800 px-4 py-2 text-xs font-medium text-white shadow-lg">
+        <div className="fixed top-[4.25rem] left-1/2 z-50 flex max-w-[92vw] -translate-x-1/2 items-center gap-3 rounded-xl bg-gray-800 px-4 py-2 text-xs font-medium text-white shadow-lg">
           {notice}
           <button onClick={() => setNotice(null)} className="text-gray-400 hover:text-white">✕</button>
         </div>
       )}
       {error && (
-        <div className="fixed top-4 left-1/2 z-50 flex -translate-x-1/2 items-center gap-3 rounded-xl bg-red-500 px-4 py-2 text-xs font-medium text-white shadow-lg">
+        <div className="fixed top-[4.25rem] left-1/2 z-50 flex max-w-[92vw] -translate-x-1/2 items-center gap-3 rounded-xl bg-red-500 px-4 py-2 text-xs font-medium text-white shadow-lg">
           {error}
           <button onClick={() => setError(null)} className="text-red-100 hover:text-white">✕</button>
         </div>

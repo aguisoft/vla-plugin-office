@@ -1,7 +1,7 @@
 import type {
   Absence, Department, Holiday, MapZone, PendingInvite, RosterUser, UnavailableParticipant,
   TimesheetOfficeResponse, TimesheetScope, TimesheetTeamResponse, Cumplimiento,
-  SolicitudFeriado, EstadoSolicitud, SolicitudAusencia, BandejaSolicitudes,
+  SolicitudFeriado, EstadoSolicitud, SolicitudAusencia, BandejaSolicitudes, Aviso,
 } from './types';
 // La forma de una persona del organigrama la define el módulo que arma el
 // árbol, no `types.ts`: es él quien la consume y quien la tiene probada.
@@ -112,6 +112,14 @@ export const createAbsence = (body: {
 // ── Solicitudes de ausencia (con aprobación del jefe) ─────────────────────
 export const listMisSolicitudes = () => api.get<SolicitudAusencia[]>(`${PLUGIN}/solicitudes/mias`);
 export const getBandejaSolicitudes = () => api.get<BandejaSolicitudes>(`${PLUGIN}/solicitudes/bandeja`);
+
+// ── Avisos: la campana ───────────────────────────────────────────────────────
+export const getAvisos = () => api.get<{ avisos: Aviso[]; sinLeer: number }>(`${PLUGIN}/avisos`);
+/** Sin ids, todos. */
+export const marcarAvisosLeidos = (ids?: string[]) => api.post<{ marcados: number }>(`${PLUGIN}/avisos/leer`, ids ? { ids } : {});
+export const getClaveNavegador = () => api.get<{ clave: string | null }>(`${PLUGIN}/avisos/clave-navegador`);
+/** Ruta del core: es él quien manda los avisos del navegador. */
+export const suscribirNavegador = (sub: { endpoint: string; keys: { p256dh: string; auth: string } }) => api.post<unknown>('/push/subscribe', sub);
 export const responderSolicitud = (id: string, accion: 'aprobar' | 'rechazar', motivo?: string) =>
   api.post<SolicitudAusencia>(`${PLUGIN}/solicitudes/${id}/${accion}`, { motivo: motivo ?? '' });
 export const cancelarSolicitud = (id: string, motivo?: string) =>

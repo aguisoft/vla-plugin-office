@@ -396,6 +396,18 @@ export interface SolicitudAusencia {
   usoMes?: { permisoMin: number; permisoTopeMin: number; permisoRestanteMin: number } | null;
 }
 
+/** Un aviso de la campana (ver services/avisos.service.ts). */
+export interface Aviso {
+  id: string;
+  /** `solicitud.nueva`, `solicitud.resuelta`, `feriado.nuevo`, `feriado.resuelto`… */
+  tipo: string;
+  titulo: string;
+  cuerpo: string;
+  url: string | null;
+  creadoEn: string;
+  leidoEn: string | null;
+}
+
 export interface BandejaSolicitudes {
   ausencias: SolicitudAusencia[];
   feriados: Array<SolicitudFeriado & { nombre: string | null }>;
