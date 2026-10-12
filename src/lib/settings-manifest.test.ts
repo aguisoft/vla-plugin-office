@@ -36,6 +36,8 @@ describe('el manifiesto declara lo que el código lee', () => {
   // el valor queda invisible: nadie puede configurarlo sin editar la base.
   const LEIDOS_POR_EL_CODIGO = [
     'TIMEZONE', 'DEFAULT_COUNTRY', 'WORKDAY_HOURS', 'MAX_OPEN_SESSION_HOURS', 'bitrixWebhookSecret',
+    // lib/correo-aviso.ts → configCorreo
+    'CORREO_HOST', 'CORREO_PUERTO', 'CORREO_SSL', 'CORREO_USUARIO', 'CORREO_CLAVE', 'CORREO_REMITENTE',
   ];
 
   it.each(LEIDOS_POR_EL_CODIGO)('declara %s', clave => {
@@ -126,5 +128,13 @@ describe('forma del esquema', () => {
 
   it('toda sección tiene título', () => {
     for (const s of manifiesto.settings.sections) expect(s.title).toBeTruthy();
+  });
+});
+
+describe('manifiesto: correo de los avisos', () => {
+  it('el remitente por defecto del panel es el mismo que usa el código', async () => {
+    const { REMITENTE_POR_DEFECTO } = await import('./correo-aviso');
+    expect(campo('CORREO_REMITENTE')?.default).toBe(REMITENTE_POR_DEFECTO);
+    expect(campo('CORREO_PUERTO')?.default).toBe(465);
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "vla-plugin-office",
-  "version": "1.36.0",
+  "version": "1.37.0",
   "description": "Office presence plugin for VLA System",
   "private": true,
   "scripts": {
@@ -18,7 +18,11 @@
     "@types/express": "^4.17.21",
     "@types/node": "^20.11.0",
     "@vla/plugin-sdk": "file:./vendor/plugin-sdk",
+    "adm-zip": "^0.6.1",
     "typescript": "^5.3.3",
     "vitest": "^4.1.8"
+  },
+  "dependencies": {
+    "nodemailer": "^8.0.11"
   }
 }

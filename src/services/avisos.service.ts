@@ -38,6 +38,7 @@ const aAviso = (f: any): Aviso => ({
  * 3. Aviso del navegador SOLO si no tiene la app de escritorio conectada: con
  *    la app, Windows mostraba dos avisos por cada cosa.
  * 4. Bitrix, si el aviso trae mensaje para Bitrix.
+ * 5. Correo, si el aviso lo pide (solicitudes y sus respuestas).
  *
  * Cada canal falla por su cuenta: que Bitrix no conteste no frena el resto.
  */
@@ -46,6 +47,8 @@ export class AvisosService {
     private readonly ctx: PluginContext,
     private readonly vivo: CanalesEnVivo,
     private readonly bitrix: (userId: string, mensaje: string) => Promise<void>,
+    /** Correo a la persona; sin él, los avisos que lo piden salen igual por lo demás. */
+    private readonly correo?: (userId: string, aviso: { titulo: string; cuerpo: string; url?: string | null }) => Promise<void>,
   ) {}
 
   async avisar(userIds: string[], a: AvisoNuevo): Promise<void> {
@@ -75,6 +78,9 @@ export class AvisosService {
     await this.respaldo(userId, a);
     if (a.bitrix) {
       try { await this.bitrix(userId, a.bitrix); } catch (e) { this.ctx.logger.warn(`Aviso de Bitrix a ${userId} falló: ${e}`); }
+    }
+    if (a.correo && this.correo) {
+      try { await this.correo(userId, a); } catch (e) { this.ctx.logger.warn(`Correo a ${userId} falló: ${e}`); }
     }
   }
 

@@ -33,6 +33,7 @@ import { textoRango, NOMBRE_TIPO } from './lib/solicitudes';
 import { nombresPorUsuario } from './lib/user-names';
 import { AdjuntosService } from './services/adjuntos.service';
 import { AvisosService } from './services/avisos.service';
+import { CorreoService } from './services/correo.service';
 import { leerPedidoDeAviso } from './lib/avisos';
 import { DEFAULT_TZ, localDateString } from './lib/local-date';
 import { cumplimientoToCsv } from './lib/compliance-csv';
@@ -166,12 +167,21 @@ const plugin: PluginDefinition = {
       const n = (await nombresPorUsuario(ctx, [userId]))?.get(userId);
       return n ? `${n.firstName} ${n.lastName}`.trim() : 'Alguien del equipo';
     };
-    // Aviso de sistema de Bitrix; si falla, el servicio lo anota y los demás canales igual salieron.
-    const avisos = new AvisosService(ctx, presence, async (userId, mensaje) => {
-      if (!ctx.bitrix) return;
-      const bid = await bitrix.getBitrixIdForVlaUser(userId);
-      if (bid) await ctx.bitrix.call('im.notify.system.add', { USER_ID: bid, MESSAGE: mensaje });
-    });
+    const correo = new CorreoService(ctx, () => String(ctx.plugin.config.URL_PUBLICA || 'https://system.somosvla.com'));
+    const avisos = new AvisosService(
+      ctx, presence,
+      // Aviso de sistema de Bitrix; si falla, el servicio lo anota y los demás canales igual salieron.
+      async (userId, mensaje) => {
+        if (!ctx.bitrix) return;
+        const bid = await bitrix.getBitrixIdForVlaUser(userId);
+        if (bid) await ctx.bitrix.call('im.notify.system.add', { USER_ID: bid, MESSAGE: mensaje });
+      },
+      // Correo al de su cuenta (Amazon SES, ver services/correo.service.ts).
+      async (userId, aviso) => {
+        const u = await ctx.prisma.user.findUnique({ where: { id: userId }, select: { email: true, isActive: true } }) as { email?: string; isActive?: boolean } | null;
+        if (u?.email && u.isActive !== false) await correo.enviar(u.email, aviso);
+      },
+    );
     // Los demás plugins avisan por el hook, sin conocer la oficina por dentro:
     // { userId | userIds, tipo, titulo, cuerpo?, url?, guardar?, emergente?, bitrix? }
     ctx.hooks.registerAction('office.avisar', async (payload: unknown) => {
@@ -197,7 +207,7 @@ const plugin: PluginDefinition = {
         const quien = await nombreDe(sol.userId);
         const texto = `${quien} pidió ${NOMBRE_TIPO[sol.tipo] ?? 'una ausencia'} ${textoRango(sol.tipo, sol.startAt, sol.endAt, tz())}`;
         await avisos.avisar([aprobadorId], {
-          tipo: 'solicitud.nueva', titulo: 'Solicitud de tu equipo', cuerpo: texto, url: RUTA_BANDEJA,
+          tipo: 'solicitud.nueva', titulo: 'Solicitud de tu equipo', cuerpo: texto, url: RUTA_BANDEJA, correo: true,
           bitrix: `${texto}. Respondé en la oficina: [URL=${URL_SOLICITUDES}]Solicitudes[/URL]`,
         });
       },
@@ -207,7 +217,7 @@ const plugin: PluginDefinition = {
         const verbo = sol.estado === 'aprobada' ? 'fue aprobada' : sol.estado === 'rechazada' ? 'no fue aprobada' : 'fue cancelada';
         const texto = `${que} ${verbo} por ${por}${sol.motivoResolucion ? `: «${sol.motivoResolucion}»` : ''}`;
         const titulo = sol.estado === 'aprobada' ? 'Solicitud aprobada' : sol.estado === 'rechazada' ? 'Solicitud no aprobada' : 'Solicitud cancelada';
-        await avisos.avisar([sol.userId], { tipo: 'solicitud.resuelta', titulo, cuerpo: texto, url: RUTA_MIS_SOLICITUDES, bitrix: texto });
+        await avisos.avisar([sol.userId], { tipo: 'solicitud.resuelta', titulo, cuerpo: texto, url: RUTA_MIS_SOLICITUDES, bitrix: texto, correo: true });
       },
     });
     // Jornada de Bitrix desde el widget, también como cada persona.
@@ -870,7 +880,7 @@ const plugin: PluginDefinition = {
             const texto = `Tu pedido de tomar el feriado el ${dia} ${accion === 'approve' ? 'fue aprobado' : 'no fue aprobado'} por ${await nombreDe(userId)}${o.decision_note ? `: «${o.decision_note}»` : ''}`;
             await avisos.avisar([o.user_id], {
               tipo: 'feriado.resuelto', titulo: accion === 'approve' ? 'Feriado aprobado' : 'Feriado no aprobado',
-              cuerpo: texto, url: '/dashboard/office', bitrix: texto,
+              cuerpo: texto, url: '/dashboard/office', bitrix: texto, correo: true,
             });
           }
           return res.json({ ok: true });
@@ -913,7 +923,7 @@ const plugin: PluginDefinition = {
           const fecha = (d: string) => new Intl.DateTimeFormat('es-CR', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(`${d.slice(0, 10)}T00:00:00Z`)).replace('.', '');
           const texto = `${await nombreDe(userId)} pidió trabajar el feriado${h ? ` «${h.name}» (${fecha(new Date(h.date).toISOString())})` : ''} y tomarlo el ${fecha(newDate)}`;
           await avisos.avisar([jefe], {
-            tipo: 'feriado.nuevo', titulo: 'Solicitud de tu equipo', cuerpo: texto, url: RUTA_BANDEJA,
+            tipo: 'feriado.nuevo', titulo: 'Solicitud de tu equipo', cuerpo: texto, url: RUTA_BANDEJA, correo: true,
             bitrix: `${texto}. Respondé en la oficina: [URL=${URL_SOLICITUDES}]Solicitudes[/URL]`,
           });
         }

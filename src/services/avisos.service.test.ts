@@ -3,7 +3,7 @@ import type { PluginContext } from '@vla/plugin-sdk';
 import { AvisosService } from './avisos.service';
 
 /** Base en memoria que entiende las consultas del servicio. */
-function armar(o: { conEscritorio?: string[]; bitrixFalla?: boolean } = {}) {
+function armar(o: { conEscritorio?: string[]; bitrixFalla?: boolean; correoFalla?: boolean } = {}) {
   const filas: any[] = [];
   let n = 0;
   const query = vi.fn(async (sql: string, params: unknown[] = []) => {
@@ -30,7 +30,8 @@ function armar(o: { conEscritorio?: string[]; bitrixFalla?: boolean } = {}) {
     escritorioConectado: (userId: string) => (o.conEscritorio ?? []).includes(userId),
   };
   const bitrix = vi.fn(async () => { if (o.bitrixFalla) throw new Error('Bitrix caído'); });
-  return { svc: new AvisosService(ctx, vivo, bitrix), filas, enVivo, doAction, bitrix, ctx };
+  const correo = vi.fn(async () => { if (o.correoFalla) throw new Error('SES caído'); });
+  return { svc: new AvisosService(ctx, vivo, bitrix, correo), filas, enVivo, doAction, bitrix, correo, ctx };
 }
 
 const AVISO = { tipo: 'solicitud.nueva', titulo: 'Solicitud de tu equipo', cuerpo: 'Ana pidió vacaciones del 26 al 30 oct', url: '/dashboard/office?solicitudes=1' };
@@ -106,5 +107,22 @@ describe('AvisosService: la campana', () => {
     expect(await svc.marcarLeidos('ana', ['1'])).toBe(0);
     expect(await svc.marcarLeidos('beto', ["1' OR 1=1"])).toBe(0);
     expect((await svc.lista('beto')).sinLeer).toBe(1);
+  });
+});
+
+describe('AvisosService: correo', () => {
+  it('solo los avisos que lo piden van por correo', async () => {
+    const { svc, correo } = armar();
+    await svc.avisar(['jefe'], { ...AVISO, correo: true });
+    await svc.avisar(['jefe'], { ...AVISO, titulo: 'sin correo' });
+    expect(correo).toHaveBeenCalledTimes(1);
+    expect(correo).toHaveBeenCalledWith('jefe', expect.objectContaining({ titulo: 'Solicitud de tu equipo', url: '/dashboard/office?solicitudes=1' }));
+  });
+  it('si el correo falla, el resto ya salió y queda en el log', async () => {
+    const { svc, filas, doAction, ctx } = armar({ correoFalla: true });
+    await svc.avisar(['jefe'], { ...AVISO, correo: true });
+    expect(filas).toHaveLength(1);
+    expect(doAction).toHaveBeenCalled();
+    expect(ctx.logger.warn).toHaveBeenCalledWith(expect.stringContaining('Correo a jefe falló'));
   });
 });

@@ -21,7 +21,7 @@ describe('leerPedidoDeAviso', () => {
   it('arma el aviso con los valores por defecto', () => {
     expect(leerPedidoDeAviso({ userId: 'u1', tipo: 'leads.nuevos', titulo: '3 leads nuevos', url: '/dashboard/dashboards' })).toEqual({
       userIds: ['u1'],
-      aviso: { tipo: 'leads.nuevos', titulo: '3 leads nuevos', cuerpo: '', url: '/dashboard/dashboards', guardar: true, emergente: true, bitrix: null },
+      aviso: { tipo: 'leads.nuevos', titulo: '3 leads nuevos', cuerpo: '', url: '/dashboard/dashboards', guardar: true, emergente: true, bitrix: null, correo: false },
     });
   });
   it('acepta varios destinos sin repetir y respeta guardar/emergente en falso', () => {

@@ -26,6 +26,8 @@ export interface AvisoNuevo {
   emergente?: boolean;
   /** Mensaje para Bitrix (admite [URL=…]). Sin él, no va por Bitrix. */
   bitrix?: string | null;
+  /** También por correo (Amazon SES). Por defecto no: solo solicitudes y sus respuestas. */
+  correo?: boolean;
 }
 
 export const MAX_TITULO = 140;
@@ -64,6 +66,7 @@ export function leerPedidoDeAviso(p: unknown): { userIds: string[]; aviso: Aviso
       guardar: o.guardar !== false,
       emergente: o.emergente !== false,
       bitrix: typeof o.bitrix === 'string' && o.bitrix.trim() ? o.bitrix : null,
+      correo: o.correo === true,
     },
   };
 }

@@ -1,6 +1,6 @@
 {
   "name": "office",
-  "version": "1.36.0",
+  "version": "1.37.0",
   "description": "Presencia en tiempo real de trabajadores en la oficina virtual. Integración con Bitrix24.",
   "author": "VLA Team",
   "vlaMinVersion": "1.1.0",
@@ -213,6 +213,51 @@
             "label": "Secreto del webhook entrante",
             "description": "Si está vacío, POST /bitrix/webhook acepta cualquier llamada. Con valor, exige la cabecera x-webhook-secret.",
             "required": false
+          }
+        ]
+      },
+      {
+        "title": "Correo de los avisos",
+        "description": "Las solicitudes y sus respuestas también llegan por correo. Sale por el SMTP de Amazon SES (el mismo de cobros). Sin host, usuario o clave, no se manda correo.",
+        "fields": [
+          {
+            "key": "CORREO_HOST",
+            "type": "string",
+            "label": "Servidor SMTP",
+            "description": "Ej.: email-smtp.us-east-1.amazonaws.com",
+            "default": ""
+          },
+          {
+            "key": "CORREO_PUERTO",
+            "type": "number",
+            "label": "Puerto",
+            "description": "465 (SSL) o 587 (STARTTLS)",
+            "default": 465
+          },
+          {
+            "key": "CORREO_SSL",
+            "type": "boolean",
+            "label": "SSL directo (puerto 465)",
+            "default": true
+          },
+          {
+            "key": "CORREO_USUARIO",
+            "type": "string",
+            "label": "Usuario SMTP",
+            "default": ""
+          },
+          {
+            "key": "CORREO_CLAVE",
+            "type": "string",
+            "label": "Clave SMTP",
+            "default": ""
+          },
+          {
+            "key": "CORREO_REMITENTE",
+            "type": "string",
+            "label": "Remitente",
+            "description": "Tiene que ser de un dominio verificado en SES.",
+            "default": "VLA Oficina <oficina@grupovla.com>"
           }
         ]
       }
