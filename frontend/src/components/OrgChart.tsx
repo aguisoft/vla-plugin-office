@@ -20,9 +20,10 @@ import { StatusIcon } from './StatusIcon';
  * quién escalar, sino si está disponible y si su jornada ya empezó —el equipo
  * está repartido en cuatro husos.
  *
- * Solo lectura: jefe, departamento y país se corrigen en la pantalla de
- * administración, y dos lugares para editar lo mismo es la forma más rápida
- * de que los dos queden mal.
+ * Solo lectura: jefe, departamento y país se corrigen en Administrar →
+ * Personas, y dos lugares para editar lo mismo es la forma más rápida de que
+ * los dos queden mal. A quien administra, la salud del organigrama lo lleva
+ * ahí con el filtro puesto.
  *
  * SOBRE EL COLOR: el estado nunca se codifica solo con color. Cada uno trae su
  * `glifo` de `STATUS_CFG` —figuras separables entre sí— porque un punto de
@@ -33,7 +34,12 @@ import { StatusIcon } from './StatusIcon';
 /** Grises verificados contra el fondo #fafaf9: ninguno baja de 4.5:1. */
 const TINTA = { fuerte: '#111827', medio: '#4b5563', suave: '#6b7280' } as const;
 
-export function OrgChart({ onClose, miUserId = null }: { onClose: () => void; miUserId?: string | null }) {
+export function OrgChart({ onClose, miUserId = null, onCorregir }: {
+  onClose: () => void;
+  miUserId?: string | null;
+  /** Solo para quien administra: abre Personas filtrada por lo que falta. */
+  onCorregir?: (p: 'jefe' | 'departamento') => void;
+}) {
   const [personas, setPersonas] = useState<PersonaChart[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filtro, setFiltro] = useState('');
@@ -385,7 +391,8 @@ export function OrgChart({ onClose, miUserId = null }: { onClose: () => void; mi
       )}
 
       {verSalud && personas && (
-        <OrgHealthModal salud={salud} total={personas.length} onClose={() => setVerSalud(false)} />
+        <OrgHealthModal salud={salud} total={personas.length} onClose={() => setVerSalud(false)}
+          onCorregir={onCorregir ? p => { setVerSalud(false); onCorregir(p); } : undefined} />
       )}
     </div>
   );

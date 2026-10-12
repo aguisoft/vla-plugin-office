@@ -13,26 +13,31 @@ import type { PersonaChart, SaludOrg } from '../lib/org-tree';
 
 const TINTA = { fuerte: '#111827', medio: '#4b5563', suave: '#6b7280' } as const;
 
-export function OrgHealthModal({ salud, total, onClose }: {
+export function OrgHealthModal({ salud, total, onClose, onCorregir }: {
   salud: SaludOrg;
   total: number;
   onClose: () => void;
+  /** Solo para quien administra: abre Personas con el filtro de ese grupo. */
+  onCorregir?: (p: 'jefe' | 'departamento') => void;
 }) {
-  const grupos: Array<{ titulo: string; porque: string; gente: PersonaChart[] }> = [
+  const grupos: Array<{ titulo: string; porque: string; gente: PersonaChart[]; falta: 'jefe' | 'departamento' }> = [
     {
       titulo: 'Sin jefe ni gente a cargo',
       porque: 'No cuelgan de nadie y nadie cuelga de ellos: quedaron fuera del árbol.',
       gente: salud.sueltos,
+      falta: 'jefe' as const,
     },
     {
       titulo: 'Su jefe fue desactivado',
       porque: 'Hay que reasignarles jefe; mientras tanto el organigrama los muestra aparte.',
       gente: salud.huerfanos,
+      falta: 'jefe' as const,
     },
     {
       titulo: 'Sin departamento',
       porque: 'Sin área no entran en el reparto por departamento ni en el tablero de equipo.',
       gente: salud.sinDepartamento,
+      falta: 'departamento' as const,
     },
   ].filter(g => g.gente.length > 0);
 
@@ -88,6 +93,11 @@ export function OrgHealthModal({ salud, total, onClose }: {
                   {g.titulo} <span style={{ color: TINTA.suave }}>({g.gente.length})</span>
                 </h4>
                 <p className="mb-1 text-[11px]" style={{ color: TINTA.suave }}>{g.porque}</p>
+                {onCorregir && (
+                  <button type="button" onClick={() => onCorregir(g.falta)} className="mb-1 text-[11px] font-medium text-sky-700 hover:underline">
+                    Corregir en Personas →
+                  </button>
+                )}
                 <ul className="text-[11px]" style={{ color: TINTA.medio }}>
                   {g.gente.map(p => (
                     <li key={p.userId}>
@@ -100,7 +110,7 @@ export function OrgHealthModal({ salud, total, onClose }: {
             ))}
 
             <p className="text-[11px]" style={{ color: TINTA.suave }}>
-              Todo esto se corrige en Feriados → Organización.
+              {onCorregir ? 'Se corrige en Administrar → Personas.' : 'Lo corrige RRHH en Administrar → Personas.'}
             </p>
           </div>
         )}

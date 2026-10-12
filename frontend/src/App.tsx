@@ -24,6 +24,8 @@ import { CampanaAvisos } from './components/CampanaAvisos';
 import { AvisoFeriado } from './components/AvisoFeriado';
 import { MyAbsencesModal } from './components/MyAbsencesModal';
 import { HolidayManager } from './components/HolidayManager';
+import { PersonasAdmin, type FiltroPersonas } from './components/PersonasAdmin';
+import { MenuAdministrar, type OpcionAdmin } from './components/MenuAdministrar';
 import { TimesheetScreen } from './components/TimesheetScreen';
 import { OrgChart } from './components/OrgChart';
 import { EscritorioModal } from './components/EscritorioModal';
@@ -98,6 +100,10 @@ export default function App() {
   useEffect(() => { getEscritorioMio().then(setUsoEscritorio).catch(() => undefined); }, []);
   const faltaEscritorio = !!usoEscritorio?.publicada && !usoEscritorio.instalada;
   const [showHolidayAdmin, setShowHolidayAdmin]     = useState(false);
+  /** Personas abierta (con su filtro), o null. */
+  const [personasAdmin, setPersonasAdmin]           = useState<FiltroPersonas | null>(null);
+  /** Sube al cerrar Personas: el organigrama se vuelve a cargar con lo corregido. */
+  const [orgKey, setOrgKey]                         = useState(0);
   // La app de escritorio y el aviso de Bitrix abren pantallas con ?solicitudes=1, ?ausencias=1 o ?feriado=1.
   const [inicial] = useState(() => {
     let dePadre: string | null = null;
@@ -564,6 +570,17 @@ export default function App() {
   // administrar cualquier rol al que se le haya otorgado el permiso.
   const canManageHolidays = currentUser?.permissions?.includes('office.manage') ?? false;
 
+  const opcionesAdmin: OpcionAdmin[] = [
+    ...(canManageHolidays ? [
+      { id: 'personas', icono: '👥', titulo: 'Personas', detalle: 'País, departamento, jefe directo y zona del mapa', onClick: () => setPersonasAdmin({}) },
+      { id: 'feriados', icono: '🎉', titulo: 'Feriados', detalle: 'Calendario de feriados por país', onClick: () => setShowHolidayAdmin(true) },
+    ] : []),
+    // Bitrix24 sigue siendo solo de ADMIN (rol), no de office.manage.
+    ...(currentUser?.role === 'ADMIN' ? [
+      { id: 'bitrix', icono: '🔗', titulo: 'Bitrix24', detalle: 'Conexión y sincronizaciones con Bitrix', onClick: () => setShowBitrixSettings(true) },
+    ] : []),
+  ];
+
   const officeActions = (
     <div className="hidden md:flex items-center gap-2">
       <span className="flex items-center gap-1.5 text-[10px] text-gray-400">
@@ -571,28 +588,8 @@ export default function App() {
         {connected ? 'En vivo' : 'Reconectando...'}
       </span>
 
-      {currentUser?.role === 'ADMIN' && (
-        <button onClick={() => setShowBitrixSettings(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] text-gray-500 hover:bg-gray-100 transition-colors"
-          title="Configuración Bitrix24">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-          </svg>
-          Bitrix24
-        </button>
-      )}
 
-      {canManageHolidays && (
-        <button onClick={() => setShowHolidayAdmin(true)}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] text-gray-500 hover:bg-gray-100 transition-colors"
-          title="Administrar feriados">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-          </svg>
-          Feriados
-        </button>
-      )}
+      <MenuAdministrar opciones={opcionesAdmin} />
 
       {/* Visible para todos: es quién depende de quién, no un dato de
           administración. El endpoint que lo alimenta (/org/chart) devuelve
@@ -708,7 +705,11 @@ export default function App() {
         <BitrixSettings onClose={() => setShowBitrixSettings(false)} />
       )}
       {showHolidayAdmin && canManageHolidays && (
-        <HolidayManager onClose={() => setShowHolidayAdmin(false)} />
+        <HolidayManager onClose={() => setShowHolidayAdmin(false)}
+          onAbrirPersonas={f => { setShowHolidayAdmin(false); setPersonasAdmin(f); }} />
+      )}
+      {personasAdmin && canManageHolidays && (
+        <PersonasAdmin inicial={personasAdmin} onClose={() => { setPersonasAdmin(null); setOrgKey(k => k + 1); }} />
       )}
       {showBandeja && (
         <BandejaSolicitudesModal onClose={() => setShowBandeja(false)} onCambio={() => { void cargarBandeja(); void loadData(); }} />
@@ -759,7 +760,8 @@ export default function App() {
         {view === 'tiempos' ? (
           <TimesheetScreen onClose={() => irA('oficina')} canManageOffice={canManageHolidays} />
         ) : view === 'organigrama' ? (
-          <OrgChart onClose={() => irA('oficina')} miUserId={currentUser?.id ?? null} />
+          <OrgChart key={orgKey} onClose={() => irA('oficina')} miUserId={currentUser?.id ?? null}
+            onCorregir={canManageHolidays ? p => setPersonasAdmin({ pendiente: p }) : undefined} />
         ) : (
         <div className="h-full flex flex-col">
           <div className="flex-1 flex overflow-hidden">

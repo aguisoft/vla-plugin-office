@@ -1,14 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import {
-  listHolidays, createHoliday, deleteHoliday, getOrgRoster, setOrg, listDepartments, ApiError,
-} from '../api';
+import { listHolidays, createHoliday, deleteHoliday, getOrgRoster, ApiError } from '../api';
 import type { StatusError } from '../api';
 import { COUNTRIES, countryOf } from '../countries';
 import { monthOf, dayOf } from '../calendar';
 import { fmtDateOnly, hoyLocal } from '../format';
 import { feriadoVigente } from '../feriadosUx';
 import { HolidayCalendar } from './HolidayCalendar';
-import type { Department, Holiday, MapZone, RosterUser } from '../types';
+import type { FiltroPersonas } from './PersonasAdmin';
+import type { Holiday, RosterUser } from '../types';
 
 /**
  * Pantalla de feriados: RRHH carga el calendario por país y marca a quién le
@@ -22,11 +21,11 @@ import type { Department, Holiday, MapZone, RosterUser } from '../types';
  * ticos cargado sobre ese estado le aplica a los 35 — incluida la gente que
  * no está en Costa Rica — y nada en la interfaz anterior lo delataba.
  *
- * Dos pestañas porque son dos trabajos: *qué* días son feriados, y *a quién*
- * le tocan. Mezclarlos en un formulario fue lo que escondió el problema.
+ * *Qué* días son feriados se carga acá; *a quién* le tocan (el país de cada
+ * persona) se corrige en Personas, que es su propia pantalla desde el
+ * 12-oct-2026: esa tabla también fija el jefe, el departamento y la zona, que
+ * no tienen nada que ver con feriados. Acá quedan los avisos que mandan allá.
  */
-
-type Tab = 'calendario' | 'personas';
 
 const MES_NOMBRE = [
   'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
@@ -38,15 +37,16 @@ function errorMessage(e: unknown, fallback: string): string {
   return detail?.errors?.[0]?.message ?? detail?.message ?? fallback;
 }
 
-export function HolidayManager({ onClose }: { onClose: () => void }) {
-  const [tab, setTab] = useState<Tab>('calendario');
+export function HolidayManager({ onClose, onAbrirPersonas }: {
+  onClose: () => void;
+  /** Abre Personas con un filtro (las excepciones de país se corrigen allá). */
+  onAbrirPersonas: (f: FiltroPersonas) => void;
+}) {
   const [year, setYear] = useState(new Date().getFullYear());
   const [country, setCountry] = useState('CR');
 
   const [holidays, setHolidays] = useState<Holiday[] | null>(null);
   const [roster, setRoster] = useState<RosterUser[] | null>(null);
-  const [departments, setDepartments] = useState<Department[]>([]);
-  const [zones, setZones] = useState<MapZone[]>([]);
   const [defaultCountry, setDefaultCountry] = useState('CR');
   const [error, setError] = useState<string | null>(null);
 
@@ -57,7 +57,6 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
   const nameRef = useRef<HTMLInputElement>(null);
 
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
-  const [savingUser, setSavingUser] = useState<string | null>(null);
 
   // Todos los feriados del año, de todos los países: el contador de cada
   // pestaña de país lo necesita, y son pocas filas.
@@ -74,7 +73,6 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
     try {
       const r = await getOrgRoster();
       setRoster(r.users);
-      setZones(r.zones ?? []);
       setDefaultCountry(r.defaultCountry);
     } catch (e) {
       setRoster([]);
@@ -82,22 +80,8 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
     }
   };
 
-  /**
-   * El catálogo falla en silencio a propósito: sin él los desplegables de
-   * departamento quedan vacíos, pero el país y el jefe se siguen pudiendo
-   * corregir. Un banner rojo acá bloquearía visualmente una pantalla que
-   * todavía sirve para dos de sus tres cosas.
-   */
-  const reloadDepartments = async () => {
-    try {
-      setDepartments((await listDepartments()).departments);
-    } catch {
-      setDepartments([]);
-    }
-  };
-
   useEffect(() => { void reloadHolidays(); }, [year]);
-  useEffect(() => { void reloadRoster(); void reloadDepartments(); }, []);
+  useEffect(() => { void reloadRoster(); }, []);
 
   const delPais = useMemo(
     () => (holidays ?? []).filter(h => h.country.toUpperCase() === country),
@@ -163,113 +147,6 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
     } catch (e) {
       setError(errorMessage(e, 'No se pudo borrar el feriado'));
       await reloadHolidays();
-    }
-  }
-
-  /**
-   * Fija (o suelta) el país de una persona.
-   *
-   * Descarta el cambio si el valor ya es el vigente. Un `<select>` puede
-   * emitir `change` sin que nadie eligiera nada — al perder el foco con un
-   * valor sin confirmar, o al reordenarse la lista bajo el cursor — y sin
-   * este corte esa emisión escribe el país de la fila que quedó en esa
-   * posición. Comparar contra el override actual hace la operación
-   * idempotente: un evento que no cambia nada no manda nada.
-   */
-  async function handleSetCountry(userId: string, iso: string | null) {
-    const actual = roster?.find(u => u.userId === userId);
-    if (!actual) return;
-    const vigente = actual.countrySource === 'override' ? (actual.country ?? null) : null;
-    if (vigente === iso) return;
-
-    setSavingUser(userId);
-    setError(null);
-    try {
-      await setOrg(userId, { country: iso });
-      await reloadRoster();
-    } catch (e) {
-      setError(errorMessage(e, 'No se pudo guardar el país'));
-    } finally {
-      setSavingUser(null);
-    }
-  }
-
-  /**
-   * Fija (o suelta) el jefe directo de una persona.
-   *
-   * Descarta el cambio si el valor ya es el vigente. Un `<select>` puede
-   * emitir `change` sin que nadie eligiera nada — al perder el foco con un
-   * valor sin confirmar, o al reordenarse la lista bajo el cursor — y sin
-   * este corte esa emisión escribe el jefe de la fila que quedó en esa
-   * posición. Comparar contra el override actual hace la operación idempotente:
-   * un evento que no cambia nada no manda nada. Al igual que país, solo el
-   * override puede modificarse desde acá; Bitrix gana cuando el override está
-   * vacío.
-   */
-  async function handleSetManager(userId: string, managerUserId: string | null) {
-    const actual = roster?.find(u => u.userId === userId);
-    if (!actual) return;
-    const vigente = actual.managerSource === 'override' ? (actual.managerUserId ?? null) : null;
-    if (vigente === managerUserId) return;
-
-    setSavingUser(userId);
-    setError(null);
-    try {
-      await setOrg(userId, { managerUserId });
-      await reloadRoster();
-    } catch (e) {
-      setError(errorMessage(e, 'No se pudo guardar el jefe'));
-    } finally {
-      setSavingUser(null);
-    }
-  }
-
-  /**
-   * Fija (o suelta) el departamento de una persona. Mismo corte de
-   * idempotencia que país y jefe, por la misma razón.
-   *
-   * Recarga el catálogo además del roster: mover gente cambia el conteo que se
-   * muestra en el filtro, y un número viejo al lado de un nombre hace dudar de
-   * los dos.
-   */
-  async function handleSetDepartment(userId: string, departmentId: string | null) {
-    const actual = roster?.find(u => u.userId === userId);
-    if (!actual) return;
-    const vigente = actual.departmentSource === 'override' ? (actual.departmentId ?? null) : null;
-    if (vigente === departmentId) return;
-
-    setSavingUser(userId);
-    setError(null);
-    try {
-      await setOrg(userId, { departmentId });
-      await Promise.all([reloadRoster(), reloadDepartments()]);
-    } catch (e) {
-      setError(errorMessage(e, 'No se pudo guardar el departamento'));
-    } finally {
-      setSavingUser(null);
-    }
-  }
-
-  /**
-   * Fija (o suelta) la zona del mapa. Mismo corte de idempotencia que los otros
-   * tres. Solo la zona FIJADA se puede cambiar desde acá: una sugerida se
-   * confirma eligiendo la misma opción, que la vuelve fijada.
-   */
-  async function handleSetZone(userId: string, zoneId: string | null) {
-    const actual = roster?.find(u => u.userId === userId);
-    if (!actual) return;
-    const vigente = actual.zoneSource === 'fijada' ? (actual.zoneId ?? null) : null;
-    if (vigente === zoneId) return;
-
-    setSavingUser(userId);
-    setError(null);
-    try {
-      await setOrg(userId, { zoneId });
-      await reloadRoster();
-    } catch (e) {
-      setError(errorMessage(e, 'No se pudo guardar la zona del mapa'));
-    } finally {
-      setSavingUser(null);
     }
   }
 
@@ -376,21 +253,12 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
           </select>
         </div>
 
-        {/* Pestañas de sección */}
-        <div className="flex flex-shrink-0 gap-4 border-b border-gray-100 px-6">
-          {(['calendario', 'personas'] as Tab[]).map(t => (
-            <button
-              key={t}
-              onClick={() => setTab(t)}
-              className={`-mb-px border-b-2 px-1 py-2.5 text-xs font-semibold capitalize transition-colors ${
-                tab === t
-                  ? 'border-gray-800 text-gray-800'
-                  : 'border-transparent text-gray-400 hover:text-gray-600'
-              }`}
-            >
-              {t === 'calendario' ? 'Calendario' : `Personas (${gente})`}
-            </button>
-          ))}
+        {/* Quién tiene este país: se ve y se corrige en Personas. */}
+        <div className="flex flex-shrink-0 items-center gap-2 border-b border-gray-100 px-6 py-2 text-[11px] text-gray-500">
+          <span>{gente === 1 ? '1 persona tiene' : `${gente} personas tienen`} {cfgPais.name} como país.</span>
+          <button onClick={() => onAbrirPersonas({ pais: country })} className="font-semibold text-sky-700 hover:underline" data-testid="ver-personas-pais">
+            Ver y corregir en Personas →
+          </button>
         </div>
 
         {error && (
@@ -411,7 +279,7 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
               {delPais.length === 1 ? 'feriado cargado' : 'feriados cargados'} y{' '}
               <strong>ninguna persona asignada</strong>: hoy no le dan el día libre a nadie.
               Asigná el país a quien corresponda en{' '}
-              <button onClick={() => setTab('personas')} className="font-semibold underline">
+              <button onClick={() => onAbrirPersonas({})} className="font-semibold underline">
                 Personas
               </button>{' '}
               o borralos.
@@ -427,7 +295,7 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
               <strong>{genteDefault} de {gente}</strong> {genteDefault === 1 ? 'persona está' : 'personas están'} en{' '}
               {cfgPais.name} solo porque es el país por defecto — nadie verificó ese dato.
               Los feriados que cargues acá les van a aplicar igual.{' '}
-              <button onClick={() => setTab('personas')} className="font-semibold underline">
+              <button onClick={() => onAbrirPersonas({ pais: country, pendiente: 'pais' })} className="font-semibold underline">
                 Revisar en Personas
               </button>
             </p>
@@ -436,8 +304,7 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
 
         {/* Contenido */}
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
-          {tab === 'calendario' ? (
-            <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_16rem]">
+          <div className="grid grid-cols-1 gap-5 lg:grid-cols-[1fr_16rem]">
               <div>
                 {holidays === null ? (
                   <p className="py-12 text-center text-xs text-gray-400">Cargando…</p>
@@ -556,366 +423,9 @@ export function HolidayManager({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
             </div>
-          ) : (
-            <PersonasTab
-              roster={roster}
-              departments={departments}
-              zones={zones}
-              country={country}
-              defaultCountry={defaultCountry}
-              savingUser={savingUser}
-              onSetCountry={handleSetCountry}
-              onSetManager={handleSetManager}
-              onSetDepartment={handleSetDepartment}
-              onSetZone={handleSetZone}
-            />
-          )}
         </div>
       </div>
     </div>
   );
 }
 
-
-/** Estilo compartido por los tres desplegables de la tabla. */
-const SELECT_CLS =
-  'w-full rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] ' +
-  'focus:border-gray-400 focus:outline-none disabled:opacity-50';
-
-/** Cómo se ve cada origen. Los tres campos usan la misma escala de color. */
-const CHIP: Record<'override' | 'bitrix' | 'sugerida' | 'vacio', string> = {
-  override: 'bg-green-100 text-green-700',
-  bitrix:   'bg-blue-100 text-blue-700',
-  // Distinto del azul de Bitrix a propósito: una zona sugerida la dedujo el
-  // sistema por parecido de nombre y nadie la confirmó. Si se viera igual que
-  // un dato verificado, las que calzaron mal no se buscarían nunca.
-  sugerida: 'bg-violet-100 text-violet-700',
-  vacio:    'bg-amber-100 text-amber-700',
-};
-
-function OrigenChip({ tipo, texto }: { tipo: 'override' | 'bitrix' | 'sugerida' | 'vacio'; texto: string }) {
-  return (
-    <span className={`mt-1 inline-block rounded-full px-1.5 py-0.5 text-[9px] font-medium ${CHIP[tipo]}`}>
-      {texto}
-    </span>
-  );
-}
-
-/** Qué falta por resolver. Generaliza el viejo «Solo sin verificar». */
-type Pendiente = 'todos' | 'pais' | 'departamento' | 'jefe' | 'zona' | 'zonaSugerida' | 'fijados';
-
-const PENDIENTES: Array<{ value: Pendiente; label: string }> = [
-  { value: 'todos',        label: 'Todo el estado del dato' },
-  { value: 'pais',         label: 'País sin verificar' },
-  { value: 'departamento', label: 'Sin departamento' },
-  { value: 'jefe',         label: 'Sin jefe' },
-  { value: 'zona',         label: 'Sin zona en el mapa' },
-  { value: 'zonaSugerida', label: 'Zona sugerida sin confirmar' },
-  { value: 'fijados',      label: 'Fijados por RRHH' },
-];
-
-/**
- * Quién está en cada país y departamento, de dónde sale cada dato, y la opción
- * de corregirlo. Es la mitad que faltaba: sin poder marcar las excepciones,
- * todo el mundo queda en el país por defecto y los feriados de un país le caen
- * a gente de otro.
- *
- * Es una tabla con encabezados y no una lista de desplegables sueltos porque
- * tres selectores seguidos en una fila no dicen cuál es cuál. El encabezado es
- * la única parte de la interfaz que nombra las columnas.
- */
-function PersonasTab({
-  roster, departments, zones, country, defaultCountry, savingUser,
-  onSetCountry, onSetManager, onSetDepartment, onSetZone,
-}: {
-  roster: RosterUser[] | null;
-  departments: Department[];
-  zones: MapZone[];
-  country: string;
-  defaultCountry: string;
-  savingUser: string | null;
-  onSetCountry: (userId: string, iso: string | null) => void;
-  onSetManager: (userId: string, managerUserId: string | null) => void;
-  onSetDepartment: (userId: string, departmentId: string | null) => void;
-  onSetZone: (userId: string, zoneId: string | null) => void;
-}) {
-  const [verTodos, setVerTodos] = useState(false);
-  const [busqueda, setBusqueda] = useState('');
-  const [filtroDept, setFiltroDept] = useState('');
-  const [filtroJefe, setFiltroJefe] = useState('');
-  const [pendiente, setPendiente] = useState<Pendiente>('todos');
-
-  const aqui = (roster ?? []).filter(u => (u.country ?? '').toUpperCase() === country);
-
-  // Con el país vacío hay que mostrar a todo el equipo o no hay forma de meter
-  // a nadie: filtrando por país, la lista sale vacía y el selector que movería
-  // a alguien no se renderiza nunca. El aviso de "ninguna persona asignada"
-  // manda justo acá, así que acá tiene que haber algo que hacer.
-  const vacio = aqui.length === 0;
-  const mostrarTodos = verTodos || vacio;
-
-  // Los jefes que existen hoy, para el filtro. Sale del roster y no de una
-  // lista aparte: así solo aparece gente que de verdad tiene a alguien a cargo.
-  const jefes = useMemo(() => {
-    const ids = new Set((roster ?? []).map(u => u.managerUserId).filter(Boolean) as string[]);
-    return (roster ?? [])
-      .filter(u => ids.has(u.userId))
-      .sort((a, b) => a.firstName.localeCompare(b.firstName));
-  }, [roster]);
-
-  const lista = useMemo(() => {
-    let base = mostrarTodos ? (roster ?? []) : aqui;
-
-    const q = busqueda.trim().toLowerCase();
-    if (q) {
-      base = base.filter(u =>
-        `${u.firstName} ${u.lastName}`.toLowerCase().includes(q) ||
-        u.email.toLowerCase().includes(q),
-      );
-    }
-
-    if (filtroDept) {
-      base = filtroDept === '__sin__'
-        ? base.filter(u => !u.departmentId)
-        : base.filter(u => u.departmentId === filtroDept);
-    }
-
-    if (filtroJefe) {
-      base = filtroJefe === '__sin__'
-        ? base.filter(u => !u.managerUserId)
-        : base.filter(u => u.managerUserId === filtroJefe);
-    }
-
-    if (pendiente === 'pais')         base = base.filter(u => u.countrySource === 'default');
-    if (pendiente === 'departamento') base = base.filter(u => u.departmentSource === 'none');
-    if (pendiente === 'jefe')         base = base.filter(u => u.managerSource === 'none');
-    if (pendiente === 'zona')         base = base.filter(u => u.zoneSource === 'none');
-    if (pendiente === 'zonaSugerida') base = base.filter(u => u.zoneSource === 'sugerida');
-    if (pendiente === 'fijados')      base = base.filter(u =>
-      u.countrySource === 'override' || u.departmentSource === 'override' ||
-      u.managerSource === 'override' || u.zoneSource === 'fijada');
-
-    return base;
-  }, [roster, aqui, mostrarTodos, busqueda, filtroDept, filtroJefe, pendiente]);
-
-  if (roster === null) return <p className="py-12 text-center text-xs text-gray-400">Cargando…</p>;
-
-  const cfg = countryOf(country);
-  const nombreDe = (id: string | null) => {
-    const u = roster.find(x => x.userId === id);
-    return u ? `${u.firstName} ${u.lastName}` : null;
-  };
-  const filtrando = Boolean(busqueda.trim() || filtroDept || filtroJefe || pendiente !== 'todos');
-
-  return (
-    <div>
-      {/* ── Filtros ── */}
-      <div className="mb-3 space-y-2">
-        <div className="flex flex-wrap items-center gap-2">
-          <input
-            type="search"
-            value={busqueda}
-            onChange={e => setBusqueda(e.target.value)}
-            placeholder="Buscar por nombre o correo…"
-            aria-label="Buscar por nombre o correo"
-            className="min-w-0 flex-1 rounded-xl border border-gray-200 bg-white px-3 py-1.5 text-[11px] focus:border-gray-400 focus:outline-none"
-          />
-
-          <select
-            value={filtroDept}
-            onChange={e => setFiltroDept(e.target.value)}
-            aria-label="Filtrar por departamento"
-            className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] focus:border-gray-400 focus:outline-none"
-          >
-            <option value="">Todos los departamentos</option>
-            <option value="__sin__">— Sin departamento —</option>
-            {departments.map(d => (
-              <option key={d.id} value={d.id}>{d.name} ({d.headcount})</option>
-            ))}
-          </select>
-
-          <select
-            value={filtroJefe}
-            onChange={e => setFiltroJefe(e.target.value)}
-            aria-label="Filtrar por jefe"
-            className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] focus:border-gray-400 focus:outline-none"
-          >
-            <option value="">Todos los jefes</option>
-            <option value="__sin__">— Sin jefe —</option>
-            {jefes.map(j => (
-              <option key={j.userId} value={j.userId}>{j.firstName} {j.lastName}</option>
-            ))}
-          </select>
-
-          <select
-            value={pendiente}
-            onChange={e => setPendiente(e.target.value as Pendiente)}
-            aria-label="Filtrar por estado del dato"
-            className="rounded-xl border border-gray-200 bg-white px-2 py-1.5 text-[11px] focus:border-gray-400 focus:outline-none"
-          >
-            {PENDIENTES.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
-          </select>
-        </div>
-
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-[11px] text-gray-500">
-            {lista.length} de {mostrarTodos ? roster.length : aqui.length}
-            {!mostrarTodos && <> en {cfg.flag} {cfg.name}</>}
-            {mostrarTodos && <span className="text-gray-400"> · todo el equipo</span>}
-            {filtrando && (
-              <button
-                onClick={() => { setBusqueda(''); setFiltroDept(''); setFiltroJefe(''); setPendiente('todos'); }}
-                className="ml-2 text-gray-400 underline hover:text-gray-600"
-              >
-                limpiar filtros
-              </button>
-            )}
-          </p>
-
-          {/* Con el país vacío el interruptor queda forzado: apagarlo dejaría
-              una lista vacía y sin salida. */}
-          <label className={`flex items-center gap-1.5 text-[11px] ${vacio ? 'text-gray-300' : 'text-gray-500'}`}>
-            <input
-              type="checkbox"
-              checked={mostrarTodos}
-              disabled={vacio}
-              onChange={e => setVerTodos(e.target.checked)}
-              className="rounded border-gray-300"
-            />
-            Todo el equipo
-          </label>
-        </div>
-      </div>
-
-      {/* ── Tabla ── */}
-      {lista.length === 0 ? (
-        <p className="py-10 text-center text-xs text-gray-400">
-          {filtrando ? 'Nadie coincide con esos filtros.' : 'Nadie en este país.'}
-        </p>
-      ) : (
-        // La tabla tiene su propio scroll horizontal: en un teléfono las cuatro
-        // columnas no entran, y sin esto la página entera se desplaza de lado.
-        <div className="-mx-1 overflow-x-auto px-1">
-          <table className="w-full min-w-[820px] border-collapse">
-            <thead>
-              <tr className="border-b border-gray-200">
-                {['Persona', 'País', 'Departamento', 'Jefe directo', 'Zona del mapa'].map(h => (
-                  <th
-                    key={h}
-                    scope="col"
-                    className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400"
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {lista.map(u => (
-                <tr key={u.userId} className="border-b border-gray-50 align-top hover:bg-gray-50">
-                  <td className="px-2 py-2">
-                    <p className="truncate text-xs font-medium text-gray-700">
-                      {u.firstName} {u.lastName}
-                    </p>
-                    <p className="truncate text-[10px] text-gray-400">{u.email}</p>
-                  </td>
-
-                  <td className="w-[28%] px-2 py-2">
-                    <select
-                      value={u.countrySource === 'override' ? (u.country ?? '') : ''}
-                      disabled={savingUser === u.userId}
-                      onChange={e => onSetCountry(u.userId, e.target.value || null)}
-                      aria-label={`País de ${u.firstName} ${u.lastName}`}
-                      className={SELECT_CLS}
-                    >
-                      <option value="">Sin fijar ({defaultCountry})</option>
-                      {COUNTRIES.map(c => (
-                        <option key={c.iso} value={c.iso}>{c.flag} {c.name}</option>
-                      ))}
-                    </select>
-                    {u.countrySource === 'override' && <OrigenChip tipo="override" texto="fijado por RRHH" />}
-                    {u.countrySource === 'bitrix'   && <OrigenChip tipo="bitrix"   texto="desde Bitrix" />}
-                    {u.countrySource === 'default'  && <OrigenChip tipo="vacio"    texto={`por defecto · ${countryOf(u.country ?? '').flag}`} />}
-                  </td>
-
-                  <td className="w-[24%] px-2 py-2">
-                    <select
-                      value={u.departmentSource === 'override' ? (u.departmentId ?? '') : ''}
-                      disabled={savingUser === u.userId}
-                      onChange={e => onSetDepartment(u.userId, e.target.value || null)}
-                      aria-label={`Departamento de ${u.firstName} ${u.lastName}`}
-                      className={SELECT_CLS}
-                    >
-                      <option value="">Sin fijar</option>
-                      {departments.map(d => (
-                        <option key={d.id} value={d.id}>{d.name}</option>
-                      ))}
-                    </select>
-                    {u.departmentSource === 'override' && <OrigenChip tipo="override" texto="fijado por RRHH" />}
-                    {u.departmentSource === 'bitrix'   && <OrigenChip tipo="bitrix"   texto={u.departmentName ?? 'desde Bitrix'} />}
-                    {u.departmentSource === 'none'     && <OrigenChip tipo="vacio"    texto="sin departamento" />}
-                  </td>
-
-                  <td className="w-[24%] px-2 py-2">
-                    <select
-                      value={u.managerSource === 'override' ? (u.managerUserId ?? '') : ''}
-                      disabled={savingUser === u.userId}
-                      onChange={e => onSetManager(u.userId, e.target.value || null)}
-                      aria-label={`Jefe de ${u.firstName} ${u.lastName}`}
-                      className={SELECT_CLS}
-                    >
-                      <option value="">Sin fijar</option>
-                      {roster.filter(o => o.userId !== u.userId).map(o => (
-                        <option key={o.userId} value={o.userId}>{o.firstName} {o.lastName}</option>
-                      ))}
-                    </select>
-                    {u.managerSource === 'override' && <OrigenChip tipo="override" texto="fijado por RRHH" />}
-                    {/* El jefe heredado del departamento se nombra: "desde
-                        Bitrix" a secas obliga a cruzar la fila con otra para
-                        saber quién es. */}
-                    {u.managerSource === 'bitrix'   && <OrigenChip tipo="bitrix" texto={nombreDe(u.managerUserId) ?? 'desde Bitrix'} />}
-                    {u.managerSource === 'none'     && <OrigenChip tipo="vacio"  texto="sin jefe" />}
-                  </td>
-
-                  <td className="w-[22%] px-2 py-2">
-                    <select
-                      value={u.zoneId ?? ''}
-                      disabled={savingUser === u.userId}
-                      onChange={e => onSetZone(u.userId, e.target.value || null)}
-                      aria-label={`Zona del mapa de ${u.firstName} ${u.lastName}`}
-                      className={SELECT_CLS}
-                    >
-                      <option value="">Sin zona</option>
-                      {zones.map(z => (
-                        <option key={z.id} value={z.id}>{z.name}</option>
-                      ))}
-                    </select>
-                    {u.zoneSource === 'fijada'   && <OrigenChip tipo="override" texto="fijada por RRHH" />}
-                    {/* La sugerida ya mueve el avatar en el mapa; el chip existe
-                        para que se vea que la dedujo el sistema por parecido de
-                        nombre y que conviene revisarla. */}
-                    {u.zoneSource === 'sugerida' && <OrigenChip tipo="sugerida" texto="sugerida por el depto." />}
-                    {u.zoneSource === 'none'     && <OrigenChip tipo="vacio"    texto="no aparece en el mapa" />}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-
-      <p className="mt-4 text-[10px] leading-relaxed text-gray-400">
-        «Sin fijar» deja que el dato salga de Bitrix, y si Bitrix no lo trae, del valor por defecto
-        ({defaultCountry} para el país; sin jefe ni departamento para los otros dos). Fijar cualquiera
-        de los tres acá gana sobre lo automático y es lo que hay que usar para las excepciones.
-        Corregir el <strong>departamento</strong> también cambia el jefe: pasa a ser quien dirija el
-        departamento nuevo, salvo que se le haya fijado uno a mano.
-        <br />
-        La <strong>zona del mapa</strong> es independiente del departamento — alguien de Finanzas puede
-        sentarse en Cobros. Cuando nadie la fijó, se sugiere la que calza por nombre con el departamento
-        y el avatar ya se dibuja ahí; elegirla en la lista la deja fijada. «Sin zona» significa que esa
-        persona no aparece en el mapa.
-      </p>
-    </div>
-  );
-}
