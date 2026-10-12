@@ -30,7 +30,7 @@ import { EscritorioModal } from './components/EscritorioModal';
 import { resultadoBitrix, enlaceEscritorio, type ResultadoBitrix, type EnlaceEscritorio, type UsoEscritorio } from './lib/escritorio';
 import { OfertaEscritorio } from './components/OfertaEscritorio';
 import { InformeSalidaModal } from './components/InformeSalidaModal';
-import { getEscritorioMio, getAvisoVencido, marcarAvisoVisto, getBandejaSolicitudes } from './api';
+import { getEscritorioMio, getBandejaSolicitudes } from './api';
 import { Shell } from './components/modalParts';
 import type { UserSnapshot, LayoutData, AvatarCfg, UnavailableParticipant, PendingInvite } from './types';
 import { SELECTABLE, STATUS_CFG, cfgOf } from './statusConfig';
@@ -38,7 +38,6 @@ import type { ResolvedStatus, PayloadKind } from './statusConfig';
 import { setStatus, createAbsence, listInvites, respondInvite, setHolidayOverride, ApiError } from './api';
 import type { StatusPayload, StatusError } from './api';
 import { fmtDate, fmtDateOnly, fmtTime, absenceLastDay } from './format';
-import { textoAvisoVencido, type AvisoVencido } from './permisoHorario';
 
 export const TILE = 20;
 
@@ -77,7 +76,6 @@ export default function App() {
   /** Hasta cuándo dura mi estado (almuerzo, vuelvo pronto…), para mostrarlo. */
   const [myStatusEndsAt, setMyStatusEndsAt] = useState<string | null>(null);
   /** «Tu almuerzo terminó a las …»: el estado venció solo mientras no estaba. */
-  const [avisoVencido, setAvisoVencido]   = useState<AvisoVencido | null>(null);
   const [showAvatarModal, setShowAvatarModal]       = useState(false);
   const [showBitrixSettings, setShowBitrixSettings] = useState(false);
   // Al volver de Bitrix el core redirige a /dashboard/office?bitrix=…; se abre
@@ -168,7 +166,6 @@ export default function App() {
           setIsCheckedIn(me.isCheckedIn);
           setMyStatus(me.status);
           setMyStatusEndsAt(me.statusEndsAt ?? null);
-          getAvisoVencido().then(setAvisoVencido).catch(() => {});
         }
       }
     } finally {
@@ -312,13 +309,7 @@ export default function App() {
     }
   };
 
-  const cerrarAvisoVencido = () => {
-    setAvisoVencido(null);
-    void marcarAvisoVisto().catch(() => {});
-  };
-
   const handlePick = (status: ResolvedStatus) => {
-    if (avisoVencido) cerrarAvisoVencido();
     const kind = STATUS_CFG[status].payload;
     if (kind === 'none') { void applyStatus({ status }); return; }
     setPending({ status, kind });
@@ -749,12 +740,6 @@ export default function App() {
         </Shell>
       )}
 
-      {avisoVencido && !notice && (
-        <div className="fixed top-[4.25rem] left-1/2 z-50 flex max-w-[92vw] -translate-x-1/2 items-center gap-3 rounded-xl bg-amber-500 px-4 py-2 text-xs font-medium text-white shadow-lg" data-testid="aviso-vencido">
-          {textoAvisoVencido(avisoVencido, fmtTime)}
-          <button onClick={cerrarAvisoVencido} className="rounded-lg bg-white/20 px-2 py-0.5 font-semibold hover:bg-white/30">Entendido</button>
-        </div>
-      )}
       {notice && (
         <div className="fixed top-[4.25rem] left-1/2 z-50 flex max-w-[92vw] -translate-x-1/2 items-center gap-3 rounded-xl bg-gray-800 px-4 py-2 text-xs font-medium text-white shadow-lg">
           {notice}

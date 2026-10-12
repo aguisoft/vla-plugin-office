@@ -142,9 +142,12 @@ export function HoverCard({ user, zoneName, anchorRect }: HoverCardProps) {
             </p>
           )}
 
-          {/* Almuerzo: el rango elegido sigue siendo informativo. */}
+          {/* Almuerzo: el rango elegido es informativo. Pasada la hora el estado
+              sigue hasta que la persona vuelva (ver lib/vuelta-manual.ts). */}
           {user.status === 'LUNCH' && user.statusEndsAt && (
-            <p className="mt-1 text-[10px] text-gray-400">Hasta {fmtTime(user.statusEndsAt)}</p>
+            <p className="mt-1 text-[10px] text-gray-400">
+              {new Date(user.statusEndsAt).getTime() < Date.now() ? 'Debía volver a las' : 'Hasta'} {fmtTime(user.statusEndsAt)}
+            </p>
           )}
 
           {/* Cronómetro con semáforo para los estados con plazo: vuelvo pronto,

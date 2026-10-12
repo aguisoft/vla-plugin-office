@@ -55,21 +55,3 @@ export function sugerirTarde(fecha: string, desde: string, hasta: string, ahora:
   return yaPaso(fecha, tarde.hasta, ahora) ? null : tarde;
 }
 
-/** Aviso de un estado que venció solo (lo guarda office al vencerlo). */
-export interface AvisoVencido {
-  status: string;
-  /** Hora de fin que tenía el estado (ISO). */
-  terminaba: string;
-  vencioEn: string;
-}
-
-const NOMBRE_VENCIDO: Record<string, string> = {
-  LUNCH: 'Tu almuerzo',
-  BRB: 'Tu «vuelvo pronto»',
-  FOCUS: 'Tu tiempo de concentración',
-};
-
-/** «Tu almuerzo terminó a las 13:49 y volviste a Disponible.» */
-export function textoAvisoVencido(a: AvisoVencido, hora: (iso: string) => string): string {
-  return `${NOMBRE_VENCIDO[a.status] ?? 'Tu estado'} terminó a las ${hora(a.terminaba)} y volviste a Disponible. Quedó registrado.`;
-}

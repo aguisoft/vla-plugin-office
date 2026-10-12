@@ -42,7 +42,10 @@ export function motivoDeCierre(d: {
 /** Los que vencen solos. Las reuniones no: cerrarlas tiene efectos en los invitados. */
 const VENCEN = new Set(['LUNCH', 'BRB', 'FOCUS']);
 
-/** Estados que vencieron: tienen fin y ya pasó. Vuelven a Disponible. */
+/**
+ * Estados que vencieron: tienen fin y ya pasó. Desde el 12-oct-2026 NO vuelven
+ * solos a Disponible: se le avisa a la persona (ver lib/vuelta-manual.ts).
+ */
 export function estadosVencidos<T extends { userId: string; status: string; statusEndsAt: Date | null; isCheckedIn: boolean }>(
   filas: T[], ahora: Date,
 ): T[] {

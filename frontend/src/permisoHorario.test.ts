@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { horarioInicial, yaPaso, sugerirTarde, hoyLocal, textoAvisoVencido } from './permisoHorario';
+import { horarioInicial, yaPaso, sugerirTarde, hoyLocal } from './permisoHorario';
 
 // Hora local de la máquina: se arma con el constructor local para no depender de la zona.
 const a = (h: number, m: number) => new Date(2026, 9, 6, h, m);
@@ -44,11 +44,3 @@ describe('sugerirTarde', () => {
   it('hoyLocal arma la fecha local', () => expect(hoyLocal(a(0, 5))).toBe(HOY));
 });
 
-describe('textoAvisoVencido', () => {
-  const hora = (iso: string) => iso.slice(11, 16);
-  it('dice qué venció y a qué hora', () => {
-    expect(textoAvisoVencido({ status: 'LUNCH', terminaba: '2026-10-06T13:49:00Z', vencioEn: '' }, hora))
-      .toBe('Tu almuerzo terminó a las 13:49 y volviste a Disponible. Quedó registrado.');
-    expect(textoAvisoVencido({ status: 'RARO', terminaba: '2026-10-06T10:00:00Z', vencioEn: '' }, hora)).toMatch(/^Tu estado terminó/);
-  });
-});

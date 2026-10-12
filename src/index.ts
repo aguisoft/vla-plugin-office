@@ -19,6 +19,8 @@ import { JornadaService, JornadaError } from './services/jornada.service';
 import { EscritorioService } from './services/escritorio.service';
 import { versionValida, estadoDeUso, textoTamano, DIAS_VIGENTE } from './lib/escritorio-uso';
 import { motivoDeCierre, estadosVencidos } from './lib/inactividad';
+import { avisoDeVuelta, quedaVolviendo, JUSTIFICACION_VUELTA } from './lib/vuelta-manual';
+import { horaTexto } from './lib/jornada';
 import { disponibles } from './lib/presencia-disponible';
 import { dialogoValido, textoMensaje } from './lib/im-aviso';
 import { armarContactos } from './lib/im-contactos';
@@ -58,6 +60,8 @@ function can(req: any, permission: string): boolean {
 
 /** Aviso de un estado que venció solo (almuerzo, vuelvo pronto, concentrado), por persona. */
 const claveAvisoVencido = (userId: string) => `aviso-vencido:${userId}`;
+/** Hasta qué fin ya se le avisó «tu almuerzo terminó» (uno solo por estado). */
+const claveVueltaAvisada = (userId: string) => `vuelta-avisada:${userId}`;
 
 const plugin: PluginDefinition = {
   async register(ctx) {
@@ -394,7 +398,9 @@ const plugin: PluginDefinition = {
       res.json(await presence.getAll());
     }));
 
-    // El aviso de «tu almuerzo terminó» de quien mira (ver vencerEstados).
+    // El aviso «terminó y volviste a Disponible» de cuando los estados volvían
+    // solos. Desde el 12-oct-2026 ya no se guarda (ver lib/vuelta-manual.ts),
+    // pero la app de escritorio hasta la 0.9.6 lo sigue consultando.
     ctx.router.get('/presence/me/aviso', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       res.json(await ctx.redis.getJson(claveAvisoVencido((req as any).user?.sub)).catch(() => null) ?? null);
     }));
@@ -2090,6 +2096,7 @@ const plugin: PluginDefinition = {
 
         const { entraron, salieron } = cambio;
         presence.anunciarCambioPorReloj([...entraron, ...salieron]);
+        if (salieron.length) await volverDeAusencias(salieron);
         await ctx.hooks.doAction('office.absence.window_changed', { entraron, salieron });
         ctx.logger.log(
           `Ventana de ausencia: ${entraron.length} entraron, ${salieron.length} salieron`,
@@ -2102,24 +2109,55 @@ const plugin: PluginDefinition = {
       }
     }
 
-    /** El almuerzo (o el «vuelvo pronto») con hora de fin vuelve solo a Disponible. */
-    async function vencerEstados() {
+    const horaLocal = (d: Date) => horaTexto(d, tz());
+
+    /**
+     * Volver es manual (ver lib/vuelta-manual.ts): al cumplirse la hora del
+     * almuerzo, el «vuelvo pronto» o el «concentrado», el estado NO cambia —
+     * antes volvía solo a Disponible y la gente que no había vuelto aparecía
+     * disponible—. A la persona le llega un aviso, uno solo por estado.
+     */
+    async function avisarEstadosVencidos() {
       try {
         const filas = await ctx.prisma.presenceStatus.findMany({
           where: { isCheckedIn: true, statusEndsAt: { lte: new Date() } },
         }) as any[];
         for (const f of estadosVencidos(filas, new Date())) {
-          await presence.updateStatus(f.userId, 'AVAILABLE', { source: 'AUTO' });
-          // La persona suele no estar mirando: el aviso queda para cuando vuelva
-          // (Renee, 6-oct-2026: volvió del almuerzo, se vio en Disponible y
-          // creyó que el almuerzo no se había registrado).
-          await ctx.redis.setJson(claveAvisoVencido(f.userId), {
-            status: f.status, terminaba: new Date(f.statusEndsAt).toISOString(), vencioEn: new Date().toISOString(),
-          }, 8 * 3600).catch(() => undefined);
-          ctx.logger.log(`Estado vencido: ${f.userId} ${f.status} → AVAILABLE`);
+          const terminaba = new Date(f.statusEndsAt);
+          const clave = claveVueltaAvisada(f.userId);
+          if ((await ctx.redis.get(clave).catch(() => null)) === terminaba.toISOString()) continue;
+          await ctx.redis.set(clave, terminaba.toISOString(), 24 * 3600).catch(() => undefined);
+          const { titulo, cuerpo } = avisoDeVuelta(f.status, terminaba, horaLocal);
+          await avisos.avisar([f.userId], { tipo: 'estado.vencido', titulo, cuerpo, url: '/dashboard/office', guardar: false });
+          ctx.logger.log(`Estado vencido, sigue hasta que vuelva: ${f.userId} ${f.status}`);
         }
       } catch (e) {
         ctx.logger.warn(`Cron de estados vencidos: ${e}`);
+      }
+    }
+
+    /**
+     * Al terminar un permiso o una cita con hora, la persona pasa a «Vuelvo
+     * pronto» en vez de aparecer Disponible sola (ver lib/vuelta-manual.ts).
+     */
+    async function volverDeAusencias(userIds: string[]) {
+      const ahora = new Date();
+      for (const userId of userIds) {
+        try {
+          const ausencia = await ctx.prisma.absenceRecord.findFirst({
+            where: { userId, endAt: { lte: ahora, gte: new Date(ahora.getTime() - 5 * 60_000) } },
+            orderBy: { endAt: 'desc' },
+          }) as { type: string; endAt: Date } | null;
+          if (!ausencia) continue; // terminó un feriado, o la cancelaron
+          const p = await ctx.prisma.presenceStatus.findUnique({ where: { userId } }) as { isCheckedIn: boolean; status: string } | null;
+          if (!p || !quedaVolviendo({ tipoAusencia: ausencia.type, isCheckedIn: p.isCheckedIn, status: p.status })) continue;
+          await presence.updateStatus(userId, 'BRB', { justification: JUSTIFICACION_VUELTA[ausencia.type], source: 'AUTO' });
+          const { titulo, cuerpo } = avisoDeVuelta(ausencia.type, new Date(ausencia.endAt), horaLocal);
+          await avisos.avisar([userId], { tipo: 'ausencia.terminada', titulo, cuerpo, url: '/dashboard/office', guardar: false });
+          ctx.logger.log(`Terminó ${ausencia.type} de ${userId}: queda en Vuelvo pronto hasta que vuelva`);
+        } catch (e) {
+          ctx.logger.warn(`Vuelta de ausencia de ${userId}: ${e}`);
+        }
       }
     }
 
@@ -2129,7 +2167,7 @@ const plugin: PluginDefinition = {
     // se sumó el de la app de escritorio (encontrado el 2-oct-2026).
     ctx.cron('* * * * *', async () => {
       await ventanaDeAusencias();
-      await vencerEstados();
+      await avisarEstadosVencidos();
       try {
         escritorio.revisar(version => presence.anunciarActualizacionEscritorio(version));
       } catch (e) {
