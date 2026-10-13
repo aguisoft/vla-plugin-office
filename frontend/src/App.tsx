@@ -27,6 +27,8 @@ import { HolidayManager } from './components/HolidayManager';
 import { PersonasAdmin, type FiltroPersonas } from './components/PersonasAdmin';
 import { MenuAdministrar, type OpcionAdmin } from './components/MenuAdministrar';
 import { MenuPersonal } from './components/MenuPersonal';
+import { MenuGuias } from './components/MenuGuias';
+import { guiasPara } from './guiasUx';
 import { NavegacionVistas } from './components/NavegacionVistas';
 import { TimesheetScreen } from './components/TimesheetScreen';
 import { OrgChart } from './components/OrgChart';
@@ -623,17 +625,9 @@ export default function App() {
 
       <CampanaAvisos recarga={recargaAvisos} onAbrir={abrirRuta} />
 
-      {/* La guía de uso: una página estática que viaja con el plugin
-          (frontend/public/ayuda), con capturas de una oficina de ejemplo. Se
-          abre aparte para poder seguirla al lado de la oficina. Quien aprueba
-          solicitudes ve la de jefes, que enlaza a la básica. */}
-      <a href={`${import.meta.env.BASE_URL}ayuda/${bandeja.aprueba ? 'jefes' : 'colaboradores'}.html`} target="_blank" rel="noopener"
-        data-testid="guia-uso" title="Guía de uso" aria-label="Guía de uso"
-        className="flex items-center rounded-xl px-2 py-1.5 text-gray-500 transition-colors hover:bg-gray-100">
-        <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-        </svg>
-      </a>
+      {/* Las guías de uso: páginas estáticas que viajan con el plugin
+          (frontend/public/ayuda), con capturas de una oficina de ejemplo. */}
+      <MenuGuias guias={guiasPara(bandeja.aprueba)} base={import.meta.env.BASE_URL} />
 
       <MenuAdministrar opciones={opcionesAdmin} />
 

@@ -2,8 +2,9 @@
 
 Las guías «para dummies» por rol. Cada una es una página estática que viaja con
 el plugin en `frontend/public/ayuda/` y se abre desde el ícono del libro del
-encabezado: quien aprueba solicitudes (jefes y RRHH) abre `ayuda/jefes.html`, que
-enlaza a la básica; el resto abre `ayuda/colaboradores.html`.
+encabezado (`MenuGuias`, regla en `guiasUx.ts`): un colaborador abre directo la
+suya; quien aprueba solicitudes (jefes y RRHH) elige entre las dos. La dirección
+de `ayuda/colaboradores.html` ya se compartió: no renombrarla.
 
 | Rol | Fuente | Publicada en el plugin |
 |---|---|---|
