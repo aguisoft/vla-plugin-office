@@ -10,7 +10,8 @@ fs.mkdirSync(path.join(destino, 'capturas'), { recursive: true });
 // otras guías lo usan y dentro del plugin se cambia por la página de al lado.
 const GUIAS = [
   { fuente: 'guia-colaboradores.html', pagina: 'colaboradores.html', artifact: 'https://claude.ai/artifact/Uy5fqgTt7gMCCDBpdiG5PT' },
-  { fuente: 'guia-jefes.html', pagina: 'jefes.html' },
+  { fuente: 'guia-jefes.html', pagina: 'jefes.html', artifact: 'https://claude.ai/artifact/9WvA2uksnW3sKKbppxqdCJ' },
+  { fuente: 'guia-rrhh.html', pagina: 'rrhh.html', artifact: 'https://claude.ai/artifact/XRMgDDMvtV5ox6h4iNa8gq' },
 ];
 
 function aPlugin(fuente) {

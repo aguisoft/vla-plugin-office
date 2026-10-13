@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Oficina Virtual para RRHH</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&display=swap">
+<style>
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+/* Layout: índice fijo a la izquierda en pantalla ancha, una sola columna en el teléfono;
+   cada paso = texto + captura con las mismas marcas naranjas numeradas que la oficina. */
+:root {
+  --bg: #f4f6f8;
+  --papel: #ffffff;
+  --tinta: #1b2330;
+  --tinta-suave: #5a6576;
+  --linea: #e1e6ec;
+  --marca: #f97316;        /* el naranja de las marcas en las capturas */
+  --marca-texto: #c2410c;
+  --nota-fondo: #fff6e8;
+  --nota-borde: #f5c27a;
+  --truco-fondo: #ecf6fd;
+  --truco-borde: #9cd0f2;
+  --verde: #15803d;
+  --sombra: 0 1px 2px rgba(20, 30, 45, .06), 0 8px 24px rgba(20, 30, 45, .06);
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --texto: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161c; --papel: #1a2029; --tinta: #e8edf3; --tinta-suave: #a3afbf; --linea: #2b3440;
+    --marca: #fb8a3c; --marca-texto: #fdba74; --nota-fondo: #2a2114; --nota-borde: #7a5524;
+    --truco-fondo: #11263a; --truco-borde: #2f5f86; --verde: #4ade80;
+    --sombra: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161c; --papel: #1a2029; --tinta: #e8edf3; --tinta-suave: #a3afbf; --linea: #2b3440;
+  --marca: #fb8a3c; --marca-texto: #fdba74; --nota-fondo: #2a2114; --nota-borde: #7a5524;
+  --truco-fondo: #11263a; --truco-borde: #2f5f86; --verde: #4ade80;
+  --sombra: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--tinta); font-family: var(--texto); font-size: 17px; line-height: 1.6; margin: 0; }
+.envoltura { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; grid-template-columns: 1fr; gap: 32px; }
+@media (min-width: 1000px) { .envoltura { grid-template-columns: 250px minmax(0, 1fr); } }
+
+/* Índice */
+.indice { font-size: 15px; }
+.indice nav { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 20px); }
+.indice h2 { font-family: var(--display); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--tinta-suave); margin: 0 0 10px; }
+.indice ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; counter-reset: cap; }
+.indice li { counter-increment: cap; }
+.indice a { display: flex; gap: 10px; padding: 6px 10px; border-radius: 8px; color: var(--tinta); text-decoration: none; }
+.indice a::before { content: counter(cap); font-variant-numeric: tabular-nums; color: var(--tinta-suave); min-width: 1.4em; }
+.indice a:hover, .indice a:focus-visible { background: var(--papel); outline: none; box-shadow: var(--sombra); }
+details.indice-movil { display: block; background: var(--papel); border: 1px solid var(--linea); border-radius: 12px; padding: 12px 16px; }
+details.indice-movil summary { cursor: pointer; font-weight: 700; }
+details.indice-movil ol { margin-top: 10px; }
+.indice-ancho { display: none; }
+@media (min-width: 1000px) { .indice-ancho { display: block; } details.indice-movil { display: none; } }
+
+/* Contenido */
+main { min-width: 0; }
+.portada { background: var(--papel); border: 1px solid var(--linea); border-radius: 18px; padding: 28px clamp(20px, 4vw, 40px); box-shadow: var(--sombra); }
+.etiqueta { display: inline-block; font-family: var(--display); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--marca-texto); margin-bottom: 6px; }
+h1 { font-family: var(--display); font-size: clamp(30px, 5vw, 44px); line-height: 1.1; margin: 0 0 12px; text-wrap: balance; }
+h2 { font-family: var(--display); font-size: clamp(24px, 3.4vw, 30px); line-height: 1.2; margin: 0 0 10px; text-wrap: balance; }
+h3 { font-family: var(--display); font-size: 21px; margin: 28px 0 8px; text-wrap: balance; }
+p { margin: 0 0 14px; max-width: 68ch; }
+.portada p { color: var(--tinta-suave); }
+.datos { font-size: 14px; color: var(--tinta-suave); margin-top: 14px; }
+
+.dia { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 22px; }
+.dia div { border: 1px solid var(--linea); border-radius: 12px; padding: 14px 16px; background: var(--bg); }
+.dia b { display: block; font-family: var(--display); font-size: 18px; margin-bottom: 2px; }
+.dia span { font-size: 15px; color: var(--tinta-suave); }
+
+section.capitulo { margin-top: 56px; scroll-margin-top: 20px; }
+.capitulo > header .etiqueta { margin-bottom: 2px; }
+
+figure { margin: 18px 0 8px; }
+figure img { display: block; max-width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--linea); box-shadow: var(--sombra); background: #fff; }
+figure.angosta img { max-width: min(100%, 470px); }
+figure.media img { max-width: min(100%, 640px); }
+figcaption { font-size: 14px; color: var(--tinta-suave); margin-top: 8px; }
+
+/* La leyenda: los mismos números naranjas que en la captura */
+ol.leyenda { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 10px; max-width: 72ch; }
+ol.leyenda li { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; align-items: start; }
+.num { width: 28px; height: 28px; border-radius: 50%; background: var(--marca); color: #fff; font-weight: 700; font-size: 15px; display: grid; place-items: center; box-shadow: 0 0 0 2px var(--papel), 0 2px 5px rgba(0,0,0,.2); font-variant-numeric: tabular-nums; }
+main p a, .datos a { color: var(--marca-texto); text-underline-offset: 3px; }
+ul.lista-simple { margin: 0 0 14px; padding-left: 1.3em; max-width: 72ch; display: grid; gap: 4px; }
+ol.pasos { margin: 10px 0 0; padding-left: 1.3em; max-width: 72ch; display: grid; gap: 6px; }
+
+.caja { border-radius: 12px; padding: 14px 18px; margin: 18px 0; max-width: 72ch; border: 1px solid; }
+.caja b.titulo { display: block; font-family: var(--display); margin-bottom: 2px; }
+.caja p:last-child { margin-bottom: 0; }
+.nota { background: var(--nota-fondo); border-color: var(--nota-borde); }
+.truco { background: var(--truco-fondo); border-color: var(--truco-borde); }
+
+.boton-ui { display: inline-block; font-weight: 700; padding: 0 7px; border-radius: 6px; border: 1px solid var(--linea); background: var(--papel); white-space: nowrap; }
+.estados { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin: 14px 0; max-width: 820px; }
+.estados div { border: 1px solid var(--linea); border-radius: 10px; padding: 10px 14px; background: var(--papel); font-size: 15px; }
+.estados b { display: block; }
+.punto { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+
+.faq details { background: var(--papel); border: 1px solid var(--linea); border-radius: 12px; padding: 14px 18px; margin-top: 10px; max-width: 76ch; }
+.faq summary { cursor: pointer; font-weight: 700; }
+.faq details[open] summary { margin-bottom: 8px; }
+.faq summary:focus-visible, .indice-movil summary:focus-visible { outline: 2px solid var(--marca); outline-offset: 3px; border-radius: 4px; }
+
+footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); border-top: 1px solid var(--linea); padding-top: 16px; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+</head>
+<body>
+<div class="envoltura">
+  <aside class="indice indice-ancho">
+    <nav aria-label="Índice">
+      <h2>En esta guía</h2>
+      <ol id="indice-lista">
+        <li><a href="#donde">Dónde está lo tuyo</a></li>
+        <li><a href="#personas">Personas: quién es quién</a></li>
+        <li><a href="#feriados">Feriados</a></li>
+        <li><a href="#solicitudes">Solicitudes de toda la empresa</a></li>
+        <li><a href="#mapa">Lo que ves en el mapa</a></li>
+        <li><a href="#cumplimiento">Cumplimiento</a></li>
+        <li><a href="#preguntas">Preguntas frecuentes</a></li>
+      </ol>
+    </nav>
+  </aside>
+
+  <main>
+    <details class="indice-movil">
+      <summary>Índice de la guía</summary>
+      <ol class="indice" id="indice-movil-lista" style="list-style:none;padding:0;margin:10px 0 0">
+        <li><a href="#donde">1. Dónde está lo tuyo</a></li>
+        <li><a href="#personas">2. Personas: quién es quién</a></li>
+        <li><a href="#feriados">3. Feriados</a></li>
+        <li><a href="#solicitudes">4. Solicitudes de toda la empresa</a></li>
+        <li><a href="#mapa">5. Lo que ves en el mapa</a></li>
+        <li><a href="#cumplimiento">6. Cumplimiento</a></li>
+        <li><a href="#preguntas">7. Preguntas frecuentes</a></li>
+      </ol>
+    </details>
+
+    <div class="portada" style="margin-top:16px">
+      <span class="etiqueta">Guía para RRHH</span>
+      <h1>Oficina Virtual para RRHH</h1>
+      <p>Como RRHH usás la oficina igual que todos, y respondés solicitudes igual que un jefe. Esta guía explica lo que se suma por administrar la oficina. Lo básico está en la <a href="colaboradores.html">guía para colaboradores</a>, y cómo responder solicitudes, en la <a href="jefes.html">guía para jefes</a>.</p>
+      <div class="dia" aria-label="Lo que suma RRHH">
+        <div><b>Ordenar</b><span>Decidís quién es jefe de quién, el país, los sábados y la zona del mapa de cada persona.</span></div>
+        <div><b>Calendario</b><span>Cargás los feriados de cada país.</span></div>
+        <div><b>Revisar</b><span>Ves quién no marca o dejó la sesión abierta en toda la empresa.</span></div>
+      </div>
+      <p class="datos">Las capturas son de una oficina de ejemplo. En ellas, Irene Salas es de RRHH. Los nombres son inventados.</p>
+    </div>
+
+    <section class="capitulo" id="donde" data-titulo="Dónde está lo tuyo">
+      <header><span class="etiqueta">Para empezar</span><h2>Dónde está lo tuyo</h2></header>
+      <p>Con el permiso de administrar la oficina, en el encabezado aparece <span class="boton-ui">Administrar</span>. Ahí están las dos pantallas de RRHH.</p>
+      <figure class="media"><img src="capturas/29-rrhh-encabezado.png" alt="El encabezado de RRHH con Solicitudes, el ícono de las guías y el menú Administrar abierto con Personas y Feriados" width="361" height="203" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Solicitudes:</b> todas las que esperan respuesta en la empresa.</span></li>
+        <li><span class="num">2</span><span><b>Administrar:</b> Personas y Feriados.</span></li>
+        <li><span class="num">3</span><span><b>Las guías de uso:</b> como RRHH ves las tres.</span></li>
+      </ol>
+    </section>
+
+    <section class="capitulo" id="personas" data-titulo="Personas: quién es quién">
+      <header><span class="etiqueta">Ordenar</span><h2>Personas: quién es quién</h2></header>
+      <p>Esta tabla decide a quién le llegan las solicitudes de cada persona, qué feriados le tocan, cómo cuenta su sábado y dónde aparece en el mapa. Es el único lugar donde se corrigen esos datos: el organigrama los muestra, pero no los cambia.</p>
+      <figure><img src="capturas/30-rrhh-personas.png" alt="La tabla Personas con los filtros arriba y las columnas país, departamento, jefe directo, sábados y zona del mapa" width="1024" height="701" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Buscar y filtrar</b> por nombre, país, departamento, jefe o por lo que falta (ver más abajo).</span></li>
+        <li><span class="num">2</span><span><b>País:</b> decide qué feriados le tocan. «Por defecto» quiere decir que nadie lo verificó y le tocan los de Costa Rica.</span></li>
+        <li><span class="num">3</span><span><b>Jefe directo:</b> quien le aprueba las solicitudes y lo ve en Tiempos. Debajo dice quién las aprueba. Sin jefe, las aprobás vos.</span></li>
+        <li><span class="num">4</span><span><b>Sábados:</b> no trabaja, medio día o día completo. Cuenta en sus vacaciones, en Tiempos y en el cumplimiento.</span></li>
+        <li><span class="num">5</span><span><b>Zona del mapa:</b> dónde aparece su muñequito. «Sugerida por el depto.» quiere decir que la oficina la dedujo por el nombre del departamento; elegirla en la lista la deja fija.</span></li>
+      </ol>
+      <div class="caja nota"><b class="titulo">De dónde sale cada dato</b><p>La etiqueta debajo de cada dato lo dice. <b>Azul:</b> viene de Bitrix. <b>Verde, «fijado por RRHH»:</b> alguien lo corrigió acá, y eso gana sobre Bitrix. <b>Amarilla:</b> falta, o es el valor por defecto. Elegir «Sin fijar» devuelve el dato a lo que diga Bitrix.</p></div>
+      <div class="caja truco"><b class="titulo">Ojo con el departamento</b><p>Cambiar el departamento también cambia el jefe: pasa a ser quien dirige el departamento nuevo, salvo que le hayas fijado un jefe a mano.</p></div>
+      <h3>Encontrar lo que falta</h3>
+      <p>El último filtro busca lo que está incompleto: país sin verificar, sin departamento, sin jefe, sin zona, zona sugerida sin confirmar, o lo que ya fijó RRHH.</p>
+      <figure><img src="capturas/31-rrhh-sin-jefe.png" alt="Personas filtrada por Sin jefe: aparecen Luis Campos y Nicolás Brenes, y debajo de Luis dice Aprueba sus solicitudes: RRHH" width="1024" height="367" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>Elegí qué buscar, por ejemplo <b>Sin jefe</b>.</span></li>
+        <li><span class="num">2</span><span>Cuántas personas aparecen. «Limpiar filtros» vuelve a mostrar a todas.</span></li>
+        <li><span class="num">3</span><span>Sin jefe, sus solicitudes te llegan a vos.</span></li>
+      </ol>
+      <p>Que la gerencia general no tenga jefe está bien. Revisá a cualquier otra persona que aparezca.</p>
+    </section>
+
+    <section class="capitulo" id="feriados" data-titulo="Feriados">
+      <header><span class="etiqueta">Calendario</span><h2>Feriados</h2></header>
+      <p>Los feriados se cargan por país. A cada persona le tocan los del país que tiene en Personas, y ese día aparece como Feriado en el mapa.</p>
+      <figure><img src="capturas/32-rrhh-feriados.png" alt="La pantalla Feriados de 2026 con las pestañas Costa Rica y Colombia, el aviso de personas por defecto, el calendario y la lista de diciembre" width="1024" height="504" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>El año.</b></span></li>
+        <li><span class="num">2</span><span><b>Un país por pestaña.</b> El primer número es cuánta gente tiene ese país; el segundo, cuántos feriados hay cargados.</span></li>
+        <li><span class="num">3</span><span><b>Ver y corregir en Personas</b> abre Personas filtrada por ese país.</span></li>
+        <li><span class="num">4</span><span><b>El aviso amarillo:</b> gente que está en ese país solo por defecto. Revisala antes de cargar feriados, porque igual le van a tocar.</span></li>
+        <li><span class="num">5</span><span><b>La lista</b> de los que vienen. Los de hace más de un mes se esconden. Para borrar uno, pasá el mouse por encima, tocá ✕ y confirmá.</span></li>
+      </ol>
+      <h3>Cargar un feriado</h3>
+      <figure><img src="capturas/33-rrhh-feriado-nuevo.png" alt="Feriados de 2027 con el 1 de enero elegido, el nombre Año Nuevo escrito y el botón Agregar en Costa Rica" width="1024" height="425" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>Elegí el año. Por ejemplo, antes de que termine el año, el que viene.</span></li>
+        <li><span class="num">2</span><span>Tocá el día en el calendario.</span></li>
+        <li><span class="num">3</span><span>Escribí el nombre y tocá <b>Agregar en Costa Rica</b> (o en el país de la pestaña).</span></li>
+      </ol>
+      <div class="caja nota"><b class="titulo">Mover un feriado</b><p>Cuando alguien trabaja un feriado y lo toma otro día, lo aprueba su jefe directo. Esos pedidos no llegan a tu bandeja.</p></div>
+    </section>
+
+    <section class="capitulo" id="solicitudes" data-titulo="Solicitudes de toda la empresa">
+      <header><span class="etiqueta">Responder</span><h2>Solicitudes de toda la empresa</h2></header>
+      <p>En <span class="boton-ui">Solicitudes</span> ves todos los permisos, citas y vacaciones que esperan respuesta, de cualquier equipo. Podés responder cualquiera, igual que su jefe. Cómo se hace está en la <a href="jefes.html">guía para jefes</a>.</p>
+      <figure class="media"><img src="capturas/34-rrhh-bandeja.png" alt="La bandeja de RRHH con el texto Como RRHH ves las de todo el equipo y las vacaciones de Nicolás Brenes primero" width="528" height="591" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>Como RRHH ves las de todos.</span></li>
+        <li><span class="num">2</span><span><b>Quien no tiene jefe</b> (acá, Nicolás): esas solicitudes te tocan a vos.</span></li>
+      </ol>
+      <div class="caja nota"><b class="titulo">Las de quien no tiene jefe no avisan</b><p>Cuando alguien sin jefe pide algo, no sale ningún aviso ni recordatorio: solo aparece en tu bandeja. Mirá el número rojo de Solicitudes.</p></div>
+      <h3>Lo que te llega por correo</h3>
+      <p>Cada vez que alguien aprueba o no una solicitud o un feriado movido, el correo a la persona va <b>con copia a rrhh@grupovla.com</b> y a quien respondió. Así queda registro sin que nadie tenga que reenviar nada.</p>
+      <p>Si vos no tenés jefe, tus propias solicitudes quedan aprobadas solas.</p>
+    </section>
+
+    <section class="capitulo" id="mapa" data-titulo="Lo que ves en el mapa">
+      <header><span class="etiqueta">Acompañar</span><h2>Lo que ves en el mapa</h2></header>
+      <p>Como RRHH ves en la tarjeta de cualquier persona el motivo de sus permisos, citas médicas e incapacidades, y el reloj en color de quien se pasó de la hora. El resto del equipo no ve esos motivos, porque pueden ser datos de salud.</p>
+      <figure class="media"><img src="capturas/35-rrhh-mapa.png" alt="La tarjeta de Karla con permiso y el motivo Trámite en el banco, y debajo los relojes en rojo de Bruno y Camila" width="402" height="483" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>El motivo del permiso.</span></li>
+        <li><span class="num">2</span><span>Los relojes en rojo de quien se pasó. Cómo leerlos está en la guía para jefes.</span></li>
+      </ol>
+    </section>
+
+    <section class="capitulo" id="cumplimiento" data-titulo="Cumplimiento">
+      <header><span class="etiqueta">Revisar</span><h2>Cumplimiento</h2></header>
+      <p>En <b>Tiempos</b>, la pestaña <b>Cumplimiento</b> dice si se puede confiar en las horas de toda la organización. Si alguien no marca o deja la sesión abierta, sus horas no dicen la verdad. Lo que elijas arriba (día, semana o mes) cambia el período.</p>
+      <figure><img src="capturas/36-rrhh-cumplimiento.png" alt="La pestaña Cumplimiento con el botón Exportar CSV y las tarjetas de sin marcar en 30 días, sesiones abiertas, sin jefe directo, sin departamento y por departamento" width="1036" height="1025" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Cumplimiento:</b> solo aparece con el permiso de administrar la oficina.</span></li>
+        <li><span class="num">2</span><span><b>Exportar CSV:</b> descarga el reporte del período con las horas de cada persona activa.</span></li>
+        <li><span class="num">3</span><span><b>Sin marcar en 30 días:</b> hablá con la persona o con su jefe. Si ya no trabaja en la empresa, avisá para que la desactiven.</span></li>
+        <li><span class="num">4</span><span><b>Sesiones abiertas:</b> alguien entró y nunca salió. Sus horas desde ese día no son reales.</span></li>
+        <li><span class="num">5</span><span><b>Sin jefe directo:</b> corregilo en Personas. La gerencia general siempre aparece, y está bien.</span></li>
+        <li><span class="num">6</span><span><b>Por departamento:</b> cuántos no marcan, sobre el total de cada uno.</span></li>
+      </ol>
+      <p>«Sin departamento asignado» también se corrige en Personas.</p>
+      <div class="caja truco"><b class="titulo">Tus horas y las de la empresa</b><p>La pestaña de horas de Tiempos muestra solo las tuyas, o las de tu equipo si tenés gente a cargo. Las de toda la empresa vienen en el CSV.</p></div>
+    </section>
+
+    <section class="capitulo faq" id="preguntas" data-titulo="Preguntas frecuentes">
+      <header><span class="etiqueta">Dudas</span><h2>Preguntas frecuentes</h2></header>
+      <details><summary>Un jefe aprobó algo por error, o hay que anular una ausencia.</summary><p>Por ahora la oficina no tiene un botón para anular la solicitud de otra persona. Pedíselo al equipo de sistemas. La persona sí puede cancelar la suya mientras no haya empezado.</p></details>
+      <details><summary>¿Cómo anoto la incapacidad de otra persona?</summary><p>Por ahora la registra la persona desde su oficina; la guía para colaboradores explica cómo. No hay un botón para cargarla por otra persona.</p></details>
+      <details><summary>Alguien no aparece en el mapa.</summary><p>En Personas tiene «Sin zona». Elegí su zona en la columna Zona del mapa.</p></details>
+      <details><summary>A un jefe le llegan solicitudes de alguien que no es de su equipo, o le falta alguien en Tiempos.</summary><p>El jefe directo de esa persona está mal. Corregilo en Personas.</p></details>
+      <details><summary>Alguien de otro país tiene los feriados de Costa Rica.</summary><p>Su país está por defecto o mal cargado. Corregilo en Personas, en la columna País.</p></details>
+      <details><summary>Corregí algo en Personas, ¿Bitrix lo vuelve a cambiar?</summary><p>No. Lo que fijás acá gana sobre Bitrix. Si elegís «Sin fijar», vuelve a mandar Bitrix.</p></details>
+      <details><summary>No veo Bitrix24 en Administrar.</summary><p>Esa pantalla es solo para quienes administran el sistema.</p></details>
+    </section>
+
+    <footer class="pie">Guía de la Oficina Virtual de VLA para RRHH. Las capturas usan una oficina de ejemplo con nombres inventados.</footer>
+  </main>
+</div>
+</body>
+</html>

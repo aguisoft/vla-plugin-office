@@ -66,6 +66,22 @@ export function absenceReturnDate(endsAtIso: string): Date {
   return new Date(y, m - 1, d + 1);
 }
 
+/**
+ * «Vuelve el …» de la tarjeta. Una ausencia de días termina a las 23:59 del
+ * último día y se vuelve al siguiente; una por horas (permiso, cita) termina a
+ * una hora y se vuelve a esa hora. Antes las dos sumaban un día: un permiso de
+ * 10:00 a 10:30 decía «Vuelve el» mañana.
+ */
+export function textoVuelta(endsAtIso: string): string {
+  const hora = new Intl.DateTimeFormat('es', { timeZone: TZ_OPERACION, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(new Date(endsAtIso));
+  const diaYMes = (d: Date) => d.toLocaleDateString('es', { day: 'numeric', month: 'long' });
+  if (hora === '23:59') return `Vuelve el ${diaYMes(absenceReturnDate(endsAtIso))}`;
+  const fecha = fechaOperacion(endsAtIso);
+  if (fecha === hoyLocal()) return `Vuelve a las ${hora}`;
+  const [y, m, d] = fecha.split('-').map(Number);
+  return `Vuelve el ${diaYMes(new Date(y, m - 1, d))} a las ${hora}`;
+}
+
 /** `YYYY-MM-DD` de un instante en la zona de la operación (ver hoyLocal). */
 export function fechaOperacion(iso: string): string {
   return new Intl.DateTimeFormat('en-CA', {

@@ -627,7 +627,7 @@ export default function App() {
 
       {/* Las guías de uso: páginas estáticas que viajan con el plugin
           (frontend/public/ayuda), con capturas de una oficina de ejemplo. */}
-      <MenuGuias guias={guiasPara(bandeja.aprueba)} base={import.meta.env.BASE_URL} />
+      <MenuGuias guias={guiasPara({ aprueba: bandeja.aprueba, rrhh: canManageHolidays })} base={import.meta.env.BASE_URL} />
 
       <MenuAdministrar opciones={opcionesAdmin} />
 

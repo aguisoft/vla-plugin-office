@@ -39,31 +39,39 @@ function equipo(o) {
     statusStartsAt: hace(40), currentZoneId: zona(z), defaultZoneId: zona(z), lastActivityAt: hace(3), checkedInAt: hace(120),
     avatar: extra.avatar ?? av('#FDDBB4', 'short', '#1A1A1A', '#3498DB'), ...extra,
   });
+  // Quien mira: Ana (colaboradora), Paula (jefa de Ventas) o Irene (RRHH).
   const jefe = o.rol === 'jefe';
-  const aCargo = jefe ? { canSeeTimeAlerts: true } : {};
+  const rrhh = o.rol === 'rrhh';
+  const otraVista = jefe || rrhh;
+  const aCargo = otraVista ? { canSeeTimeAlerts: true } : {};
   const paula = jefe
     ? p('paula', 'Paula', 'Núñez', 'sales', o.yoEstado, { isCheckedIn: o.yoAdentro, statusStartsAt: hace(95), canSeeTimeAlerts: true, avatar: av('#D4A574', 'ponytail', '#2C2C2C', '#9B59B6', 'glasses') })
     : p('paula', 'Paula', 'Núñez', 'sales', 'IN_MEETING_EXTERNAL', { justification: 'Visita a un cliente', avatar: av('#D4A574', 'ponytail', '#2C2C2C', '#9B59B6', 'glasses') });
-  const ana = jefe ? { ...yo, status: 'AVAILABLE', rawStatus: 'AVAILABLE', isCheckedIn: true, statusEndsAt: undefined, justification: undefined, ...aCargo } : yo;
-  return [
+  const ana = otraVista ? { ...yo, status: 'AVAILABLE', rawStatus: 'AVAILABLE', isCheckedIn: true, statusEndsAt: undefined, justification: undefined, ...aCargo } : yo;
+  const irene = rrhh
+    ? p('irene', 'Irene', 'Salas', 'rrhh', o.yoEstado, { isCheckedIn: o.yoAdentro, statusStartsAt: hace(95), canSeeTimeAlerts: true, avatar: av('#D4A574', 'curly', '#4A3728', '#9B59B6') })
+    : p('irene', 'Irene', 'Salas', 'rrhh', 'AVAILABLE', { avatar: av('#D4A574', 'curly', '#4A3728', '#9B59B6') });
+  const todos = [
     jefe ? paula : ana,
     jefe ? ana : paula,
-    jefe
+    otraVista
       ? p('bruno', 'Bruno', 'Méndez', 'sales', 'LUNCH', { statusStartsAt: hace(75), statusEndsAt: hace(15), ...aCargo, avatar: av('#F5CBA7', 'buzz', '#8B4513', '#2ECC71', 'headphones') })
       : p('bruno', 'Bruno', 'Méndez', 'sales', 'AVAILABLE', { avatar: av('#F5CBA7', 'buzz', '#8B4513', '#2ECC71', 'headphones') }),
-    p('camila', 'Camila', 'Soto', 'sales', 'BRB', { justification: 'Voy por un café', statusStartsAt: hace(jefe ? 25 : 6), ...aCargo, avatar: av('#FDDBB4', 'curly', '#C4A35A', '#FF7043') }),
+    p('camila', 'Camila', 'Soto', 'sales', 'BRB', { justification: 'Voy por un café', statusStartsAt: hace(otraVista ? 25 : 6), ...aCargo, avatar: av('#FDDBB4', 'curly', '#C4A35A', '#FF7043') }),
     p('diego', 'Diego', 'Vargas', 'marketin', 'FOCUS', { justification: 'Diseñando la campaña de diciembre', avatar: av('#C68642', 'short', '#1A1A1A', '#34495E') }),
     p('elena', 'Elena', 'Castro', 'finanzas', 'AVAILABLE', { avatar: av('#F1C27D', 'long', '#1A1A1A', '#1ABC9C', 'earbuds') }),
     p('felipe', 'Felipe', 'Mora', 'call-cen', 'IN_MEETING_INTERNAL', { justification: 'Revisión de llamadas', meetingWith: [{ userId: 'gina', firstName: 'Gina', lastName: 'Herrera' }], avatar: av('#8D5524', 'afro', '#1A1A1A', '#E74C3C') }),
     p('gina', 'Gina', 'Herrera', 'call-cen', 'IN_MEETING_INTERNAL', { justification: 'Revisión de llamadas', meetingWith: [{ userId: 'felipe', firstName: 'Felipe', lastName: 'Mora' }], avatar: av('#F5CBA7', 'ponytail', '#D2691E', '#F39C12') }),
     p('hugo', 'Hugo', 'Jiménez', 'developm', 'AVAILABLE', { avatar: av('#FDDBB4', 'mohawk', '#2C2C2C', '#00BCD4', 'glasses') }),
-    p('irene', 'Irene', 'Salas', 'rrhh', 'AVAILABLE', { avatar: av('#D4A574', 'curly', '#4A3728', '#9B59B6') }),
+    irene,
     p('julian', 'Julián', 'Ortiz', 'academy', 'VACACIONES', { absenceStartsAt: '2026-11-23T06:00:00Z', absenceEndsAt: '2026-11-28T05:59:59Z', avatar: av('#F1C27D', 'short', '#8B4513', '#3498DB', 'hat') }),
     p('karla', 'Karla', 'Fonseca', 'cobros', 'PERMISO', { justification: 'Trámite en el banco', absenceStartsAt: hace(20), absenceEndsAt: en(40), isCheckedIn: true, avatar: av('#C68642', 'long', '#1A1A1A', '#E91E63') }),
     p('luis', 'Luis', 'Campos', 'consulti', 'OFFLINE', { avatar: av('#FDDBB4', 'bald', '#1A1A1A', '#34495E') }),
     p('marta', 'Marta', 'Quesada', 'english-', 'AVAILABLE', { avatar: av('#F5CBA7', 'long', '#C4A35A', '#2ECC71') }),
     p('nicolas', 'Nicolás', 'Brenes', 'gerencia', 'AVAILABLE', { avatar: av('#D4A574', 'short', '#2C2C2C', '#34495E', 'glasses') }),
   ];
+  // RRHH ve el cronómetro en color y los motivos de todos.
+  return rrhh ? todos.map(x => ({ ...x, canSeeTimeAlerts: true })) : todos;
 }
 
 const ESCENARIO_BASE = {
@@ -121,6 +129,97 @@ function rutasJefe(q, u, req, json, e) {
   return null;
 }
 
+/**
+ * Lo que ve RRHH (Irene Salas, con office.manage) que no ve un jefe: Personas,
+ * Feriados, Cumplimiento y las solicitudes de toda la empresa. No tiene gente a
+ * cargo, así que en Tiempos se ve solo a sí misma.
+ */
+const DEPTOS = {
+  ventas: 'Ventas', mercadeo: 'Mercadeo', finanzas: 'Finanzas', callcenter: 'Call Center', desarrollo: 'Desarrollo',
+  rrhh: 'Recursos Humanos', academy: 'Academy', cobros: 'Cobros', english: 'English Sales', gerencia: 'Gerencia General',
+};
+// [id, nombre, apellido, país (origen), depto (origen), jefe (origen), zona (origen), sábado]
+const PLANILLA = [
+  ['ana', 'Ana', 'Rojas', 'CR bitrix', 'ventas bitrix', 'paula bitrix', 'sales fijada', 0.5],
+  ['bruno', 'Bruno', 'Méndez', 'CR bitrix', 'ventas bitrix', 'paula bitrix', 'sales sugerida', 0.5],
+  ['camila', 'Camila', 'Soto', 'CR bitrix', 'ventas bitrix', 'paula bitrix', 'sales sugerida', 0.5],
+  ['diego', 'Diego', 'Vargas', 'CR bitrix', 'mercadeo bitrix', 'nicolas bitrix', 'marketing sugerida', 0],
+  ['elena', 'Elena', 'Castro', 'CR default', 'finanzas bitrix', 'nicolas bitrix', 'finanzas fijada', 0],
+  ['felipe', 'Felipe', 'Mora', 'CR bitrix', 'callcenter bitrix', 'marta override', 'call-center fijada', 1],
+  ['gina', 'Gina', 'Herrera', 'CR bitrix', 'callcenter bitrix', 'marta override', 'call-center fijada', 1],
+  ['hugo', 'Hugo', 'Jiménez', 'CR default', 'desarrollo bitrix', 'nicolas bitrix', 'development fijada', 0],
+  ['irene', 'Irene', 'Salas', 'CR bitrix', 'rrhh bitrix', 'nicolas bitrix', 'rrhh fijada', 0],
+  ['julian', 'Julián', 'Ortiz', 'CR bitrix', 'academy bitrix', 'nicolas bitrix', 'academy sugerida', 0],
+  ['karla', 'Karla', 'Fonseca', 'CR bitrix', 'cobros override', 'nicolas bitrix', 'cobros fijada', 0.5],
+  ['luis', 'Luis', 'Campos', 'CR default', '- none', '- none', '- none', 0],
+  ['marta', 'Marta', 'Quesada', 'CO override', 'english bitrix', 'nicolas bitrix', 'english-sales fijada', 0],
+  ['nicolas', 'Nicolás', 'Brenes', 'CR bitrix', 'gerencia bitrix', '- none', 'gerencia fijada', 0],
+  ['paula', 'Paula', 'Núñez', 'CR bitrix', 'ventas bitrix', 'nicolas bitrix', 'sales fijada', 0.5],
+];
+function planilla() {
+  return PLANILLA.map(([id, n, a, pais, depto, jefe, zonaEnt, sabado]) => {
+    const [c, cs] = pais.split(' '), [d, ds] = depto.split(' '), [j, js] = jefe.split(' '), [z, zs] = zonaEnt.split(' ');
+    const zonaObj = zonas.find(x => x.id === z);
+    return {
+      userId: id, firstName: n, lastName: a, email: id + '@ejemplo.com',
+      country: c, countrySource: cs,
+      departmentId: d === '-' ? null : 'd-' + d, departmentName: d === '-' ? null : DEPTOS[d], departmentSource: ds,
+      managerUserId: j === '-' ? null : j, managerSource: js,
+      zoneId: zonaObj?.id ?? null, zoneName: zonaObj?.name ?? null, zoneSource: zs, sabado,
+    };
+  });
+}
+const FERIADOS_2026 = [
+  ['CR', '01-01', 'Año Nuevo'], ['CR', '04-02', 'Jueves Santo'], ['CR', '04-03', 'Viernes Santo'], ['CR', '04-11', 'Día de Juan Santamaría'],
+  ['CR', '05-01', 'Día del Trabajo'], ['CR', '07-25', 'Anexión del Partido de Nicoya'], ['CR', '08-02', 'Virgen de los Ángeles'],
+  ['CR', '08-15', 'Día de la Madre'], ['CR', '08-31', 'Día de la Persona Negra'], ['CR', '09-15', 'Día de la Independencia'],
+  ['CR', '12-01', 'Abolición del Ejército'], ['CR', '12-25', 'Navidad'],
+  ['CO', '01-01', 'Año Nuevo'], ['CO', '01-12', 'Día de los Reyes Magos'], ['CO', '05-01', 'Día del Trabajo'], ['CO', '07-20', 'Día de la Independencia'],
+  ['CO', '08-07', 'Batalla de Boyacá'], ['CO', '12-08', 'Inmaculada Concepción'], ['CO', '12-25', 'Navidad'],
+];
+function rutasRrhh(q, u, req, json, e) {
+  const sol = (o) => ({ estado: 'pendiente', absenceId: null, resueltaPor: null, resueltaEn: null, motivoResolucion: null, creadaEn: hace(40), adjuntos: [], ...o });
+  if (q === '/solicitudes/bandeja') return json({
+    ausencias: [
+      sol({ id: 'v2', userId: 'nicolas', nombre: 'Nicolás Brenes', creadaPor: 'nicolas', tipo: 'VACACIONES', startAt: '2026-12-28T06:00:00Z', endAt: '2027-01-01T05:59:59Z', justificacion: 'Fin de año con la familia', creadaEn: hace(60 * 26) }),
+      sol({ id: 'v1', userId: 'ana', nombre: 'Ana Rojas', creadaPor: 'ana', tipo: 'VACACIONES', startAt: '2026-12-21T06:00:00Z', endAt: '2026-12-24T05:59:59Z', justificacion: 'Viaje familiar' }),
+      sol({ id: 'c2', userId: 'felipe', nombre: 'Felipe Mora', creadaPor: 'felipe', tipo: 'CITA_MEDICA', startAt: '2026-11-26T20:00:00Z', endAt: '2026-11-26T21:30:00Z', absenceId: 'a7', justificacion: 'Control odontológico', usoMes: { permisoMin: 0, permisoTopeMin: 60, permisoRestanteMin: 60 } }),
+    ],
+    // Los feriados movidos los decide solo el jefe directo: RRHH no los recibe.
+    feriados: [],
+    esJefe: false, esRrhh: true,
+  });
+  if (q === '/avisos') return json({ sinLeer: 0, avisos: [] });
+  if (q === '/org/roster') return json({ defaultCountry: 'CR', zones: zonas.map(z => ({ id: z.id, name: z.name })), users: planilla() });
+  if (q === '/org/departments') {
+    const p = planilla();
+    return json({ departments: Object.entries(DEPTOS).map(([k, name]) => ({ id: 'd-' + k, name, headcount: p.filter(x => x.departmentId === 'd-' + k).length })) });
+  }
+  if (q === '/holidays' && req.method() === 'GET') {
+    const anio = u.searchParams.get('year') ?? '2026';
+    return json(anio !== '2026' ? [] : FERIADOS_2026.map(([country, md, name], i) => ({ id: `h${i}`, date: `2026-${md}T00:00:00.000Z`, name, country })));
+  }
+  if (q === '/timesheet/scope') return json({ viewerId: 'irene', isAdmin: false, users: [{ id: 'irene', firstName: 'Irene', lastName: 'Salas', email: 'irene@ejemplo.com' }] });
+  if (q.startsWith('/timesheet/office')) return json({
+    period: 'week', from: '2026-11-23T06:00:00.000Z', to: '2026-11-30T05:59:59.999Z',
+    office: { userId: 'irene', totalMinutes: 1240, byDay: [{ date: '2026-11-23', minutes: 505 }, { date: '2026-11-24', minutes: 520 }, { date: '2026-11-25', minutes: 215 }] },
+    breakdown: [{ status: 'AVAILABLE', minutes: 880 }, { status: 'IN_MEETING_INTERNAL', minutes: 180 }, { status: 'LUNCH', minutes: 150 }, { status: 'BRB', minutes: 30 }],
+    unaccountedMinutes: 0, coverageStart: '2026-09-24', absences: [],
+  });
+  if (q.startsWith('/timesheet/compliance')) return json({
+    sinMarcar30Dias: [{ userId: 'luis', nombre: 'Luis Campos', departamento: null }],
+    sesionesAbiertas: [{ userId: 'hugo', nombre: 'Hugo Jiménez', desde: '2026-11-20T23:10:00.000Z' }],
+    sinJefe: [{ userId: 'nicolas', nombre: 'Nicolás Brenes' }, { userId: 'luis', nombre: 'Luis Campos' }],
+    sinDepartamento: [{ userId: 'luis', nombre: 'Luis Campos' }],
+    feriadosCargados: 12, ausenciasDelPeriodo: 5, historialEstadosDesde: '2026-09-24',
+    porDepartamento: [
+      ...Object.entries(DEPTOS).map(([k, departamento]) => ({ departamentoId: 'd-' + k, departamento, total: planilla().filter(x => x.departmentId === 'd-' + k).length, sinMarcar: 0 })),
+      { departamentoId: null, departamento: '(sin departamento)', total: 1, sinMarcar: 1 },
+    ],
+  });
+  return null;
+}
+
 async function abrir({ ancho = 1360, alto = 860, ruta = '/', ...esc } = {}) {
   const e = { ...ESCENARIO_BASE, ...esc };
   const browser = await chromium.launch();
@@ -152,10 +251,13 @@ async function abrir({ ancho = 1360, alto = 860, ruta = '/', ...esc } = {}) {
     if (!p.startsWith('/api/v1')) return route.fulfill({ status: 404, body: '' });
     const json = (b, s = 200) => route.fulfill({ status: s, contentType: 'application/json', body: JSON.stringify(b) });
     const q = p.replace('/api/v1/p/office', '');
-    const jefe = e.rol === 'jefe';
-    if (p === '/api/v1/auth/me') return json({ id: jefe ? 'paula' : 'ana', role: 'STAFF', permissions: ['office.view', 'office.checkin'] });
-    if (jefe) {
-      const r = rutasJefe(q, u, req, json, e);
+    const jefe = e.rol === 'jefe', rrhh = e.rol === 'rrhh';
+    if (p === '/api/v1/auth/me') return json({
+      id: jefe ? 'paula' : rrhh ? 'irene' : 'ana', role: 'STAFF',
+      permissions: ['office.view', 'office.checkin', ...(rrhh ? ['office.manage'] : [])],
+    });
+    if (jefe || rrhh) {
+      const r = (jefe ? rutasJefe : rutasRrhh)(q, u, req, json, e);
       if (r) return r;
     }
     if (q === '/layout') return json({ layout: { id: layoutReal.id, name: layoutReal.name, zones: zonas } });
