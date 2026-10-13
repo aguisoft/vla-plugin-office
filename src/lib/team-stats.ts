@@ -59,9 +59,11 @@ export function diasConRegistro(sesiones: SesionCruda[], within: Span, tz: strin
  * Exportada: I6 la necesita para separar, de la lista que ya arma
  * `diasConRegistro`, cuáles de esos días cayeron en fin de semana.
  */
-export function esDiaHabil(fecha: string): boolean {
+export function esDiaHabil(fecha: string, trabajaSabado = false): boolean {
   const dow = new Date(`${fecha}T12:00:00Z`).getUTCDay();
-  return dow >= 1 && dow <= 5;
+  // Hay gente que trabaja el sábado (medio día o completo, ver office_sabados):
+  // para ella el sábado es un día en que se espera que marque.
+  return (dow >= 1 && dow <= 5) || (trabajaSabado && dow === 6);
 }
 
 /**
@@ -73,7 +75,7 @@ export function esDiaHabil(fecha: string): boolean {
  * argumento, el denominador es simplemente los hábiles (I5): un feriado no
  * cargado no existe y no se inventa.
  */
-export function diasHabiles(within: Span, tz: string, feriados?: ReadonlySet<string>): string[] {
+export function diasHabiles(within: Span, tz: string, feriados?: ReadonlySet<string>, trabajaSabado = false): string[] {
   const ultima = localDateString(within.end, tz);
   // Se ancla al mediodía UTC del primer día LOCAL, no al día calendario UTC de
   // `within.start`: cuando el arranque local cae por la tarde, su día UTC va uno
@@ -83,7 +85,7 @@ export function diasHabiles(within: Span, tz: string, feriados?: ReadonlySet<str
   const out: string[] = [];
   let fecha = localDateString(cursor, tz);
   while (fecha <= ultima) {
-    if (esDiaHabil(fecha) && !feriados?.has(fecha)) out.push(fecha);
+    if (esDiaHabil(fecha, trabajaSabado) && !feriados?.has(fecha)) out.push(fecha);
     cursor.setUTCDate(cursor.getUTCDate() + 1);
     fecha = localDateString(cursor, tz);
   }
@@ -102,8 +104,8 @@ export function diasHabiles(within: Span, tz: string, feriados?: ReadonlySet<str
  * interfaz lo reporte aparte en vez de esconderlo O de dejar que infle la
  * fracción.
  */
-export function diasFinDeSemana(dias: string[]): number {
-  return dias.filter(f => !esDiaHabil(f)).length;
+export function diasFinDeSemana(dias: string[], trabajaSabado = false): number {
+  return dias.filter(f => !esDiaHabil(f, trabajaSabado)).length;
 }
 
 /** Cuántos períodos anteriores entran en la norma, por tipo de período. */

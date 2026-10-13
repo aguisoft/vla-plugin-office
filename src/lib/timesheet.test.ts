@@ -374,3 +374,15 @@ describe('tallyAbsences', () => {
     expect(tallyAbsences([], semana, 8, TZ)).toEqual([]);
   });
 });
+
+describe('tallyAbsences: días de trabajo (13-oct-2026)', () => {
+  const CR = (iso: string) => new Date(iso + '-06:00');
+  const semana = { start: CR('2026-10-19T00:00:00'), end: CR('2026-10-25T23:59:59') };
+  const vac = [{ type: 'VACACIONES', startAt: CR('2026-10-19T00:00:00'), endAt: CR('2026-10-25T23:59:59') }];
+  it('lunes a domingo son 5 jornadas, no 7', () => {
+    expect(tallyAbsences(vac, semana, 8, 'America/Costa_Rica')).toEqual([{ type: 'VACACIONES', days: 5, minutes: 5 * 8 * 60 }]);
+  });
+  it('con sábado de medio día: 5,5 jornadas', () => {
+    expect(tallyAbsences(vac, semana, 8, 'America/Costa_Rica', 0.5)).toEqual([{ type: 'VACACIONES', days: 5.5, minutes: 5.5 * 8 * 60 }]);
+  });
+});

@@ -151,6 +151,7 @@ const plugin: PluginDefinition = {
       absences,
       horasConfig('WORKDAY_HOURS', 8),
       horasConfig('MAX_OPEN_SESSION_HOURS', 12),
+      userId => org.sabadoDe(userId),
     );
     // Misma razón que timesheet arriba: MAX_OPEN_SESSION_HOURS se lee perezoso
     // porque ctx.plugin.config se hidrata después de registrar el plugin.

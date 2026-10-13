@@ -21,6 +21,8 @@ export class TimesheetService {
     private readonly absencesSvc: AbsenceService,
     private readonly workdayHoursOf: () => number,
     private readonly maxOpenSessionHoursOf: () => number,
+    /** Lo que trabaja cada persona el sábado (0, ½ o 1). Opcional: sin él, nadie trabaja el sábado. */
+    private readonly sabadoDe?: (userId: string) => Promise<number>,
   ) {}
 
   /**
@@ -144,6 +146,7 @@ export class TimesheetService {
       span,
       this.workdayHoursOf(),
       this.tzOf(),
+      await (this.sabadoDe?.(userId) ?? Promise.resolve(0)).catch(() => 0),
     );
   }
 

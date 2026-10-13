@@ -327,3 +327,16 @@ describe('entradaHabitual', () => {
     expect(entradaHabitual(medianoche, TZ)).toBe('00:00');
   });
 });
+
+describe('quien trabaja el sábado (office_sabados)', () => {
+  const TZ = 'America/Costa_Rica';
+  const semana = { start: new Date('2026-10-19T06:00:00Z'), end: new Date('2026-10-26T05:59:59Z') }; // lun 19 → dom 25
+  it('el sábado entra en los días hábiles; el domingo no', () => {
+    expect(diasHabiles(semana, TZ).length).toBe(5);
+    expect(diasHabiles(semana, TZ, undefined, true)).toEqual(['2026-10-19', '2026-10-20', '2026-10-21', '2026-10-22', '2026-10-23', '2026-10-24']);
+  });
+  it('un sábado trabajado no es «fuera de hábiles» para quien trabaja el sábado', () => {
+    expect(diasFinDeSemana(['2026-10-24', '2026-10-25'])).toBe(2);
+    expect(diasFinDeSemana(['2026-10-24', '2026-10-25'], true)).toBe(1);
+  });
+});

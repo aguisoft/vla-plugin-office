@@ -367,11 +367,16 @@ export class TeamService {
       end: periodosPrevios[0].end,
     };
 
-    const [nombres, rows, ultimos, feriados] = await Promise.all([
+    const [nombres, rows, ultimos, feriados, sabados] = await Promise.all([
       nombresPorUsuario(this.ctx, userIds),
       this.checkInsDelEquipo(userIds, ventanaNorma.start, currentBounds.end),
       this.ultimoRegistroPorUsuario(userIds),
       this.feriadosPorUsuario(userIds, currentBounds),
+      // Quién trabaja el sábado: para esa gente el sábado entra en «M días».
+      // Si la consulta falla, nadie: el denominador queda como antes.
+      typeof this.org.sabados === 'function'
+        ? this.org.sabados(userIds).catch(() => new Map<string, number>())
+        : Promise.resolve(new Map<string, number>()),
     ]);
 
     // I5: denominador de "N de M días" POR PERSONA -- el calendario COMPLETO
@@ -380,7 +385,7 @@ export class TeamService {
     // fracción perdería el sentido de "cuánto falta/se cumplió"), menos los
     // feriados del país de esa persona en particular. `feriados` es `null`
     // si esa consulta falló -- ahí no se descuenta nada (ver `feriadosPorUsuario`).
-    const diasHabilesDe = (userId: string) => diasHabiles(currentBounds, tz, feriados?.get(userId));
+    const diasHabilesDe = (userId: string) => diasHabiles(currentBounds, tz, feriados?.get(userId), (sabados.get(userId) ?? 0) > 0);
 
     // I1: sin nombres no hay forma de decir de quién es cada minuto, así que
     // la fila entera se apaga -- ver `filaSinNombres`. Se revisa ANTES que la

@@ -258,6 +258,10 @@ export interface AbsenceTally {
  * `absence-bounds.ts` para anclar sus fechas) no tienen duración medible: son
  * un rango de días completo sin hora de inicio/fin real, así que se
  * convierten a minutos con una jornada fija configurable (`workdayHours`).
+ * Cuentan los días de TRABAJO que tocan: lunes a viernes una jornada, el
+ * sábado lo que esa persona trabaja (`sabado`: 0, ½ o 1) y el domingo nada.
+ * Hasta el 13-oct-2026 contaba todos los días del rango, así que unas
+ * vacaciones de lunes a domingo sumaban 7 jornadas en vez de 5.
  * PERMISO es la excepción -- viaja con hora de inicio y fin dentro del mismo
  * día, así que aporta su duración real. Contar un permiso de dos horas como
  * un día entero inflaría el reporte de quien solo pidió un rato para un
@@ -273,6 +277,8 @@ export function tallyAbsences(
   within: Span,
   workdayHours: number,
   tz: string,
+  /** Lo que trabaja la persona el sábado: 0 (lo de casi todos), 0.5 o 1. */
+  sabado = 0,
 ): AbsenceTally[] {
   const porTipo = new Map<string, { days: number; minutes: number }>();
 
@@ -284,9 +290,12 @@ export function tallyAbsences(
     if (FULL_DAY_TYPES.has(r.type as any)) {
       // Se cuentan los días locales que toca, no los minutos del clip: un
       // rango de vacaciones no tiene "horas trabajadas" que medir por sí solo.
-      const dias = splitByLocalDay(clipped, tz).length;
+      const dias = splitByLocalDay(clipped, tz).reduce((s, d) => {
+        const dow = new Date(`${d.date}T12:00:00Z`).getUTCDay();
+        return s + (dow === 0 ? 0 : dow === 6 ? sabado : 1);
+      }, 0);
       acc.days += dias;
-      acc.minutes += dias * workdayHours * 60;
+      acc.minutes += Math.round(dias * workdayHours * 60);
     } else {
       acc.minutes += spanMinutes(clipped);
     }
