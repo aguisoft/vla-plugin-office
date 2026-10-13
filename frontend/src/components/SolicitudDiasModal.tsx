@@ -6,7 +6,7 @@ import { getResumenAusencia, type ResumenAusencia } from '../api';
 import { hoyLocal } from '../format';
 import { semanasDelMes } from '../feriadosUx';
 import {
-  elegirDia, rangoDe, moverMes, limitesMes, nombreMes, fechaEnPalabras, esFinDeSemana, textoDias, type Seleccion,
+  elegirDia, rangoDe, moverMes, limitesMes, nombreMes, fechaEnPalabras, diaSemana, textoDias, type Seleccion,
 } from '../vacacionesUx';
 
 /**
@@ -69,6 +69,8 @@ export function SolicitudDiasModal({ status, onClose, onConfirm }: {
   }, [rango?.desde, rango?.hasta]);
 
   const feriados = new Map((delMes?.feriados ?? []).map(f => [f.fecha, f.nombre]));
+  // Hay gente que trabaja el sábado (medio día o completo): para ella cuenta.
+  const sabado = (resumen ?? delMes)?.sabado ?? 0;
   const aprobador = (resumen ?? delMes)?.aprobador;
   const faltan = esVacaciones ? 0 : Math.max(0, MIN_JUSTIFICATION - texto.trim().length);
   const sinHabiles = !!resumen && resumen.diasHabiles === 0;
@@ -103,11 +105,13 @@ export function SolicitudDiasModal({ status, onClose, onConfirm }: {
                 const feriado = feriados.get(d.fecha);
                 const extremo = !!rango && (d.fecha === rango.desde || d.fecha === rango.hasta);
                 const dentro = !!rango && d.fecha > rango.desde && d.fecha < rango.hasta;
-                const noHabil = esFinDeSemana(d.fecha) || !!feriado;
+                const ds = diaSemana(d.fecha);
+                const sabadoMedio = ds === 6 && sabado === 0.5 && !feriado;
+                const noHabil = ds === 0 || (ds === 6 && sabado === 0) || !!feriado;
                 return (
                   <button key={j} type="button" disabled={pasado} onClick={() => setSel(s => elegirDia(s, d.fecha))}
                     data-testid={`dia-${d.fecha}`}
-                    title={pasado ? (esVacaciones ? 'Ya pasó' : 'Demasiado atrás') : feriado ? `Feriado: ${feriado} (no se cuenta)` : noHabil ? 'Fin de semana (no se cuenta)' : undefined}
+                    title={pasado ? (esVacaciones ? 'Ya pasó' : 'Demasiado atrás') : feriado ? `Feriado: ${feriado} (no se cuenta)` : noHabil ? 'Fin de semana (no se cuenta)' : sabadoMedio ? 'Sábado: trabajás medio día (cuenta ½)' : undefined}
                     className={`h-8 rounded-lg text-[11px] transition-colors ${
                       extremo ? 'bg-gray-900 font-semibold text-white'
                       : dentro ? (noHabil ? 'bg-sky-50 text-gray-400' : 'bg-sky-100 font-medium text-sky-900')
@@ -117,6 +121,7 @@ export function SolicitudDiasModal({ status, onClose, onConfirm }: {
                       : d.fecha === hoy ? 'font-semibold text-sky-700 ring-1 ring-sky-200 hover:bg-gray-100'
                       : 'text-gray-700 hover:bg-gray-100'}`}>
                     {d.dia}
+                    {sabadoMedio && <sup className="ml-0.5 text-[8px] font-normal opacity-70">½</sup>}
                   </button>
                 );
               })}
@@ -124,7 +129,7 @@ export function SolicitudDiasModal({ status, onClose, onConfirm }: {
           ))}
           <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-gray-400">
             <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-sm bg-amber-100" /> feriado</span>
-            <span>Sábados, domingos y feriados no se cuentan.</span>
+            <span data-testid="regla-dias">{sabado === 0.5 ? 'Tu sábado cuenta medio día (½); domingos y feriados no se cuentan.' : sabado === 1 ? 'Trabajás los sábados: cuentan como día completo. Domingos y feriados no se cuentan.' : 'Sábados, domingos y feriados no se cuentan.'}</span>
           </p>
         </div>
         <p className="mt-1.5 text-[10px] text-gray-500">

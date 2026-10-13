@@ -118,6 +118,8 @@ export interface ResumenAusencia {
   diasHabiles: number;
   diasCorridos: number;
   reintegro: string;
+  /** Lo que trabaja la persona el sábado: 0, 0.5 o 1. */
+  sabado: number;
   feriados: Array<{ fecha: string; nombre: string }>;
   aprobador: { id: string; nombre: string } | null;
 }
@@ -208,6 +210,8 @@ export const setOrg = (
   body: {
     managerUserId?: string | null; country?: string | null;
     departmentId?: string | null; zoneId?: string | null;
+    /** Lo que trabaja el sábado: 0, 0.5 o 1. */
+    sabado?: number;
   },
 ) => api.put<{ ok: true }>(`${PLUGIN}/org/${userId}`, body);
 

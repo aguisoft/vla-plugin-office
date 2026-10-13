@@ -218,7 +218,7 @@ const plugin: PluginDefinition = {
      * formulario de vacaciones y la ficha del correo.
      */
     async function resumenAusencia(userId: string, desde: string, hasta: string) {
-      const country = await org.countryOf(userId);
+      const [country, sabado] = await Promise.all([org.countryOf(userId), org.sabadoDe(userId)]);
       // Hasta un mes después: el reintegro puede caer pasado un feriado.
       const tope = new Date(`${hasta}T12:00:00Z`);
       tope.setUTCDate(tope.getUTCDate() + 31);
@@ -229,7 +229,8 @@ const plugin: PluginDefinition = {
       }).catch(() => [])) as Array<{ date: Date; name: string }>).map(h => [h.date.toISOString().slice(0, 10), h.name]));
       const topeYmd = tope.toISOString().slice(0, 10);
       return {
-        ...resumenRango(desde, hasta, fechas, tz()),
+        ...resumenRango(desde, hasta, fechas, tz(), sabado),
+        sabado,
         feriados: [...fechas].filter(f => f >= desde && f <= topeYmd).sort()
           .map(fecha => ({ fecha, nombre: nombres.get(fecha) ?? 'Feriado' })),
       };
@@ -1206,7 +1207,7 @@ const plugin: PluginDefinition = {
         orderBy: [{ firstName: 'asc' }, { lastName: 'asc' }],
       });
       const ids = (users as any[]).map(u => u.id);
-      const roster = await org.roster(ids);
+      const [roster, sabados] = await Promise.all([org.roster(ids), org.sabados(ids)]);
 
       const zonasDelMapa = (await layout.getActive())?.zones ?? [];
 
@@ -1230,6 +1231,7 @@ const plugin: PluginDefinition = {
             zoneId: r?.zoneId ?? null,
             zoneName: r?.zoneName ?? null,
             zoneSource: r?.zoneSource ?? 'none',
+            sabado: sabados.get(u.id) ?? 0,
           };
         }),
       });
@@ -1308,9 +1310,11 @@ const plugin: PluginDefinition = {
     }));
 
     ctx.router.put('/org/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {
-      const { managerUserId, country, departmentId, zoneId } = req.body as {
+      const { managerUserId, country, departmentId, zoneId, sabado } = req.body as {
         managerUserId?: string | null; country?: string | null;
         departmentId?: string | null; zoneId?: string | null;
+        /** Lo que trabaja el sábado: 0, 0.5 o 1. */
+        sabado?: number;
       };
       const userId = req.params.userId;
 
@@ -1360,6 +1364,13 @@ const plugin: PluginDefinition = {
       // que también se escribe aparte. Se valida contra el layout activo: una
       // zona inexistente deja el avatar sin dibujar y nadie lo relaciona con
       // este guardado.
+      if (sabado !== undefined) {
+        if (sabado !== 0 && sabado !== 0.5 && sabado !== 1) {
+          return res.status(400).json({ message: 'El sábado se trabaja 0, 0.5 (medio día) o 1 (día completo)' });
+        }
+        await org.setSabado(userId, sabado, (req as any).user?.sub ?? null);
+      }
+
       if (zoneId !== undefined) {
         if (zoneId !== null) {
           const zonas = (await layout.getActive())?.zones ?? [];

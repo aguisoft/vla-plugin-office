@@ -149,6 +149,8 @@ export function PersonasAdmin({ inicial, onClose }: { inicial?: FiltroPersonas; 
   const onSetManager = (userId: string, managerUserId: string | null) =>
     guardar(userId, u => (u.managerSource === 'override' ? (u.managerUserId ?? null) : null), managerUserId, { managerUserId }, 'el jefe');
   // Solo la zona FIJADA se compara: una sugerida se confirma eligiendo la misma opción.
+  const onSetSabado = (userId: string, sabado: number) =>
+    guardar(userId, u => String(u.sabado ?? 0), String(sabado), { sabado }, 'el sábado');
   const onSetZone = (userId: string, zoneId: string | null) =>
     guardar(userId, u => (u.zoneSource === 'fijada' ? (u.zoneId ?? null) : null), zoneId, { zoneId }, 'la zona del mapa');
 
@@ -268,10 +270,10 @@ export function PersonasAdmin({ inicial, onClose }: { inicial?: FiltroPersonas; 
                 // Scroll horizontal propio: en un teléfono las columnas no entran,
                 // y sin esto la página entera se desplaza de lado.
                 <div className="-mx-1 overflow-x-auto px-1">
-                  <table className="w-full min-w-[820px] border-collapse">
+                  <table className="w-full min-w-[900px] border-collapse">
                     <thead>
                       <tr className="border-b border-gray-200">
-                        {['Persona', 'País', 'Departamento', 'Jefe directo', 'Zona del mapa'].map(h => (
+                        {['Persona', 'País', 'Departamento', 'Jefe directo', 'Sábados', 'Zona del mapa'].map(h => (
                           <th key={h} scope="col" className="px-2 py-2 text-left text-[10px] font-semibold uppercase tracking-wider text-gray-400">{h}</th>
                         ))}
                       </tr>
@@ -340,7 +342,22 @@ export function PersonasAdmin({ inicial, onClose }: { inicial?: FiltroPersonas; 
                             </p>
                           </td>
 
-                          <td className="w-[20%] px-2 py-2">
+                          <td className="w-[11%] px-2 py-2">
+                            {/* Hay gente que trabaja el sábado medio día: cuenta en sus vacaciones. */}
+                            <select
+                              value={String(u.sabado ?? 0)}
+                              disabled={savingUser === u.userId}
+                              onChange={e => void onSetSabado(u.userId, Number(e.target.value))}
+                              aria-label={`Sábados de ${u.firstName} ${u.lastName}`}
+                              className={SELECT_CLS}
+                            >
+                              <option value="0">No trabaja</option>
+                              <option value="0.5">Medio día</option>
+                              <option value="1">Día completo</option>
+                            </select>
+                          </td>
+
+                          <td className="w-[17%] px-2 py-2">
                             <select
                               value={u.zoneId ?? ''}
                               disabled={savingUser === u.userId}
@@ -372,7 +389,8 @@ export function PersonasAdmin({ inicial, onClose }: { inicial?: FiltroPersonas; 
                 departamento nuevo, salvo que se le haya fijado uno a mano. El <strong>jefe</strong> aprueba
                 las solicitudes de ausencia; sin jefe, las aprueba RRHH.
                 <br />
-                El <strong>país</strong> decide qué feriados le tocan. La <strong>zona del mapa</strong> es
+                El <strong>país</strong> decide qué feriados le tocan. <strong>Sábados</strong>: quien trabaja el sábado
+                (medio día o completo) lo descuenta de sus vacaciones y puede reintegrarse ese día. La <strong>zona del mapa</strong> es
                 independiente del departamento — alguien de Finanzas puede sentarse en Cobros. Cuando nadie la
                 fijó, se sugiere la que calza por nombre con el departamento; elegirla en la lista la deja
                 fijada. «Sin zona» significa que esa persona no aparece en el mapa.

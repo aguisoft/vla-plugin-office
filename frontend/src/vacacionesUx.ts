@@ -60,5 +60,15 @@ export function esFinDeSemana(ymd: string): boolean {
   return d === 0 || d === 6;
 }
 
-/** «1 día hábil», «5 días hábiles». */
-export const textoDias = (n: number, que = 'hábil') => `${n} ${n === 1 ? `día ${que}` : `días ${que === 'hábil' ? 'hábiles' : `${que}s`}`}`;
+/** «1 día hábil», «medio día hábil», «5,5 días hábiles», «6 días corridos». */
+export function textoDias(n: number, que = 'hábil'): string {
+  const plural = que === 'hábil' ? 'hábiles' : `${que}s`;
+  if (n === 0.5) return `medio día ${que}`;
+  if (n === 1) return `1 día ${que}`;
+  return `${String(n).replace('.', ',')} días ${plural}`;
+}
+
+/** 0 = domingo … 6 = sábado. */
+export function diaSemana(ymd: string): number {
+  return new Date(`${ymd}T12:00:00Z`).getUTCDay();
+}

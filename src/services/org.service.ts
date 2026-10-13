@@ -347,6 +347,38 @@ export class OrgService {
    * `null` limpia la zona fijada y devuelve a la persona a la sugerencia por
    * nombre de departamento, que es el mismo contrato que el resto de overrides.
    */
+  /**
+   * Lo que trabaja cada persona el sábado: 0 (nada), 0.5 o 1. Sin fila es 0.
+   * Lo usan las vacaciones (cuánto vale el sábado y si puede ser el día de
+   * reintegro).
+   */
+  async sabados(userIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>();
+    if (!userIds.length) return out;
+    const filas = await this.ctx.query<{ user_id: string; fraccion: string | number }>(
+      `SELECT user_id, fraccion FROM office_sabados WHERE user_id IN (${userIds.map((_, i) => `$${i + 1}`).join(', ')})`, userIds,
+    ).catch(() => []);
+    for (const f of filas) out.set(f.user_id, Number(f.fraccion));
+    return out;
+  }
+
+  async sabadoDe(userId: string): Promise<number> {
+    return (await this.sabados([userId])).get(userId) ?? 0;
+  }
+
+  /** 0 borra la fila: «no trabaja el sábado» tiene una sola representación. */
+  async setSabado(userId: string, fraccion: 0 | 0.5 | 1, por: string | null): Promise<void> {
+    if (fraccion === 0) {
+      await this.ctx.query('DELETE FROM office_sabados WHERE user_id = $1', [userId]);
+      return;
+    }
+    await this.ctx.query(
+      `INSERT INTO office_sabados (user_id, fraccion, updated_at, updated_by) VALUES ($1, $2::numeric, now(), $3)
+       ON CONFLICT (user_id) DO UPDATE SET fraccion = $2::numeric, updated_at = now(), updated_by = $3`,
+      [userId, String(fraccion), por],
+    );
+  }
+
   async setZone(userId: string, zoneId: string | null): Promise<void> {
     await this.ctx.prisma.presenceStatus.upsert({
       where: { userId },

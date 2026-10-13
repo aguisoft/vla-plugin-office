@@ -70,11 +70,21 @@ export function mesesCumplidos(corte: Date, ahora: Date, tz: string = DEFAULT_TZ
   return Math.max(0, meses);
 }
 
-/** ¿Es sábado o domingo en la zona de la operación? */
-function esFinDeSemana(fecha: string, tz: string): boolean {
+/** 0 = domingo … 6 = sábado, en la zona de la operación. */
+function diaDeLaSemana(fecha: string, tz: string): number {
   const [y, m, d] = fecha.split('-').map(Number);
-  const dia = zonedTimeToUtc(y, m, d, 12, 0, 0, tz).getUTCDay();
-  return dia === 0 || dia === 6;
+  return zonedTimeToUtc(y, m, d, 12, 0, 0, tz).getUTCDay();
+}
+
+/**
+ * Cuánto vale un día de trabajo: 1 de lunes a viernes, lo que trabaje la
+ * persona el sábado (0, ½ o 1 — hay gente que trabaja medio día), 0 el
+ * domingo y en los feriados.
+ */
+function valorDelDia(fecha: string, noLaborables: ReadonlySet<string>, tz: string, sabado: number): number {
+  if (noLaborables.has(fecha)) return 0;
+  const dia = diaDeLaSemana(fecha, tz);
+  return dia === 0 ? 0 : dia === 6 ? sabado : 1;
 }
 
 /**
@@ -89,6 +99,8 @@ export function diasHabiles(
   hasta: string,
   feriados: Iterable<string> = [],
   tz: string = DEFAULT_TZ,
+  /** Lo que trabaja la persona el sábado: 0 (nada, lo de casi todos), 0.5 o 1. */
+  sabado = 0,
 ): number {
   if (hasta < desde) return 0;
   const noLaborables = feriados instanceof Set ? feriados : new Set(feriados);
@@ -101,10 +113,10 @@ export function diasHabiles(
   for (let i = 0; i < 1000; i++) {
     const fecha = localDateString(cursor, tz);
     if (fecha > hasta) break;
-    if (!esFinDeSemana(fecha, tz) && !noLaborables.has(fecha)) dias++;
+    dias += valorDelDia(fecha, noLaborables, tz, sabado);
     cursor = new Date(cursor.getTime() + DIA_MS);
   }
-  return dias;
+  return c(dias);
 }
 
 /**
@@ -195,28 +207,28 @@ export function ajustePara(saldoActual: number, deseado: number): number {
  * (salta fines de semana y feriados). Es el «Me reintegro el día» del
  * formulario de papel de RRHH.
  */
-export function diaDeReintegro(hasta: string, feriados: Iterable<string> = [], tz: string = DEFAULT_TZ): string {
+export function diaDeReintegro(hasta: string, feriados: Iterable<string> = [], tz: string = DEFAULT_TZ, sabado = 0): string {
   const noLaborables = feriados instanceof Set ? feriados : new Set(feriados);
   const [y, m, d] = hasta.split('-').map(Number);
   let cursor = zonedTimeToUtc(y, m, d, 12, 0, 0, tz);
   for (let i = 0; i < 60; i++) {
     cursor = new Date(cursor.getTime() + DIA_MS);
     const fecha = localDateString(cursor, tz);
-    if (!esFinDeSemana(fecha, tz) && !noLaborables.has(fecha)) return fecha;
+    if (valorDelDia(fecha, noLaborables, tz, sabado) > 0) return fecha;
   }
   return localDateString(cursor, tz);
 }
 
 /** Lo que muestra el formulario y lleva el correo: días hábiles, días corridos y reintegro. */
 export function resumenRango(
-  desde: string, hasta: string, feriados: Iterable<string> = [], tz: string = DEFAULT_TZ,
+  desde: string, hasta: string, feriados: Iterable<string> = [], tz: string = DEFAULT_TZ, sabado = 0,
 ): { diasHabiles: number; diasCorridos: number; reintegro: string } {
   const noLaborables = feriados instanceof Set ? feriados : new Set(feriados);
   const corridos = hasta < desde ? 0
     : Math.round((Date.parse(`${hasta}T12:00:00Z`) - Date.parse(`${desde}T12:00:00Z`)) / DIA_MS) + 1;
   return {
-    diasHabiles: diasHabiles(desde, hasta, noLaborables, tz),
+    diasHabiles: diasHabiles(desde, hasta, noLaborables, tz, sabado),
     diasCorridos: corridos,
-    reintegro: diaDeReintegro(hasta, noLaborables, tz),
+    reintegro: diaDeReintegro(hasta, noLaborables, tz, sabado),
   };
 }

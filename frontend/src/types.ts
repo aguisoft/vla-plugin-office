@@ -143,6 +143,8 @@ export interface RosterUser {
   zoneName: string | null;
   /** 'sugerida' = calzó por nombre con el departamento, nadie la confirmó. */
   zoneSource: 'fijada' | 'sugerida' | 'none';
+  /** Lo que trabaja el sábado: 0 (nada), 0.5 (medio día) o 1. */
+  sabado: number;
 }
 
 /** Una zona del mapa de la oficina, tal como la entrega `GET /org/roster`. */

@@ -136,6 +136,13 @@ export function fraseResolucion(
   return `${s.tu} ${r} ${verbo} por ${por}${motivo ? `: «${motivo}»` : ''}`;
 }
 
+/** «1 día hábil», «medio día hábil», «3,5 días hábiles». */
+export function textoDiasHabiles(n: number): string {
+  if (n === 0.5) return 'medio día hábil';
+  if (n === 1) return '1 día hábil';
+  return `${String(n).replace('.', ',')} días hábiles`;
+}
+
 /** «lunes 26 oct 2026», de un instante (en la zona dada) o de una fecha `YYYY-MM-DD`. */
 export function fechaLarga(v: string, tz: string): string {
   const d = /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(`${v}T12:00:00Z`) : new Date(v);
@@ -159,7 +166,7 @@ export function fichaSolicitud(o: {
   const filas: Array<[string, string]> = [['Colaborador', o.nombre], ['Tipo', sujeto(o.tipo).titulo]];
   if (DE_DIAS.has(o.tipo)) {
     filas.push(['Desde', fechaLarga(o.startIso, o.tz)], ['Hasta', fechaLarga(o.endIso, o.tz)]);
-    if (o.diasHabiles != null) filas.push(['Total', `${o.diasHabiles} ${o.diasHabiles === 1 ? 'día hábil' : 'días hábiles'}`]);
+    if (o.diasHabiles != null) filas.push(['Total', textoDiasHabiles(o.diasHabiles)]);
     if (o.reintegro) filas.push(['Se reintegra', fechaLarga(o.reintegro, o.tz)]);
   } else {
     const hora = (iso: string) => new Intl.DateTimeFormat('es-CR', { timeZone: o.tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));

@@ -217,3 +217,17 @@ describe('resumenRango', () => {
     expect(resumenRango('2026-10-08', '2026-10-08')).toEqual({ diasHabiles: 1, diasCorridos: 1, reintegro: '2026-10-09' });
   });
 });
+
+describe('quien trabaja el sábado', () => {
+  it('medio día el sábado: cuenta ½, y de un viernes se reintegra el sábado', () => {
+    expect(resumenRango('2026-10-15', '2026-10-17', [], undefined, 0.5)).toEqual({ diasHabiles: 2.5, diasCorridos: 3, reintegro: '2026-10-19' });
+    expect(diaDeReintegro('2026-10-16', [], undefined, 0.5)).toBe('2026-10-17');
+  });
+  it('una semana completa con sábado de medio día: 5,5', () => {
+    expect(diasHabiles('2026-10-19', '2026-10-25', [], undefined, 0.5)).toBe(5.5);
+  });
+  it('un feriado en sábado no cuenta; sin sábado (lo de casi todos) todo sigue igual', () => {
+    expect(diasHabiles('2026-10-17', '2026-10-17', ['2026-10-17'], undefined, 0.5)).toBe(0);
+    expect(diasHabiles('2026-10-19', '2026-10-25')).toBe(5);
+  });
+});

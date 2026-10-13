@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { elegirDia, rangoDe, moverMes, limitesMes, nombreMes, fechaEnPalabras, esFinDeSemana, textoDias } from './vacacionesUx';
+import { elegirDia, rangoDe, moverMes, limitesMes, nombreMes, fechaEnPalabras, esFinDeSemana, textoDias, diaSemana } from './vacacionesUx';
 
 describe('elegirDia', () => {
   it('el primer toque abre el rango y el segundo lo cierra', () => {
@@ -41,5 +41,8 @@ describe('meses y fechas', () => {
     expect(textoDias(1)).toBe('1 día hábil');
     expect(textoDias(5)).toBe('5 días hábiles');
     expect(textoDias(6, 'corrido')).toBe('6 días corridos');
+    expect(textoDias(0.5)).toBe('medio día hábil');
+    expect(textoDias(5.5)).toBe('5,5 días hábiles');
+    expect(diaSemana('2026-10-17')).toBe(6);
   });
 });

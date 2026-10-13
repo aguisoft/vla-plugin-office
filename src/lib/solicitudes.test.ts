@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { valeMientrasPendiente, estadoInicial, puedeResolver, transicion, textoRango, fraseResolucion, fichaSolicitud, fechaLarga } from './solicitudes';
+import { valeMientrasPendiente, estadoInicial, puedeResolver, transicion, textoRango, fraseResolucion, fichaSolicitud, fechaLarga, textoDiasHabiles } from './solicitudes';
 
 describe('valeMientrasPendiente', () => {
   it('permiso, cita e incapacidad valen ya; vacaciones esperan', () => {
@@ -107,5 +107,14 @@ describe('fichaSolicitud', () => {
   it('fechaLarga: día de la semana, día, mes y año, en la zona de la oficina', () => {
     expect(fechaLarga('2026-10-09', TZ)).toMatch(/^viernes 9 oct\w* 2026$/);
     expect(fechaLarga('2026-10-08T06:00:00Z', TZ)).toMatch(/^jueves 8 oct/);
+  });
+});
+
+describe('textoDiasHabiles', () => {
+  it('enteros, medio día y medios', () => {
+    expect(textoDiasHabiles(1)).toBe('1 día hábil');
+    expect(textoDiasHabiles(0.5)).toBe('medio día hábil');
+    expect(textoDiasHabiles(5.5)).toBe('5,5 días hábiles');
+    expect(textoDiasHabiles(3)).toBe('3 días hábiles');
   });
 });
