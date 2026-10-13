@@ -625,8 +625,9 @@ export default function App() {
 
       {/* La guía de uso: una página estática que viaja con el plugin
           (frontend/public/ayuda), con capturas de una oficina de ejemplo. Se
-          abre aparte para poder seguirla al lado de la oficina. */}
-      <a href={`${import.meta.env.BASE_URL}ayuda/colaboradores.html`} target="_blank" rel="noopener"
+          abre aparte para poder seguirla al lado de la oficina. Quien aprueba
+          solicitudes ve la de jefes, que enlaza a la básica. */}
+      <a href={`${import.meta.env.BASE_URL}ayuda/${bandeja.aprueba ? 'jefes' : 'colaboradores'}.html`} target="_blank" rel="noopener"
         data-testid="guia-uso" title="Guía de uso" aria-label="Guía de uso"
         className="flex items-center rounded-xl px-2 py-1.5 text-gray-500 transition-colors hover:bg-gray-100">
         <svg className="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

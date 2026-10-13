@@ -39,11 +39,19 @@ function equipo(o) {
     statusStartsAt: hace(40), currentZoneId: zona(z), defaultZoneId: zona(z), lastActivityAt: hace(3), checkedInAt: hace(120),
     avatar: extra.avatar ?? av('#FDDBB4', 'short', '#1A1A1A', '#3498DB'), ...extra,
   });
+  const jefe = o.rol === 'jefe';
+  const aCargo = jefe ? { canSeeTimeAlerts: true } : {};
+  const paula = jefe
+    ? p('paula', 'Paula', 'Núñez', 'sales', o.yoEstado, { isCheckedIn: o.yoAdentro, statusStartsAt: hace(95), canSeeTimeAlerts: true, avatar: av('#D4A574', 'ponytail', '#2C2C2C', '#9B59B6', 'glasses') })
+    : p('paula', 'Paula', 'Núñez', 'sales', 'IN_MEETING_EXTERNAL', { justification: 'Visita a un cliente', avatar: av('#D4A574', 'ponytail', '#2C2C2C', '#9B59B6', 'glasses') });
+  const ana = jefe ? { ...yo, status: 'AVAILABLE', rawStatus: 'AVAILABLE', isCheckedIn: true, statusEndsAt: undefined, justification: undefined, ...aCargo } : yo;
   return [
-    yo,
-    p('paula', 'Paula', 'Núñez', 'sales', 'IN_MEETING_EXTERNAL', { justification: 'Visita a un cliente', avatar: av('#D4A574', 'ponytail', '#2C2C2C', '#9B59B6', 'glasses') }),
-    p('bruno', 'Bruno', 'Méndez', 'sales', 'AVAILABLE', { avatar: av('#F5CBA7', 'buzz', '#8B4513', '#2ECC71', 'headphones') }),
-    p('camila', 'Camila', 'Soto', 'sales', 'BRB', { justification: 'Voy por un café', statusStartsAt: hace(6), avatar: av('#FDDBB4', 'curly', '#C4A35A', '#FF7043') }),
+    jefe ? paula : ana,
+    jefe ? ana : paula,
+    jefe
+      ? p('bruno', 'Bruno', 'Méndez', 'sales', 'LUNCH', { statusStartsAt: hace(75), statusEndsAt: hace(15), ...aCargo, avatar: av('#F5CBA7', 'buzz', '#8B4513', '#2ECC71', 'headphones') })
+      : p('bruno', 'Bruno', 'Méndez', 'sales', 'AVAILABLE', { avatar: av('#F5CBA7', 'buzz', '#8B4513', '#2ECC71', 'headphones') }),
+    p('camila', 'Camila', 'Soto', 'sales', 'BRB', { justification: 'Voy por un café', statusStartsAt: hace(jefe ? 25 : 6), ...aCargo, avatar: av('#FDDBB4', 'curly', '#C4A35A', '#FF7043') }),
     p('diego', 'Diego', 'Vargas', 'marketin', 'FOCUS', { justification: 'Diseñando la campaña de diciembre', avatar: av('#C68642', 'short', '#1A1A1A', '#34495E') }),
     p('elena', 'Elena', 'Castro', 'finanzas', 'AVAILABLE', { avatar: av('#F1C27D', 'long', '#1A1A1A', '#1ABC9C', 'earbuds') }),
     p('felipe', 'Felipe', 'Mora', 'call-cen', 'IN_MEETING_INTERNAL', { justification: 'Revisión de llamadas', meetingWith: [{ userId: 'gina', firstName: 'Gina', lastName: 'Herrera' }], avatar: av('#8D5524', 'afro', '#1A1A1A', '#E74C3C') }),
@@ -62,6 +70,56 @@ const ESCENARIO_BASE = {
   yoAdentro: true, yoEstado: 'AVAILABLE', yoHasta: undefined, yoMotivo: undefined, yoDesde: undefined,
   invitacion: false, feriadoProximo: false, avisos: true, jornadaAbierta: true,
 };
+
+/** Lo que ve la jefa (Paula) que no ve un colaborador. */
+const respondidas = new Set();
+function rutasJefe(q, u, req, json, e) {
+  const sol = (o) => ({ estado: 'pendiente', absenceId: null, resueltaPor: null, resueltaEn: null, motivoResolucion: null, creadaEn: hace(40), adjuntos: [], ...o });
+  if (q === '/solicitudes/bandeja') return json({
+    ausencias: [
+      sol({ id: 'v1', userId: 'ana', nombre: 'Ana Rojas', creadaPor: 'ana', tipo: 'VACACIONES', startAt: '2026-12-21T06:00:00Z', endAt: '2026-12-24T05:59:59Z', justificacion: 'Viaje familiar' }),
+      sol({ id: 'p1', userId: 'bruno', nombre: 'Bruno Méndez', creadaPor: 'bruno', tipo: 'PERMISO', startAt: '2026-11-25T20:00:00Z', endAt: '2026-11-25T20:30:00Z', absenceId: 'a9', justificacion: 'Trámite en el banco', usoMes: { permisoMin: 30, permisoTopeMin: 60, permisoRestanteMin: 30 } }),
+      sol({ id: 'c1', userId: 'camila', nombre: 'Camila Soto', creadaPor: 'camila', tipo: 'CITA_MEDICA', startAt: '2026-11-27T20:00:00Z', endAt: '2026-11-27T21:30:00Z', absenceId: 'a8', justificacion: 'Control en la clínica', adjuntos: [{ id: 'd1', nombre: 'cita-clinica.pdf', tipo: 'application/pdf', bytes: 84000 }], usoMes: { permisoMin: 0, permisoTopeMin: 60, permisoRestanteMin: 60 } }),
+    ].filter(x => !respondidas.has(x.id)),
+    feriados: respondidas.has('f1') ? [] : [{ id: 'f1', userId: 'ana', nombre: 'Ana Rojas', holidayId: 'h-dic1', newDate: '2026-12-24', justification: 'Trabajo el feriado por el cierre de mes', status: 'PENDING', holidayName: 'Abolición del Ejército', holidayDate: '2026-12-01' }],
+    esJefe: true, esRrhh: false,
+  });
+  const m = q.match(/^\/solicitudes\/(\w+)\/(aprobar|rechazar)$/) || q.match(/^\/holidays\/overrides\/(\w+)\/(approve|reject)$/);
+  if (m && req.method() === 'POST') { respondidas.add(m[1]); return json({ ok: true }); }
+  if (q === '/avisos') return json({ sinLeer: 2, avisos: [
+    { id: '9', tipo: 'solicitud.nueva', titulo: 'Solicitud de tu equipo', cuerpo: 'Ana Rojas pidió vacaciones del 21 al 23 dic (3 días hábiles)', url: '/dashboard/office?solicitudes=1', creadoEn: hace(40), leidoEn: null },
+    { id: '8', tipo: 'feriado.nuevo', titulo: 'Solicitud de tu equipo', cuerpo: 'Ana Rojas pidió trabajar el feriado «Abolición del Ejército» (1 dic) y tomarlo el 24 dic', url: '/dashboard/office?solicitudes=1', creadoEn: hace(55), leidoEn: null },
+  ] });
+  if (q.startsWith('/absences/usage')) return json({ anio: 2026, mes: 11, permisoMin: 30, permisoTopeMin: 60, permisoRestanteMin: 30, permisoExcedido: false, citas: [], citasMin: 0, citasExcesoMin: 0 });
+  // El detalle de Bruno: sus propias horas (15h 5m, con más almuerzo).
+  if (q.startsWith('/timesheet/office') && u.searchParams.get('userId') === 'bruno') return json({
+    period: 'week', from: '2026-11-23T06:00:00.000Z', to: '2026-11-30T05:59:59.999Z',
+    office: { userId: 'bruno', totalMinutes: 905, byDay: [{ date: '2026-11-23', minutes: 380 }, { date: '2026-11-24', minutes: 425 }, { date: '2026-11-25', minutes: 100 }] },
+    breakdown: [{ status: 'AVAILABLE', minutes: 560 }, { status: 'LUNCH', minutes: 205 }, { status: 'BRB', minutes: 80 }, { status: 'IN_MEETING_INTERNAL', minutes: 60 }],
+    unaccountedMinutes: 0, coverageStart: '2026-09-24', absences: [{ type: 'PERMISO', days: 0, minutes: 30 }],
+  });
+  const yo = (id, n, a) => ({ id, firstName: n, lastName: a, email: id + '@ejemplo.com' });
+  if (q === '/timesheet/scope') return json({ viewerId: 'paula', isAdmin: false, users: [yo('paula', 'Paula', 'Núñez'), yo('ana', 'Ana', 'Rojas'), yo('bruno', 'Bruno', 'Méndez'), yo('camila', 'Camila', 'Soto')] });
+  if (q.startsWith('/timesheet/team')) {
+    const fila = (id, n, a, min, pct, dias, entrada, extra = {}) => ({ userId: id, firstName: n, lastName: a, email: id + '@ejemplo.com', estado: 'con-registro', totalMinutes: min, openSessionCapped: false, variacion: pct === null ? { tipo: 'sin-base' } : { tipo: 'calculada', pct, destacar: Math.abs(pct) > 15 }, diasConRegistro: dias, diasHabiles: 6, diasFueraDeHabiles: 0, entradaHabitual: entrada, ultimoRegistro: '2026-11-25', ultimoDisponible: true, ...extra });
+    const celdas = [];
+    for (const [fecha, desde, hasta, gente] of [['2026-11-23', 7, 17, [2, 4, 4, 4, 3, 2, 4, 4, 4, 3, 1]], ['2026-11-24', 7, 17, [1, 3, 4, 4, 4, 1, 3, 4, 4, 4, 2]], ['2026-11-25', 7, 10, [2, 4, 4, 3]]]) {
+      for (let h = desde; h <= hasta; h++) celdas.push({ fecha, hora: h, personas: gente[h - desde] ?? 0 });
+    }
+    return json({
+      period: 'week', from: '2026-11-23T06:00:00.000Z', to: '2026-11-30T05:59:59.999Z', viewerId: 'paula', isAdmin: false,
+      filas: [
+        fila('paula', 'Paula', 'Núñez', 1210, 3, 3, '07:52'),
+        fila('ana', 'Ana', 'Rojas', 1185, -2, 3, '08:01'),
+        fila('bruno', 'Bruno', 'Méndez', 905, -24, 3, '08:47'),
+        fila('camila', 'Camila', 'Soto', 1260, 6, 3, '07:58'),
+      ],
+      excepciones: { sinMarcar30Dias: [], sesionesAbiertas: [] },
+      cobertura: { horaMin: 7, horaMax: 17, fechas: ['2026-11-23', '2026-11-24', '2026-11-25'], celdas },
+    });
+  }
+  return null;
+}
 
 async function abrir({ ancho = 1360, alto = 860, ruta = '/', ...esc } = {}) {
   const e = { ...ESCENARIO_BASE, ...esc };
@@ -94,7 +152,12 @@ async function abrir({ ancho = 1360, alto = 860, ruta = '/', ...esc } = {}) {
     if (!p.startsWith('/api/v1')) return route.fulfill({ status: 404, body: '' });
     const json = (b, s = 200) => route.fulfill({ status: s, contentType: 'application/json', body: JSON.stringify(b) });
     const q = p.replace('/api/v1/p/office', '');
-    if (p === '/api/v1/auth/me') return json({ id: 'ana', role: 'STAFF', permissions: ['office.view', 'office.checkin'] });
+    const jefe = e.rol === 'jefe';
+    if (p === '/api/v1/auth/me') return json({ id: jefe ? 'paula' : 'ana', role: 'STAFF', permissions: ['office.view', 'office.checkin'] });
+    if (jefe) {
+      const r = rutasJefe(q, u, req, json, e);
+      if (r) return r;
+    }
     if (q === '/layout') return json({ layout: { id: layoutReal.id, name: layoutReal.name, zones: zonas } });
     if (q === '/snapshot') return json(equipo(e));
     if (q === '/presence/me/aviso') return json(null);
@@ -233,4 +296,42 @@ async function limpiar(page) {
   await page.evaluate(() => document.getElementById('__anot')?.remove());
 }
 
-module.exports = { abrir, anotar, foto, limpiar, AHORA };
+/** Marca con data-anot el primer ancestro (o el mismo) del texto que mida al menos esto. */
+async function etiquetar(page, texto, nombre, { minAlto = 0, minAncho = 0, maxAncho = 99999 } = {}) {
+  const ok = await page.evaluate(({ texto, nombre, minAlto, minAncho, maxAncho }) => {
+    const todos = [...document.querySelectorAll('body *')].filter(el => el.childElementCount === 0 && el.textContent.trim() === texto);
+    for (const inicio of todos) {
+      if (!inicio.getClientRects().length) continue; // oculto
+      let el = inicio;
+      while (el && el !== document.body) {
+        const r = el.getBoundingClientRect();
+        if (r.width > maxAncho) break;
+        if (r.height >= minAlto && r.width >= minAncho) { el.setAttribute('data-anot', nombre); return true; }
+        el = el.parentElement;
+      }
+    }
+    return false;
+  }, { texto, nombre, minAlto, minAncho, maxAncho });
+  if (!ok) console.log('etiquetar: no encontré', texto);
+  return page.locator(`[data-anot="${nombre}"]`);
+}
+
+/** Recorte alrededor de un elemento, con margen, dentro de la ventana. */
+async function recorte(page, loc, margen = 40, extra = {}) {
+  const b = await loc.first().boundingBox();
+  const v = page.viewportSize();
+  const x = Math.max(0, b.x - margen), y = Math.max(0, b.y - margen);
+  const w = Math.min(v.width - x, b.width + 2 * margen + (extra.ancho ?? 0));
+  const h = Math.min(v.height - y, b.height + 2 * margen + (extra.alto ?? 0));
+  return { x, y, width: w, height: h };
+}
+
+const modal = (page) => page.locator('div.fixed.inset-0 > div').last();
+const estadoBtn = (page, nombre = 'Disponible') => page.getByRole('button', { name: nombre, exact: true });
+async function elegirEstado(page, etiqueta) {
+  await estadoBtn(page).click();
+  await page.locator('div.w-52').getByRole('button', { name: new RegExp(`^${etiqueta}`) }).first().click();
+  await page.waitForTimeout(500);
+}
+
+module.exports = { abrir, anotar, foto, limpiar, AHORA, etiquetar, recorte, modal, estadoBtn, elegirEstado };

@@ -1,44 +1,6 @@
 // Las tomas del tutorial para colaboradores. Cada escena abre su propia
 // oficina de ejemplo, arma la pantalla, la marca y la fotografía.
-const { abrir, anotar, foto } = require('./estudio');
-
-/** Marca con data-anot el primer ancestro (o el mismo) del texto que mida al menos esto. */
-async function etiquetar(page, texto, nombre, { minAlto = 0, minAncho = 0, maxAncho = 99999 } = {}) {
-  const ok = await page.evaluate(({ texto, nombre, minAlto, minAncho, maxAncho }) => {
-    const todos = [...document.querySelectorAll('body *')].filter(el => el.childElementCount === 0 && el.textContent.trim() === texto);
-    for (const inicio of todos) {
-      if (!inicio.getClientRects().length) continue; // oculto
-      let el = inicio;
-      while (el && el !== document.body) {
-        const r = el.getBoundingClientRect();
-        if (r.width > maxAncho) break;
-        if (r.height >= minAlto && r.width >= minAncho) { el.setAttribute('data-anot', nombre); return true; }
-        el = el.parentElement;
-      }
-    }
-    return false;
-  }, { texto, nombre, minAlto, minAncho, maxAncho });
-  if (!ok) console.log('etiquetar: no encontré', texto);
-  return page.locator(`[data-anot="${nombre}"]`);
-}
-
-/** Recorte alrededor de un elemento, con margen, dentro de la ventana. */
-async function recorte(page, loc, margen = 40, extra = {}) {
-  const b = await loc.first().boundingBox();
-  const v = page.viewportSize();
-  const x = Math.max(0, b.x - margen), y = Math.max(0, b.y - margen);
-  const w = Math.min(v.width - x, b.width + 2 * margen + (extra.ancho ?? 0));
-  const h = Math.min(v.height - y, b.height + 2 * margen + (extra.alto ?? 0));
-  return { x, y, width: w, height: h };
-}
-
-const modal = (page) => page.locator('div.fixed.inset-0 > div').last();
-const estadoBtn = (page, nombre = 'Disponible') => page.getByRole('button', { name: nombre, exact: true });
-async function elegirEstado(page, etiqueta) {
-  await estadoBtn(page).click();
-  await page.locator('div.w-52').getByRole('button', { name: new RegExp(`^${etiqueta}`) }).first().click();
-  await page.waitForTimeout(500);
-}
+const { abrir, anotar, foto, etiquetar, recorte, modal, estadoBtn, elegirEstado } = require('./estudio');
 
 const ESCENAS = {
   async '01-vista-general'() {

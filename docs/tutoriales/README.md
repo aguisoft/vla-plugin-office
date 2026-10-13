@@ -2,12 +2,13 @@
 
 Las guías «para dummies» por rol. Cada una es una página estática que viaja con
 el plugin en `frontend/public/ayuda/` y se abre desde el ícono del libro del
-encabezado (`ayuda/colaboradores.html`).
+encabezado: quien aprueba solicitudes (jefes y RRHH) abre `ayuda/jefes.html`, que
+enlaza a la básica; el resto abre `ayuda/colaboradores.html`.
 
 | Rol | Fuente | Publicada en el plugin |
 |---|---|---|
 | Colaboradores | `guia-colaboradores.html` | `frontend/public/ayuda/colaboradores.html` |
-| Jefes | pendiente | |
+| Jefes | `guia-jefes.html` (escenas en `escenas-jefes.js`) | `frontend/public/ayuda/jefes.html` |
 | RRHH / administración | pendiente | |
 
 ## Cómo se arman las capturas
@@ -26,15 +27,22 @@ mismas que repite la leyenda de la guía) y la guarda en
 npm run build:frontend                      # la guía fotografía frontend/dist
 node docs/tutoriales/escenas.js             # todas las escenas
 node docs/tutoriales/escenas.js 10 11       # solo las que empiezan así
-node docs/tutoriales/a-plugin.js            # fuente → frontend/public/ayuda/colaboradores.html
+node docs/tutoriales/escenas-jefes.js       # las de jefes (21–28), con abrir({ rol: 'jefe' })
+node docs/tutoriales/a-plugin.js            # fuentes → frontend/public/ayuda/*.html
 npm run build:frontend                      # para que la guía nueva entre en ui/
 ```
 
 Playwright se toma de `vla-system/node_modules` (ruta fija al principio de
 `estudio.js`).
 
-`a-plugin.js` convierte la fuente en un documento completo y arma el índice
-fijo: el CSP de producción no deja correr scripts escritos dentro de la página.
+`a-plugin.js` convierte cada fuente (lista `GUIAS`) en un documento completo y
+arma el índice fijo: el CSP de producción no deja correr scripts escritos dentro
+de la página. Los enlaces entre guías se escriben con la URL pública del
+artifact y ahí se cambian por la página de al lado.
+
+Con `rol: 'jefe'` el estudio cambia de punto de vista: quien mira es Paula
+Núñez, jefa de Ventas, con Ana, Bruno y Camila a cargo (bandeja, avisos, equipo
+en Tiempos y cronómetros en rojo; ver `rutasJefe` en `estudio.js`).
 
 ## Trampas conocidas
 
@@ -46,4 +54,6 @@ fijo: el CSP de producción no deja correr scripts escritos dentro de la página
   `etiquetar` prueba todas las coincidencias visibles.
 - Las reglas que afirma la guía salen del código: permiso 1 h por mes
   (`TOPE_PERMISO_MES_MIN`), cita hasta 3 h, motivo de 10 letras como mínimo
-  (`MIN_JUSTIFICATION`). Si cambian ahí, hay que cambiar el texto.
+  (`MIN_JUSTIFICATION`), motivo de rechazo de 5 (`MIN_MOTIVO`), límites del
+  cronómetro, recordatorio de pendientes de más de 20 h (lunes a viernes 9:00).
+  Si cambian ahí, hay que cambiar el texto.

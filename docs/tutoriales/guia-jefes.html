@@ -1,0 +1,269 @@
+<title>Oficina Virtual para jefes</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&display=swap">
+<style>
+/* Layout: índice fijo a la izquierda en pantalla ancha, una sola columna en el teléfono;
+   cada paso = texto + captura con las mismas marcas naranjas numeradas que la oficina. */
+:root {
+  --bg: #f4f6f8;
+  --papel: #ffffff;
+  --tinta: #1b2330;
+  --tinta-suave: #5a6576;
+  --linea: #e1e6ec;
+  --marca: #f97316;        /* el naranja de las marcas en las capturas */
+  --marca-texto: #c2410c;
+  --nota-fondo: #fff6e8;
+  --nota-borde: #f5c27a;
+  --truco-fondo: #ecf6fd;
+  --truco-borde: #9cd0f2;
+  --verde: #15803d;
+  --sombra: 0 1px 2px rgba(20, 30, 45, .06), 0 8px 24px rgba(20, 30, 45, .06);
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --texto: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161c; --papel: #1a2029; --tinta: #e8edf3; --tinta-suave: #a3afbf; --linea: #2b3440;
+    --marca: #fb8a3c; --marca-texto: #fdba74; --nota-fondo: #2a2114; --nota-borde: #7a5524;
+    --truco-fondo: #11263a; --truco-borde: #2f5f86; --verde: #4ade80;
+    --sombra: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161c; --papel: #1a2029; --tinta: #e8edf3; --tinta-suave: #a3afbf; --linea: #2b3440;
+  --marca: #fb8a3c; --marca-texto: #fdba74; --nota-fondo: #2a2114; --nota-borde: #7a5524;
+  --truco-fondo: #11263a; --truco-borde: #2f5f86; --verde: #4ade80;
+  --sombra: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--tinta); font-family: var(--texto); font-size: 17px; line-height: 1.6; margin: 0; }
+.envoltura { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; grid-template-columns: 1fr; gap: 32px; }
+@media (min-width: 1000px) { .envoltura { grid-template-columns: 250px minmax(0, 1fr); } }
+
+/* Índice */
+.indice { font-size: 15px; }
+.indice nav { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 20px); }
+.indice h2 { font-family: var(--display); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--tinta-suave); margin: 0 0 10px; }
+.indice ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; counter-reset: cap; }
+.indice li { counter-increment: cap; }
+.indice a { display: flex; gap: 10px; padding: 6px 10px; border-radius: 8px; color: var(--tinta); text-decoration: none; }
+.indice a::before { content: counter(cap); font-variant-numeric: tabular-nums; color: var(--tinta-suave); min-width: 1.4em; }
+.indice a:hover, .indice a:focus-visible { background: var(--papel); outline: none; box-shadow: var(--sombra); }
+details.indice-movil { display: block; background: var(--papel); border: 1px solid var(--linea); border-radius: 12px; padding: 12px 16px; }
+details.indice-movil summary { cursor: pointer; font-weight: 700; }
+details.indice-movil ol { margin-top: 10px; }
+.indice-ancho { display: none; }
+@media (min-width: 1000px) { .indice-ancho { display: block; } details.indice-movil { display: none; } }
+
+/* Contenido */
+main { min-width: 0; }
+.portada { background: var(--papel); border: 1px solid var(--linea); border-radius: 18px; padding: 28px clamp(20px, 4vw, 40px); box-shadow: var(--sombra); }
+.etiqueta { display: inline-block; font-family: var(--display); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--marca-texto); margin-bottom: 6px; }
+h1 { font-family: var(--display); font-size: clamp(30px, 5vw, 44px); line-height: 1.1; margin: 0 0 12px; text-wrap: balance; }
+h2 { font-family: var(--display); font-size: clamp(24px, 3.4vw, 30px); line-height: 1.2; margin: 0 0 10px; text-wrap: balance; }
+h3 { font-family: var(--display); font-size: 21px; margin: 28px 0 8px; text-wrap: balance; }
+p { margin: 0 0 14px; max-width: 68ch; }
+.portada p { color: var(--tinta-suave); }
+.datos { font-size: 14px; color: var(--tinta-suave); margin-top: 14px; }
+
+.dia { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 22px; }
+.dia div { border: 1px solid var(--linea); border-radius: 12px; padding: 14px 16px; background: var(--bg); }
+.dia b { display: block; font-family: var(--display); font-size: 18px; margin-bottom: 2px; }
+.dia span { font-size: 15px; color: var(--tinta-suave); }
+
+section.capitulo { margin-top: 56px; scroll-margin-top: 20px; }
+.capitulo > header .etiqueta { margin-bottom: 2px; }
+
+figure { margin: 18px 0 8px; }
+figure img { display: block; max-width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--linea); box-shadow: var(--sombra); background: #fff; }
+figure.angosta img { max-width: min(100%, 470px); }
+figure.media img { max-width: min(100%, 640px); }
+figcaption { font-size: 14px; color: var(--tinta-suave); margin-top: 8px; }
+
+/* La leyenda: los mismos números naranjas que en la captura */
+ol.leyenda { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 10px; max-width: 72ch; }
+ol.leyenda li { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; align-items: start; }
+.num { width: 28px; height: 28px; border-radius: 50%; background: var(--marca); color: #fff; font-weight: 700; font-size: 15px; display: grid; place-items: center; box-shadow: 0 0 0 2px var(--papel), 0 2px 5px rgba(0,0,0,.2); font-variant-numeric: tabular-nums; }
+main p a, .datos a { color: var(--marca-texto); text-underline-offset: 3px; }
+ul.lista-simple { margin: 0 0 14px; padding-left: 1.3em; max-width: 72ch; display: grid; gap: 4px; }
+ol.pasos { margin: 10px 0 0; padding-left: 1.3em; max-width: 72ch; display: grid; gap: 6px; }
+
+.caja { border-radius: 12px; padding: 14px 18px; margin: 18px 0; max-width: 72ch; border: 1px solid; }
+.caja b.titulo { display: block; font-family: var(--display); margin-bottom: 2px; }
+.caja p:last-child { margin-bottom: 0; }
+.nota { background: var(--nota-fondo); border-color: var(--nota-borde); }
+.truco { background: var(--truco-fondo); border-color: var(--truco-borde); }
+
+.boton-ui { display: inline-block; font-weight: 700; padding: 0 7px; border-radius: 6px; border: 1px solid var(--linea); background: var(--papel); white-space: nowrap; }
+.estados { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin: 14px 0; max-width: 820px; }
+.estados div { border: 1px solid var(--linea); border-radius: 10px; padding: 10px 14px; background: var(--papel); font-size: 15px; }
+.estados b { display: block; }
+.punto { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+
+.faq details { background: var(--papel); border: 1px solid var(--linea); border-radius: 12px; padding: 14px 18px; margin-top: 10px; max-width: 76ch; }
+.faq summary { cursor: pointer; font-weight: 700; }
+.faq details[open] summary { margin-bottom: 8px; }
+.faq summary:focus-visible, .indice-movil summary:focus-visible { outline: 2px solid var(--marca); outline-offset: 3px; border-radius: 4px; }
+
+footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); border-top: 1px solid var(--linea); padding-top: 16px; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+
+<div class="envoltura">
+  <aside class="indice indice-ancho">
+    <nav aria-label="Índice">
+      <h2>En esta guía</h2>
+      <ol id="indice-lista"></ol>
+    </nav>
+  </aside>
+
+  <main>
+    <details class="indice-movil">
+      <summary>Índice de la guía</summary>
+      <ol class="indice" id="indice-movil-lista" style="list-style:none;padding:0;margin:10px 0 0"></ol>
+    </details>
+
+    <div class="portada" style="margin-top:16px">
+      <span class="etiqueta">Guía para jefes</span>
+      <h1>Oficina Virtual para jefes</h1>
+      <p>Como jefe usás la oficina igual que todos: entrás, cambiás tu estado y salís. Esta guía explica solo lo que se suma por tener gente a cargo. Lo básico está en la <a href="https://claude.ai/artifact/Uy5fqgTt7gMCCDBpdiG5PT">guía para colaboradores</a>.</p>
+      <div class="dia" aria-label="Lo que suma ser jefe">
+        <div><b>Responder</b><span>Aprobás o no los permisos, citas, vacaciones y feriados que pide tu equipo.</span></div>
+        <div><b>Acompañar</b><span>Ves en el mapa quién se pasó del almuerzo o de una pausa.</span></div>
+        <div><b>Revisar</b><span>Ves las horas de tu equipo y a qué horas hay gente conectada.</span></div>
+      </div>
+      <p class="datos">Las capturas son de una oficina de ejemplo. En ellas, Paula Núñez es la jefa de Ventas y tiene a cargo a Ana, Bruno y Camila. Los nombres son inventados.</p>
+    </div>
+
+    <section class="capitulo" id="pendiente" data-titulo="Dónde ves lo pendiente">
+      <header><span class="etiqueta">Todos los días</span><h2>Dónde ves lo pendiente</h2></header>
+      <p>Cuando tenés gente a cargo, en el encabezado aparece el botón <span class="boton-ui">Solicitudes</span>. El número rojo dice cuántas solicitudes de tu equipo esperan tu respuesta.</p>
+      <figure class="media"><img src="capturas/21-jefe-encabezado.png" alt="El encabezado de la jefa con el botón Solicitudes con un 4, la campana y el ícono de la guía, marcados del 1 al 3" width="600" height="80" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Solicitudes:</b> abre la bandeja con todo lo que tenés que responder.</span></li>
+        <li><span class="num">2</span><span><b>La campana:</b> te avisa de cada pedido nuevo.</span></li>
+        <li><span class="num">3</span><span><b>Esta guía.</b></span></li>
+      </ol>
+    </section>
+
+    <section class="capitulo" id="responder" data-titulo="Responder las solicitudes">
+      <header><span class="etiqueta">Todos los días</span><h2>Responder las solicitudes</h2></header>
+      <p>Tocá <span class="boton-ui">Solicitudes</span>. Ahí está todo lo que pidió tu equipo directo, en un solo lugar.</p>
+      <figure class="media"><img src="capturas/22-jefe-bandeja.png" alt="La bandeja Solicitudes por responder con unas vacaciones de Ana, un permiso de Bruno, una cita médica de Camila con un documento adjunto y un feriado movido de Ana" width="528" height="757" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Vacaciones:</b> no valen hasta que las apruebes. Mientras tanto, la persona ve «Esperando a tu jefe».</span></li>
+        <li><span class="num">2</span><span><b>Permiso:</b> ya está aplicado, porque el permiso vale desde que se pide. Abajo ves cuánto permiso lleva usado en el mes (el tope es 1 hora).</span></li>
+        <li><span class="num">3</span><span><b>Documentos:</b> si la persona adjuntó un comprobante, tocalo para abrirlo.</span></li>
+        <li><span class="num">4</span><span><b>Mover un feriado:</b> la persona trabaja el feriado y lo toma otro día del mismo mes.</span></li>
+        <li><span class="num">5</span><span><b>Aprobar:</b> un toque y listo.</span></li>
+        <li><span class="num">6</span><span><b>No aprobar:</b> te pide el motivo (ver el capítulo siguiente).</span></li>
+      </ol>
+      <div class="caja nota"><b class="titulo">Qué pasa cuando respondés</b><p>A la persona le llega un aviso a la campana, otro por Bitrix y un correo con todos los datos de la solicitud. <b>Ese correo va con copia a vos y a RRHH</b>, así RRHH tiene registro sin que tengas que reenviar nada.</p></div>
+    </section>
+
+    <section class="capitulo" id="no-aprobar" data-titulo="Cuando no aprobás">
+      <header><span class="etiqueta">Todos los días</span><h2>Cuando no aprobás</h2></header>
+      <p>Tocá <b>No aprobar</b> en la solicitud. Aparece un espacio para el motivo.</p>
+      <figure class="media"><img src="capturas/23-jefe-no-aprobar.png" alt="La solicitud de vacaciones de Ana con el motivo escrito y los botones Volver y No aprobar" width="488" height="276" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>Escribí por qué. La persona lo va a leer tal cual, así que conviene proponerle otra fecha si se puede.</span></li>
+        <li><span class="num">2</span><span><b>No aprobar</b> confirma. Se activa cuando el motivo tiene al menos 5 letras.</span></li>
+        <li><span class="num">3</span><span><b>Volver</b>, si te arrepentiste.</span></li>
+      </ol>
+      <p>Si no aprobás un permiso o una cita que todavía no empezó, se quita de la oficina. Si ya empezó, queda registrado como no aprobado: la persona igual faltó, y cuenta para su tope del mes.</p>
+    </section>
+
+    <section class="capitulo" id="avisos" data-titulo="Cómo te enterás">
+      <header><span class="etiqueta">Avisos</span><h2>Cómo te enterás</h2></header>
+      <p>Cada vez que alguien de tu equipo pide algo, te llega un aviso por varios lados a la vez:</p>
+      <ul class="lista-simple">
+        <li>la <b>campana</b> de la oficina;</li>
+        <li>un aviso de <b>Windows</b> si tenés la app de escritorio abierta, o del <b>navegador</b> si no;</li>
+        <li>un mensaje de <b>Bitrix</b>;</li>
+        <li>un <b>correo</b> con todos los datos.</li>
+      </ul>
+      <figure class="media"><img src="capturas/24-jefe-avisos.png" alt="La campana abierta con el aviso Ana Rojas pidió vacaciones del 21 al 23 de diciembre" width="400" height="292" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>Tocá el aviso y se abre la bandeja directamente.</span></li>
+      </ol>
+      <h3>El correo</h3>
+      <p>Trae lo mismo que el formulario de papel de RRHH: quién, qué, desde, hasta, cuántos días hábiles, cuándo se reintegra y los comentarios.</p>
+      <figure class="media"><img src="capturas/25-jefe-correo.png" alt="El correo Solicitud de tu equipo con la ficha de las vacaciones de Ana y el botón Abrir en la oficina" width="540" height="479" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Abrir en la oficina</b> te lleva a la bandeja para responder.</span></li>
+      </ol>
+      <div class="caja truco"><b class="titulo">Recordatorio</b><p>Si una solicitud lleva más de 20 horas sin respuesta, de lunes a viernes a las 9:00 te llega un recordatorio.</p></div>
+    </section>
+
+    <section class="capitulo" id="cronometro" data-titulo="Quién se pasó de la hora">
+      <header><span class="etiqueta">Acompañar</span><h2>Quién se pasó de la hora</h2></header>
+      <p>En el mapa, debajo de cada persona de tu equipo que está en almuerzo, en una pausa o con permiso, aparece un reloj. Se pone <b>naranja</b> 5 minutos antes del límite y <b>rojo</b> cuando lo pasa. Al pasar el mouse ves el detalle.</p>
+      <figure class="media"><img src="capturas/26-jefe-cronometro.png" alt="Bruno en almuerzo con el reloj en rojo, 1:15:00, y su tarjeta: debía volver a las 10:00, 15 minutos de más" width="340" height="366" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>El reloj: cuánto tiempo lleva en ese estado.</span></li>
+        <li><span class="num">2</span><span>La tarjeta: a qué hora debía volver y cuántos minutos de más lleva.</span></li>
+      </ol>
+      <div class="estados">
+        <div><b><span class="punto" style="background:#facc15"></span>Vuelvo pronto</b>10 minutos</div>
+        <div><b><span class="punto" style="background:#fb923c"></span>Almuerzo</b>60 minutos</div>
+        <div><b><span class="punto" style="background:#94a3b8"></span>Permiso</b>60 minutos</div>
+        <div><b><span class="punto" style="background:#f0abfc"></span>Cita médica</b>3 horas</div>
+      </div>
+      <div class="caja nota"><b class="titulo">Quién ve el rojo</b><p>Solo la persona, su jefe y RRHH. El resto del equipo ve el reloj sin color, para que nadie quede expuesto frente a sus compañeros. La vuelta es manual: hasta que la persona marque Disponible, el tiempo sigue contando como almuerzo o pausa.</p></div>
+    </section>
+
+    <section class="capitulo" id="tiempos" data-titulo="Las horas de tu equipo">
+      <header><span class="etiqueta">Revisar</span><h2>Las horas de tu equipo</h2></header>
+      <p>En la pestaña <b>Tiempos</b>, en lugar de ver solo tus horas, ves una fila por persona de tu equipo (vos incluido).</p>
+      <figure><img src="capturas/27-jefe-tiempos.png" alt="La tabla del equipo con el período, la comparación con su promedio, los días, la entrada habitual y el último registro, y debajo la cobertura horaria" width="1060" height="600" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Una persona.</b> Tocá la fila para ver su detalle.</span></li>
+        <li><span class="num">2</span><span><b>Vs. su promedio:</b> compara a la persona consigo misma, con sus semanas anteriores (o días o meses, según lo que estés mirando). Nunca con el resto del equipo. Si la diferencia pasa del 15 %, aparece una flecha.</span></li>
+        <li><span class="num">3</span><span><b>Días:</b> en cuántos de los días hábiles del período marcó. Para quien trabaja el sábado, el sábado también cuenta.</span></li>
+        <li><span class="num">4</span><span><b>Entrada habitual:</b> la hora a la que suele entrar. Un día raro no la mueve.</span></li>
+        <li><span class="num">5</span><span><b>Cobertura horaria:</b> cuánta gente del equipo estaba conectada en cada hora. Sirve para ver si quedan horas sin nadie.</span></li>
+      </ol>
+      <h3>El detalle de una persona</h3>
+      <p>Al tocar una fila ves lo mismo que esa persona ve de sí misma: su tiempo por día y en qué estados lo pasó.</p>
+      <figure><img src="capturas/28-jefe-detalle.png" alt="El detalle de Bruno Méndez con su tiempo por día y el desglose por estado, y el enlace Volver al equipo marcado" width="1060" height="520" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Volver al equipo</b> regresa a la tabla.</span></li>
+      </ol>
+    </section>
+
+    <section class="capitulo faq" id="preguntas" data-titulo="Preguntas frecuentes">
+      <header><span class="etiqueta">Dudas</span><h2>Preguntas frecuentes</h2></header>
+      <details><summary>¿Qué pasa si no respondo una solicitud?</summary><p>Un permiso o una cita ya valen, así que la persona puede ausentarse igual. Las vacaciones no valen hasta que las apruebes. Si pasan más de 20 horas, te llega un recordatorio cada mañana de lunes a viernes.</p></details>
+      <details><summary>Aprobé algo por error.</summary><p>Vos no podés deshacerlo. Pedíselo a RRHH, que sí puede cancelar una solicitud aprobada.</p></details>
+      <details><summary>Me llegó la solicitud de alguien que no es de mi equipo.</summary><p>A la oficina le figura que sos su jefe directo. Avisale a RRHH para que lo corrija en Personas.</p></details>
+      <details><summary>Alguien de mi equipo no me aparece en Solicitudes ni en Tiempos.</summary><p>Lo mismo: su jefe directo está mal cargado. RRHH lo corrige en Personas.</p></details>
+      <details><summary>¿Por qué alguien aparece en rojo si ya volvió?</summary><p>Volver es manual. Hasta que la persona marque <b>Disponible</b>, la oficina la sigue mostrando en almuerzo o en pausa.</p></details>
+    </section>
+
+    <footer class="pie">Guía de la Oficina Virtual de VLA para jefes. Las capturas usan una oficina de ejemplo con nombres inventados.</footer>
+  </main>
+</div>
+
+<script>
+  // El índice sale de los capítulos: así no se desincroniza si se agrega uno.
+  (function () {
+    var caps = document.querySelectorAll('section.capitulo');
+    ['indice-lista', 'indice-movil-lista'].forEach(function (id) {
+      var ol = document.getElementById(id);
+      if (!ol) return;
+      caps.forEach(function (s, i) {
+        var li = document.createElement('li');
+        var a = document.createElement('a');
+        a.href = '#' + s.id;
+        a.textContent = s.getAttribute('data-titulo');
+        if (id === 'indice-movil-lista') a.textContent = (i + 1) + '. ' + a.textContent;
+        li.appendChild(a);
+        ol.appendChild(li);
+      });
+    });
+  })();
+</script>
