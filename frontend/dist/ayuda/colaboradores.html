@@ -1,0 +1,416 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Oficina Virtual para colaboradores</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&display=swap">
+<style>
+img { max-width: 100%; }
+[hidden] { display: none !important; }
+/* Layout: índice fijo a la izquierda en pantalla ancha, una sola columna en el teléfono;
+   cada paso = texto + captura con las mismas marcas naranjas numeradas que la oficina. */
+:root {
+  --bg: #f4f6f8;
+  --papel: #ffffff;
+  --tinta: #1b2330;
+  --tinta-suave: #5a6576;
+  --linea: #e1e6ec;
+  --marca: #f97316;        /* el naranja de las marcas en las capturas */
+  --marca-texto: #c2410c;
+  --nota-fondo: #fff6e8;
+  --nota-borde: #f5c27a;
+  --truco-fondo: #ecf6fd;
+  --truco-borde: #9cd0f2;
+  --verde: #15803d;
+  --sombra: 0 1px 2px rgba(20, 30, 45, .06), 0 8px 24px rgba(20, 30, 45, .06);
+  --display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --texto: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12161c; --papel: #1a2029; --tinta: #e8edf3; --tinta-suave: #a3afbf; --linea: #2b3440;
+    --marca: #fb8a3c; --marca-texto: #fdba74; --nota-fondo: #2a2114; --nota-borde: #7a5524;
+    --truco-fondo: #11263a; --truco-borde: #2f5f86; --verde: #4ade80;
+    --sombra: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12161c; --papel: #1a2029; --tinta: #e8edf3; --tinta-suave: #a3afbf; --linea: #2b3440;
+  --marca: #fb8a3c; --marca-texto: #fdba74; --nota-fondo: #2a2114; --nota-borde: #7a5524;
+  --truco-fondo: #11263a; --truco-borde: #2f5f86; --verde: #4ade80;
+  --sombra: 0 1px 2px rgba(0,0,0,.4), 0 8px 24px rgba(0,0,0,.35);
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body { background: var(--bg); color: var(--tinta); font-family: var(--texto); font-size: 17px; line-height: 1.6; margin: 0; }
+.envoltura { max-width: 1180px; margin: 0 auto; padding-inline: 20px; padding-block: 28px 64px; display: grid; grid-template-columns: 1fr; gap: 32px; }
+@media (min-width: 1000px) { .envoltura { grid-template-columns: 250px minmax(0, 1fr); } }
+
+/* Índice */
+.indice { font-size: 15px; }
+.indice nav { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 20px); }
+.indice h2 { font-family: var(--display); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--tinta-suave); margin: 0 0 10px; }
+.indice ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; counter-reset: cap; }
+.indice li { counter-increment: cap; }
+.indice a { display: flex; gap: 10px; padding: 6px 10px; border-radius: 8px; color: var(--tinta); text-decoration: none; }
+.indice a::before { content: counter(cap); font-variant-numeric: tabular-nums; color: var(--tinta-suave); min-width: 1.4em; }
+.indice a:hover, .indice a:focus-visible { background: var(--papel); outline: none; box-shadow: var(--sombra); }
+details.indice-movil { display: block; background: var(--papel); border: 1px solid var(--linea); border-radius: 12px; padding: 12px 16px; }
+details.indice-movil summary { cursor: pointer; font-weight: 700; }
+details.indice-movil ol { margin-top: 10px; }
+.indice-ancho { display: none; }
+@media (min-width: 1000px) { .indice-ancho { display: block; } details.indice-movil { display: none; } }
+
+/* Contenido */
+main { min-width: 0; }
+.portada { background: var(--papel); border: 1px solid var(--linea); border-radius: 18px; padding: 28px clamp(20px, 4vw, 40px); box-shadow: var(--sombra); }
+.etiqueta { display: inline-block; font-family: var(--display); font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: var(--marca-texto); margin-bottom: 6px; }
+h1 { font-family: var(--display); font-size: clamp(30px, 5vw, 44px); line-height: 1.1; margin: 0 0 12px; text-wrap: balance; }
+h2 { font-family: var(--display); font-size: clamp(24px, 3.4vw, 30px); line-height: 1.2; margin: 0 0 10px; text-wrap: balance; }
+h3 { font-family: var(--display); font-size: 21px; margin: 28px 0 8px; text-wrap: balance; }
+p { margin: 0 0 14px; max-width: 68ch; }
+.portada p { color: var(--tinta-suave); }
+.datos { font-size: 14px; color: var(--tinta-suave); margin-top: 14px; }
+
+.dia { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 22px; }
+.dia div { border: 1px solid var(--linea); border-radius: 12px; padding: 14px 16px; background: var(--bg); }
+.dia b { display: block; font-family: var(--display); font-size: 18px; margin-bottom: 2px; }
+.dia span { font-size: 15px; color: var(--tinta-suave); }
+
+section.capitulo { margin-top: 56px; scroll-margin-top: 20px; }
+.capitulo > header .etiqueta { margin-bottom: 2px; }
+
+figure { margin: 18px 0 8px; }
+figure img { display: block; max-width: 100%; height: auto; border-radius: 14px; border: 1px solid var(--linea); box-shadow: var(--sombra); background: #fff; }
+figure.angosta img { max-width: min(100%, 470px); }
+figure.media img { max-width: min(100%, 640px); }
+figcaption { font-size: 14px; color: var(--tinta-suave); margin-top: 8px; }
+
+/* La leyenda: los mismos números naranjas que en la captura */
+ol.leyenda { list-style: none; margin: 14px 0 0; padding: 0; display: grid; gap: 10px; max-width: 72ch; }
+ol.leyenda li { display: grid; grid-template-columns: 30px minmax(0, 1fr); gap: 12px; align-items: start; }
+.num { width: 28px; height: 28px; border-radius: 50%; background: var(--marca); color: #fff; font-weight: 700; font-size: 15px; display: grid; place-items: center; box-shadow: 0 0 0 2px var(--papel), 0 2px 5px rgba(0,0,0,.2); font-variant-numeric: tabular-nums; }
+ol.pasos { margin: 10px 0 0; padding-left: 1.3em; max-width: 72ch; display: grid; gap: 6px; }
+
+.caja { border-radius: 12px; padding: 14px 18px; margin: 18px 0; max-width: 72ch; border: 1px solid; }
+.caja b.titulo { display: block; font-family: var(--display); margin-bottom: 2px; }
+.caja p:last-child { margin-bottom: 0; }
+.nota { background: var(--nota-fondo); border-color: var(--nota-borde); }
+.truco { background: var(--truco-fondo); border-color: var(--truco-borde); }
+
+.boton-ui { display: inline-block; font-weight: 700; padding: 0 7px; border-radius: 6px; border: 1px solid var(--linea); background: var(--papel); white-space: nowrap; }
+.estados { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; margin: 14px 0; max-width: 820px; }
+.estados div { border: 1px solid var(--linea); border-radius: 10px; padding: 10px 14px; background: var(--papel); font-size: 15px; }
+.estados b { display: block; }
+.punto { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: 1px; }
+
+.faq details { background: var(--papel); border: 1px solid var(--linea); border-radius: 12px; padding: 14px 18px; margin-top: 10px; max-width: 76ch; }
+.faq summary { cursor: pointer; font-weight: 700; }
+.faq details[open] summary { margin-bottom: 8px; }
+.faq summary:focus-visible, .indice-movil summary:focus-visible { outline: 2px solid var(--marca); outline-offset: 3px; border-radius: 4px; }
+
+footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); border-top: 1px solid var(--linea); padding-top: 16px; }
+@media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+</style>
+</head>
+<body>
+<div class="envoltura">
+  <aside class="indice indice-ancho">
+    <nav aria-label="Índice">
+      <h2>En esta guía</h2>
+      <ol id="indice-lista">
+        <li><a href="#pantalla">La pantalla de un vistazo</a></li>
+        <li><a href="#entrar">Empezar el día</a></li>
+        <li><a href="#estado">Cambiar tu estado</a></li>
+        <li><a href="#equipo">Ver a tu equipo</a></li>
+        <li><a href="#permiso">Pedir un permiso o una cita médica</a></li>
+        <li><a href="#vacaciones">Pedir vacaciones</a></li>
+        <li><a href="#mis-ausencias">Ver y cancelar lo que pediste</a></li>
+        <li><a href="#feriado">Mover un feriado</a></li>
+        <li><a href="#avisos">Tus avisos</a></li>
+        <li><a href="#tiempos">Tus tiempos</a></li>
+        <li><a href="#organigrama">El organigrama</a></li>
+        <li><a href="#menu">Tu menú</a></li>
+        <li><a href="#salir">Terminar el día</a></li>
+        <li><a href="#planta">La plantita de la oficina</a></li>
+        <li><a href="#preguntas">Preguntas frecuentes</a></li>
+      </ol>
+    </nav>
+  </aside>
+
+  <main>
+    <details class="indice-movil">
+      <summary>Índice de la guía</summary>
+      <ol class="indice" id="indice-movil-lista" style="list-style:none;padding:0;margin:10px 0 0">
+        <li><a href="#pantalla">1. La pantalla de un vistazo</a></li>
+        <li><a href="#entrar">2. Empezar el día</a></li>
+        <li><a href="#estado">3. Cambiar tu estado</a></li>
+        <li><a href="#equipo">4. Ver a tu equipo</a></li>
+        <li><a href="#permiso">5. Pedir un permiso o una cita médica</a></li>
+        <li><a href="#vacaciones">6. Pedir vacaciones</a></li>
+        <li><a href="#mis-ausencias">7. Ver y cancelar lo que pediste</a></li>
+        <li><a href="#feriado">8. Mover un feriado</a></li>
+        <li><a href="#avisos">9. Tus avisos</a></li>
+        <li><a href="#tiempos">10. Tus tiempos</a></li>
+        <li><a href="#organigrama">11. El organigrama</a></li>
+        <li><a href="#menu">12. Tu menú</a></li>
+        <li><a href="#salir">13. Terminar el día</a></li>
+        <li><a href="#planta">14. La plantita de la oficina</a></li>
+        <li><a href="#preguntas">15. Preguntas frecuentes</a></li>
+      </ol>
+    </details>
+
+    <div class="portada" style="margin-top:16px">
+      <span class="etiqueta">Guía para colaboradores</span>
+      <h1>Oficina Virtual para colaboradores</h1>
+      <p>La Oficina Virtual es el lugar donde todo el equipo de VLA se ve trabajando, aunque cada uno esté en su casa. Ahí marcás tu entrada y tu salida, mostrás qué estás haciendo y pedís tus permisos y vacaciones.</p>
+      <p>Para abrirla, entrá a <b>system.somosvla.com</b> con tu usuario y elegí <b>Oficina</b> en el menú.</p>
+      <p>Esta guía la volvés a abrir cuando quieras desde el ícono del libro, arriba a la derecha de la oficina.</p>
+      <div class="dia" aria-label="Tu día en tres pasos">
+        <div><b>1. Al empezar</b><span>Tocá <span class="boton-ui">Entrar a la oficina</span>.</span></div>
+        <div><b>2. Durante el día</b><span>Cambiá tu estado cuando cambia lo que hacés: almuerzo, reunión, pausa.</span></div>
+        <div><b>3. Al terminar</b><span>Tocá <span class="boton-ui">Salir</span> y mandá tu informe del día.</span></div>
+      </div>
+      <p class="datos">Las capturas son de una oficina de ejemplo. Los nombres y las situaciones son inventados.</p>
+    </div>
+
+    <section class="capitulo" id="pantalla" data-titulo="La pantalla de un vistazo">
+      <header><span class="etiqueta">Para ubicarte</span><h2>La pantalla de un vistazo</h2></header>
+      <p>Así se ve la oficina cuando ya entraste. Cada número de la imagen está explicado abajo.</p>
+      <figure><img src="capturas/01-vista-general.png" alt="La Oficina Virtual completa, con el encabezado, los filtros, el mapa de zonas y la lista de presentes, marcados del 1 al 9" width="1360" height="780" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Pestañas.</b> Cambian entre la <b>Oficina</b> (el mapa), tus <b>Tiempos</b> y el <b>Organigrama</b>. La pestaña blanca es la que estás viendo.</span></li>
+        <li><span class="num">2</span><span><b>Filtros.</b> Muestran solo a la gente en un estado, por ejemplo quién está <i>Disponible</i>. <b>Todos</b> vuelve a mostrar a todo el equipo. <b>Fotos</b> cambia las iniciales por las fotos.</span></li>
+        <li><span class="num">3</span><span><b>El mapa.</b> Cada recuadro es un área de la empresa, con la gente que está ahí. El color del círculo es su estado.</span></li>
+        <li><span class="num">4</span><span><b>Presentes.</b> La lista de todos, con su estado escrito. Vos aparecés primero, con la palabra <i>tú</i>.</span></li>
+        <li><span class="num">5</span><span><b>Tu estado.</b> Lo que los demás ven de vos. Lo cambiás desde acá.</span></li>
+        <li><span class="num">6</span><span><b>Salir</b> (o <b>Entrar a la oficina</b> si todavía no entraste).</span></li>
+        <li><span class="num">7</span><span><b>La campana.</b> Tus avisos: las respuestas a lo que pediste. El número rojo dice cuántos no leíste.</span></li>
+        <li><span class="num">8</span><span><b>Tu menú.</b> Tu avatar, tus ausencias y la app de escritorio.</span></li>
+        <li><span class="num">9</span><span><b>Esta guía.</b> El ícono del libro la abre en otra pestaña, para que la sigas al lado de la oficina.</span></li>
+      </ol>
+    </section>
+
+    <section class="capitulo" id="entrar" data-titulo="Empezar el día">
+      <header><span class="etiqueta">Todos los días</span><h2>Empezar el día</h2></header>
+      <p>Cuando empezás a trabajar, tocá el botón verde <span class="boton-ui">Entrar a la oficina</span>. Con eso aparecés en el mapa como <i>Disponible</i> y se abre tu jornada de Bitrix, no hace falta abrirla aparte.</p>
+      <figure class="media"><img src="capturas/02-entrar.png" alt="El botón verde Entrar a la oficina, marcado con el número 1" width="800" height="150" loading="lazy"></figure>
+      <div class="caja truco"><b class="titulo">Si no ves el botón verde</b><p>Ya entraste. En su lugar vas a ver tu estado y el botón rojo <span class="boton-ui">Salir</span>.</p></div>
+    </section>
+
+    <section class="capitulo" id="estado" data-titulo="Cambiar tu estado">
+      <header><span class="etiqueta">Durante el día</span><h2>Cambiar tu estado</h2></header>
+      <p>Tu estado le dice al equipo si te pueden escribir ahora. Tocá el botón de tu estado (arriba a la derecha, el que dice <i>Disponible</i>) y elegí uno de la lista.</p>
+      <figure class="angosta"><img src="capturas/03-estados.png" alt="La lista de estados abierta, con los estados del día, las ausencias y Mis ausencias marcados del 1 al 3" width="308" height="542" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Estado del día:</b> lo que estás haciendo ahora.</span></li>
+        <li><span class="num">2</span><span><b>Ausencia:</b> para pedir un permiso, una cita médica, vacaciones, cargar una incapacidad o mover un feriado. Se explican más abajo.</span></li>
+        <li><span class="num">3</span><span><b>Mis ausencias</b>: la lista de todo lo que pediste.</span></li>
+      </ol>
+      <div class="estados">
+        <div><b><span class="punto" style="background:#4ade80"></span>Disponible</b>Estás trabajando y te pueden escribir.</div>
+        <div><b><span class="punto" style="background:#60a5fa"></span>Concentrado</b>Estás trabajando, pero preferís que no te interrumpan.</div>
+        <div><b><span class="punto" style="background:#c084fc"></span>En reunión interna</b>Reunión con compañeros. Los invitás desde la oficina.</div>
+        <div><b><span class="punto" style="background:#7c3aed"></span>En reunión externa</b>Reunión con alguien de afuera: un cliente, un proveedor.</div>
+        <div><b><span class="punto" style="background:#fb923c"></span>Almuerzo</b>Saliste a almorzar.</div>
+        <div><b><span class="punto" style="background:#facc15"></span>Vuelvo pronto</b>Una pausa corta: un café, el baño, abrir la puerta.</div>
+      </div>
+
+      <h3>Concentrado, Vuelvo pronto o Reunión externa</h3>
+      <p>Estos estados piden una frase corta que explique qué estás haciendo. Tus compañeros la ven al pasar el mouse sobre vos.</p>
+      <figure class="media"><img src="capturas/04-concentrado.png" alt="La ventana de Concentrado, con el campo del motivo y el botón Confirmar marcados" width="464" height="296" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>Escribí qué estás haciendo, con 10 letras como mínimo.</span></li>
+        <li><span class="num">2</span><span>Tocá <b>Confirmar</b>. Mientras falten letras, el botón te dice cuántas.</span></li>
+      </ol>
+
+      <h3>Almuerzo</h3>
+      <p>Elegí desde qué hora y hasta qué hora vas a almorzar, y tocá <b>Confirmar</b>.</p>
+      <figure class="media"><img src="capturas/05-almuerzo.png" alt="La ventana de Almuerzo con las horas desde y hasta marcadas" width="464" height="248" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>La hora en que salís y la hora en que volvés.</span></li>
+        <li><span class="num">2</span><span><b>Confirmar.</b></span></li>
+      </ol>
+
+      <h3>Volver del almuerzo o de una pausa</h3>
+      <p>Cuando llega la hora de volver, <b>el sistema no te pone Disponible solo</b>. Te avisa que el almuerzo terminó, y vos tenés que marcar que volviste.</p>
+      <figure class="media"><img src="capturas/06-volver-del-almuerzo.png" alt="El botón de estado que dice Almuerzo hasta 10:05, marcado con la indicación de tocar acá y elegir Disponible" width="800" height="150" loading="lazy"></figure>
+      <ol class="pasos">
+        <li>Tocá el botón de tu estado, que dice <i>Almuerzo</i>.</li>
+        <li>Elegí <b>Disponible</b>.</li>
+      </ol>
+      <div class="caja nota"><b class="titulo">Importante</b><p>Hasta que marques Disponible, el tiempo sigue contando como almuerzo y el reloj se pone en rojo. Tu jefe y RRHH lo ven. Pasa lo mismo con <i>Vuelvo pronto</i> y <i>Concentrado</i>, y al terminar un permiso o una cita quedás en <i>Vuelvo pronto</i> hasta que marques que volviste.</p></div>
+
+      <h3>Reunión interna</h3>
+      <p>Si te vas a reunir con compañeros, invitalos desde la oficina. A ellos les llega la invitación.</p>
+      <figure class="media"><img src="capturas/07-reunion-interna.png" alt="La ventana de reunión interna, con el motivo, la lista de compañeros con dos elegidos y el botón Invitar a 2" width="464" height="488" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>Para qué es la reunión.</span></li>
+        <li><span class="num">2</span><span>Marcá a quién invitás. Quien no está en la oficina aparece apagado y no se puede elegir.</span></li>
+        <li><span class="num">3</span><span>Tocá <b>Invitar</b>. El botón dice a cuántas personas.</span></li>
+      </ol>
+
+      <h3>Si te invitan a una reunión</h3>
+      <p>Te aparece esta ventana. Si aceptás, tu estado cambia solo a <i>En reunión interna</i>.</p>
+      <figure class="media"><img src="capturas/08-invitacion.png" alt="La invitación de Bruno Méndez a una reunión interna, con los botones Aceptar y Rechazar marcados" width="464" height="275" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Aceptar:</b> entrás a la reunión.</span></li>
+        <li><span class="num">2</span><span><b>Rechazar:</b> seguís en lo tuyo. Cerrar la ventana también cuenta como rechazar.</span></li>
+      </ol>
+      <div class="caja truco"><b class="titulo">Ojo con la hora</b><p>La invitación dura pocos minutos. Si no la respondés a tiempo, vence.</p></div>
+    </section>
+
+    <section class="capitulo" id="equipo" data-titulo="Ver a tu equipo">
+      <header><span class="etiqueta">Coordinar</span><h2>Ver a tu equipo</h2></header>
+      <p>Pasá el mouse sobre cualquier persona del mapa para ver su tarjeta: qué está haciendo, desde cuándo y a qué hora entró.</p>
+      <figure class="media"><img src="capturas/09-companero.png" alt="La tarjeta de Paula Núñez: en reunión externa, visita a un cliente, entró a las 8:15" width="376" height="366" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>La tarjeta dice el estado, el motivo, cuándo entró, en qué área está y su última actividad.</span></li>
+      </ol>
+      <div class="caja truco"><b class="titulo">Para encontrar a alguien rápido</b><p>Usá los filtros de arriba del mapa. Por ejemplo, <b>Disponible</b> deja solo a quien te puede responder ahora.</p></div>
+    </section>
+
+    <section class="capitulo" id="permiso" data-titulo="Pedir un permiso o una cita médica">
+      <header><span class="etiqueta">Ausencias</span><h2>Pedir un permiso o una cita médica</h2></header>
+      <p>Abrí tu estado y elegí <b>Permiso</b> o <b>Cita médica</b>. Los dos funcionan igual: un día y un rango de horas.</p>
+      <figure class="media"><img src="capturas/10-permiso.png" alt="La ventana de Permiso con la fecha, las horas, el uso del mes, el motivo, adjuntar documento y Confirmar, marcados del 1 al 6" width="464" height="495" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>El día.</span></li>
+        <li><span class="num">2</span><span>Desde qué hora y hasta qué hora.</span></li>
+        <li><span class="num">3</span><span>Cuánto permiso usaste este mes y cuánto te queda.</span></li>
+        <li><span class="num">4</span><span>El motivo, con 10 letras como mínimo.</span></li>
+        <li><span class="num">5</span><span>Si tenés un comprobante (una cita, una constancia), adjuntalo acá.</span></li>
+        <li><span class="num">6</span><span><b>Confirmar.</b></span></li>
+      </ol>
+      <div class="caja nota"><b class="titulo">Las reglas</b><p><b>Permiso:</b> tenés 1 hora por mes, y la podés partir (por ejemplo 30 + 30 minutos).<br><b>Cita médica:</b> hasta 3 horas por cita.<br>El permiso y la cita valen desde que los pedís, y tu jefe los aprueba después. Si los rechaza antes de que empiecen, se quitan.</p></div>
+    </section>
+
+    <section class="capitulo" id="vacaciones" data-titulo="Pedir vacaciones">
+      <header><span class="etiqueta">Ausencias</span><h2>Pedir vacaciones</h2></header>
+      <p>Abrí tu estado y elegí <b>Vacaciones</b>. En el calendario tocá el <b>primer día</b> y después el <b>último</b>. Si es un solo día, tocalo una vez.</p>
+      <figure><img src="capturas/11-vacaciones.png" alt="La ventana Solicitar vacaciones: calendario de diciembre con del 21 al 23 elegidos, la ficha con 3 días hábiles y reintegro el jueves 24, comentarios, quién aprueba y Enviar solicitud" width="508" height="736" loading="lazy" style="max-width:min(100%,520px)"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>El calendario.</b> Con las flechas cambiás de mes. Los feriados están en amarillo y los días que no se cuentan, en gris. Si trabajás el sábado medio día, el sábado lleva un <b>½</b>.</span></li>
+        <li><span class="num">2</span><span><b>El resumen.</b> Desde, hasta, cuántos días hábiles te descuenta y qué día volvés a trabajar.</span></li>
+        <li><span class="num">3</span><span><b>Comentarios</b>, si querés agregar algo. No es obligatorio.</span></li>
+        <li><span class="num">4</span><span><b>Quién las aprueba.</b> Tu jefe directo, o RRHH si no tenés jefe asignado.</span></li>
+        <li><span class="num">5</span><span><b>Enviar solicitud.</b></span></li>
+      </ol>
+      <div class="caja nota"><b class="titulo">Las vacaciones no valen hasta que se aprueban</b><p>Mientras tu jefe no responda, en tus ausencias dicen <i>Esperando a tu jefe</i>. La respuesta te llega a la campana y a tu correo, con copia a RRHH.</p></div>
+      <h3>Incapacidad</h3>
+      <p>Se carga igual que las vacaciones, con el mismo calendario, eligiendo <b>Incapacidad</b>. La diferencia es que tenés que escribir el motivo y adjuntar la boleta. Vale desde que la cargás, y la podés cargar hasta 60 días después.</p>
+    </section>
+
+    <section class="capitulo" id="mis-ausencias" data-titulo="Ver y cancelar lo que pediste">
+      <header><span class="etiqueta">Ausencias</span><h2>Ver y cancelar lo que pediste</h2></header>
+      <p>Abrí tu menú (tu nombre, arriba a la derecha) y elegí <b>Mis ausencias y solicitudes</b>. Ahí está todo lo que pediste, con su estado.</p>
+      <figure class="media"><img src="capturas/12-mis-ausencias.png" alt="Mis ausencias y solicitudes: una cita médica aplicada a falta de aprobación, unas vacaciones aprobadas, un permiso no aprobado con su motivo y el botón Mover un feriado" width="464" height="654" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Aplicada, falta aprobación:</b> ya vale, pero tu jefe todavía no respondió.</span></li>
+        <li><span class="num">2</span><span><b>Aprobada:</b> dice quién la aprobó.</span></li>
+        <li><span class="num">3</span><span><b>No aprobada:</b> dice quién y por qué.</span></li>
+        <li><span class="num">4</span><span><b>Mover un feriado:</b> se explica en el capítulo siguiente.</span></li>
+      </ol>
+      <p>Para cancelar, tocá <b>Cancelar</b> en la solicitud y confirmá. Solo se puede antes de que empiece. Lo cancelado queda en tu historial.</p>
+    </section>
+
+    <section class="capitulo" id="feriado" data-titulo="Mover un feriado">
+      <header><span class="etiqueta">Ausencias</span><h2>Mover un feriado</h2></header>
+      <p>Si vas a trabajar un feriado, podés tomarlo otro día <b>del mismo mes</b>. Unos días antes del feriado te aparece este aviso abajo de la pantalla:</p>
+      <figure class="media"><img src="capturas/13-aviso-feriado.png" alt="Aviso: el martes 1 de diciembre es feriado, ¿lo vas a trabajar?, con el botón Pedir tomarlo otro día marcado" width="674" height="92" loading="lazy"></figure>
+      <p>Tocá <b>Pedir tomarlo otro día</b>. También lo encontrás en tus ausencias, con el botón <b>Mover un feriado</b>.</p>
+      <figure class="media"><img src="capturas/14-mover-feriado.png" alt="La ventana Mover un feriado con el calendario de diciembre, el 24 elegido, el motivo escrito y Enviar solicitud" width="464" height="582" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>Elegí el día en que lo vas a tomar.</span></li>
+        <li><span class="num">2</span><span>Contá por qué lo trabajás.</span></li>
+        <li><span class="num">3</span><span><b>Enviar solicitud.</b></span></li>
+      </ol>
+      <div class="caja nota"><b class="titulo">Importante</b><p>Tenés que pedirlo <b>antes</b> del feriado. Lo aprueba tu jefe, y hasta que responda el feriado sigue en su fecha.</p></div>
+    </section>
+
+    <section class="capitulo" id="avisos" data-titulo="Tus avisos">
+      <header><span class="etiqueta">Avisos</span><h2>Tus avisos</h2></header>
+      <p>Cuando tu jefe responde algo que pediste, te llega un aviso a la campana. Tocá la campana para verlos.</p>
+      <figure class="media"><img src="capturas/15-campana.png" alt="El panel de avisos abierto, con un aviso de vacaciones aprobadas sin leer y el enlace Marcar todo como leído" width="400" height="292" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>Un aviso sin leer tiene un punto azul. Tocalo para abrir lo que dice.</span></li>
+        <li><span class="num">2</span><span><b>Marcar todo como leído</b> borra el número rojo.</span></li>
+      </ol>
+      <p>Las respuestas a tus solicitudes también te llegan por correo y por Bitrix.</p>
+      <div class="caja truco"><b class="titulo">Para que te avise aunque no estés mirando la oficina</b><p>Al pie de la campana podés activar los <b>avisos del navegador</b>. Si dice que están bloqueados, habilitalos desde el candado que está al lado de la dirección de la página.</p></div>
+    </section>
+
+    <section class="capitulo" id="tiempos" data-titulo="Tus tiempos">
+      <header><span class="etiqueta">Tu registro</span><h2>Tus tiempos</h2></header>
+      <p>En la pestaña <b>Tiempos</b> ves cuánto estuviste en la oficina y en qué estados.</p>
+      <figure><img src="capturas/16-tiempos.png" alt="La pantalla Tiempos con los botones Día, Semana y Mes, las flechas, el tiempo en oficina por día y el desglose por estado" width="1060" height="600" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>Elegí si querés ver un <b>día</b>, una <b>semana</b> o un <b>mes</b>.</span></li>
+        <li><span class="num">2</span><span>Con las flechas vas al período anterior o al siguiente.</span></li>
+        <li><span class="num">3</span><span>El total del período y cuánto estuviste cada día.</span></li>
+        <li><span class="num">4</span><span>Cómo se repartió tu tiempo entre los estados.</span></li>
+      </ol>
+    </section>
+
+    <section class="capitulo" id="organigrama" data-titulo="El organigrama">
+      <header><span class="etiqueta">Coordinar</span><h2>El organigrama</h2></header>
+      <p>En la pestaña <b>Organigrama</b> ves quién depende de quién, con el estado y la hora local de cada persona, que sirve con los compañeros de otros países.</p>
+      <figure><img src="capturas/17-organigrama.png" alt="El organigrama con el buscador, la fila de Marta Quesada con su estado y su hora de Colombia, la lista de departamentos y la leyenda de estados" width="1360" height="805" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Buscar</b> a una persona o un área.</span></li>
+        <li><span class="num">2</span><span>Cada persona con su área, su estado y su hora local (<i>CO 11:15</i> es la hora de Colombia).</span></li>
+        <li><span class="num">3</span><span><b>Departamentos:</b> elegí uno para resaltar a su gente.</span></li>
+        <li><span class="num">4</span><span>Qué significa cada figura de estado.</span></li>
+      </ol>
+    </section>
+
+    <section class="capitulo" id="menu" data-titulo="Tu menú">
+      <header><span class="etiqueta">Lo tuyo</span><h2>Tu menú</h2></header>
+      <p>Tocá tu nombre, arriba a la derecha.</p>
+      <figure class="angosta"><img src="capturas/18-menu-personal.png" alt="El menú personal abierto con Personalizar mi avatar, Mis ausencias y solicitudes y App de escritorio y Bitrix" width="300" height="241" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Personalizar mi avatar:</b> el muñequito que te representa (pelo, ropa, accesorios).</span></li>
+        <li><span class="num">2</span><span><b>Mis ausencias y solicitudes:</b> todo lo que pediste.</span></li>
+        <li><span class="num">3</span><span><b>App de escritorio y Bitrix:</b> para instalar la app de la oficina en tu computadora. Tiene su propia guía.</span></li>
+      </ol>
+    </section>
+
+    <section class="capitulo" id="salir" data-titulo="Terminar el día">
+      <header><span class="etiqueta">Todos los días</span><h2>Terminar el día</h2></header>
+      <p>Al terminar, tocá <span class="boton-ui">Salir</span>. Te aparece el informe del día, que le llega a tu jefe en Bitrix.</p>
+      <figure class="media"><img src="capturas/19-salir.png" alt="La ventana Terminar la jornada con las horas trabajadas, el informe del día, la hora de salida, Enviar informe y salir y Salir sin informe" width="464" height="546" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>Cuánto trabajaste hoy.</span></li>
+        <li><span class="num">2</span><span><b>El informe:</b> qué hiciste en el día, en pocas líneas.</span></li>
+        <li><span class="num">3</span><span>La hora de salida. Normalmente ya está bien.</span></li>
+        <li><span class="num">4</span><span><b>Enviar informe y salir.</b></span></li>
+        <li><span class="num">5</span><span><b>Salir sin informe</b>, si no querés escribirlo. La jornada de Bitrix se cierra igual.</span></li>
+      </ol>
+    </section>
+
+    <section class="capitulo" id="planta" data-titulo="La plantita de la oficina">
+      <header><span class="etiqueta">Un detalle</span><h2>La plantita de la oficina</h2></header>
+      <p>Abajo del mapa hay una plantita que es de todos. Cuando tiene sed, cualquiera la puede regar.</p>
+      <figure class="media"><img src="capturas/20-planta.png" alt="La plantita con el texto Tiene sed y el botón Regar" width="588" height="120" loading="lazy"></figure>
+    </section>
+
+    <section class="capitulo faq" id="preguntas" data-titulo="Preguntas frecuentes">
+      <header><span class="etiqueta">Dudas</span><h2>Preguntas frecuentes</h2></header>
+      <details><summary>Volví del almuerzo y sigo apareciendo en Almuerzo.</summary><p>Es normal: volver es manual. Tocá tu estado y elegí <b>Disponible</b>.</p></details>
+      <details><summary>Pedí vacaciones y dicen «Esperando a tu jefe».</summary><p>Tu jefe todavía no las respondió. Cuando lo haga, te llega un aviso a la campana y un correo.</p></details>
+      <details><summary>Me equivoqué al pedir un permiso.</summary><p>Si todavía no empezó, cancelalo desde <b>Mis ausencias y solicitudes</b> y pedilo de nuevo.</p></details>
+      <details><summary>No encuentro a un compañero en el mapa.</summary><p>Revisá que el filtro de arriba esté en <b>Todos</b>. Si no entró a la oficina, aparece apagado.</p></details>
+      <details><summary>¿Quién aprueba lo que pido?</summary><p>Tu jefe directo. Si no tenés uno asignado, RRHH. Lo ves en la ventana de vacaciones, abajo de todo.</p></details>
+      <details><summary>Me fui sin tocar Salir.</summary><p>Hacelo apenas puedas. Si pasa mucho tiempo, el sistema cierra tu sesión solo, pero tus horas pueden quedar mal registradas.</p></details>
+    </section>
+
+    <footer class="pie">Guía de la Oficina Virtual de VLA para colaboradores. Las capturas usan una oficina de ejemplo con nombres inventados.</footer>
+  </main>
+</div>
+</body>
+</html>
