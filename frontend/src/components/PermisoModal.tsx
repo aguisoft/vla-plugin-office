@@ -10,10 +10,13 @@ import { horarioInicial, yaPaso, sugerirTarde } from '../permisoHorario';
  * Permiso es una ausencia corta dentro de un mismo día: fecha + rango de
  * hora, más justificación obligatoria. Los dos instantes se arman sobre esa
  * misma fecha, así que el backend nunca recibe un permiso que cruce de día.
+ * Con `para`, RRHH lo registra por otra persona: se ve SU saldo y nace aprobado.
  */
-export function PermisoModal({ status, onClose, onConfirm }: {
+export function PermisoModal({ status, para, onClose, onConfirm }: {
   /** PERMISO o CITA_MEDICA: el mismo formulario, distinto encabezado. */
   status: string;
+  /** RRHH registra por otra persona. */
+  para?: { userId: string; nombre: string };
   onClose: () => void;
   onConfirm: (startAt: string, endAt: string, justification: string, adjuntos?: DocAdjunto[]) => void;
 }) {
@@ -39,11 +42,11 @@ export function PermisoModal({ status, onClose, onConfirm }: {
   useEffect(() => {
     if (status !== 'PERMISO') return;
     let vivo = true;
-    getUsoAusencias()
+    getUsoAusencias(para?.userId)
       .then(u => { if (vivo) setUso(u); })
       .catch(() => { /* el saldo es informativo: sin él se puede pedir igual */ });
     return () => { vivo = false; };
-  }, [status]);
+  }, [status, para?.userId]);
 
   const minutosPedidos = (() => {
     const [h1, m1] = from.split(':').map(Number);
@@ -61,7 +64,7 @@ export function PermisoModal({ status, onClose, onConfirm }: {
   };
 
   return (
-    <Shell title={cfgOf(status).label} onClose={onClose}>
+    <Shell title={para ? `${cfgOf(status).label} de ${para.nombre}` : cfgOf(status).label} onClose={onClose}>
       <DateField label="Fecha" value={date} onChange={setDate} />
       <div className="mt-3 flex items-center gap-2">
         <TimeField label="Desde" value={from} onChange={setFrom} />
@@ -70,7 +73,7 @@ export function PermisoModal({ status, onClose, onConfirm }: {
       {timeInvalid && <p className="mt-2 text-xs text-red-500">La hora de fin debe ser posterior.</p>}
       {pasado && (
         <div className="mt-2 rounded-xl bg-amber-50 px-3 py-2 text-[11px] text-amber-800" data-testid="permiso-pasado">
-          Ese horario ya pasó{tarde ? ' (es de la mañana)' : ''}. Se registra igual, pero no vas a aparecer con permiso.
+          Ese horario ya pasó{tarde ? ' (es de la mañana)' : ''}. Se registra igual, pero {para ? 'no va' : 'no vas'} a aparecer con permiso.
           {tarde && (
             <button type="button" onClick={() => { setFrom(tarde.desde); setTo(tarde.hasta); }}
               className="mt-1 block font-semibold underline" data-testid="usar-tarde">
@@ -84,12 +87,13 @@ export function PermisoModal({ status, onClose, onConfirm }: {
       {status === 'PERMISO' && uso && (
         <div className={`mt-3 rounded-xl px-3 py-2 text-[11px] ${
           seExcede ? 'bg-amber-50 text-amber-800' : 'bg-gray-50 text-gray-600'}`}>
-          Llevás <strong>{uso.permisoMin} min</strong> de {uso.permisoTopeMin} este mes
+          {para ? 'Lleva' : 'Llevás'} <strong>{uso.permisoMin} min</strong> de {uso.permisoTopeMin} este mes
           {!seExcede && uso.permisoRestanteMin > 0 && <> · quedan {uso.permisoRestanteMin}</>}
           {seExcede && (
             <p className="mt-1">
-              ⚠ Con este permiso superás la hora del mes. Se registra igual y tu
-              líder lo va a ver.
+              {para
+                ? '⚠ Con este permiso supera la hora del mes. Se registra igual y su jefe lo va a ver.'
+                : '⚠ Con este permiso superás la hora del mes. Se registra igual y tu líder lo va a ver.'}
             </p>
           )}
         </div>
@@ -103,10 +107,16 @@ export function PermisoModal({ status, onClose, onConfirm }: {
         placeholder={status === 'CITA_MEDICA' ? 'Cita de control de mi hijo' : 'Trámite personal en la tarde'}
       />
       <AdjuntarDocs docs={docs} onChange={setDocs} />
+      {para && (
+        <p className="mt-3 rounded-xl bg-sky-50 px-3 py-2 text-[10px] leading-relaxed text-sky-900" data-testid="quien-aprueba">
+          {status === 'CITA_MEDICA' ? <>Queda <strong>aprobada</strong> al registrarla.</> : <>Queda <strong>aprobado</strong> al registrarlo.</>}
+          {' '}A {para.nombre} le llega un aviso y un correo, con copia a RRHH.
+        </p>
+      )}
       <Actions
         onClose={onClose}
         disabled={invalid}
-        confirmLabel={missing > 0 ? missingLabel(missing) : pasado ? 'Registrar igual' : 'Confirmar'}
+        confirmLabel={missing > 0 ? missingLabel(missing) : pasado ? 'Registrar igual' : para ? 'Registrar' : 'Confirmar'}
         onConfirm={() => onConfirm(toIso(from), toIso(to), text.trim(), docs)}
       />
     </Shell>

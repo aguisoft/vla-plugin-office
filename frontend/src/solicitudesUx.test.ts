@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { etiquetaSolicitud, cancelable, vigenteEnHistorial, pantallaInicial } from './solicitudesUx';
+import { etiquetaSolicitud, cancelable, vigenteEnHistorial, pantallaInicial, anulable } from './solicitudesUx';
 
 const ahora = Date.parse('2026-10-12T15:00:00Z');
 const s = (o: object) => ({ estado: 'pendiente', tipo: 'PERMISO', startAt: '2026-10-20T15:00:00Z', endAt: '2026-10-20T16:00:00Z', ...o }) as any;
@@ -41,5 +41,18 @@ describe('pantallaInicial', () => {
   it('sin parámetro (o con otro valor) no abre nada', () => {
     expect(pantallaInicial('?solicitudes=0', '?escritorio=bitrix')).toBeNull();
     expect(pantallaInicial()).toBeNull();
+  });
+});
+
+describe('lo que ve RRHH de otra persona', () => {
+  const base = { tipo: 'VACACIONES', startAt: '2026-11-20T06:00:00Z', endAt: '2026-11-28T05:59:59Z' } as const;
+  it('unas vacaciones pendientes no esperan a «tu» jefe', () => {
+    expect(etiquetaSolicitud({ ...base, estado: 'pendiente' }, Date.parse('2026-11-10T12:00:00Z'), true).texto).toBe('Esperando aprobación');
+  });
+  it('se anula lo pendiente o aprobado, aunque ya haya empezado; lo resuelto no', () => {
+    expect(anulable({ estado: 'pendiente' })).toBe(true);
+    expect(anulable({ estado: 'aprobada' })).toBe(true);
+    expect(anulable({ estado: 'rechazada' })).toBe(false);
+    expect(anulable({ estado: 'cancelada' })).toBe(false);
   });
 });

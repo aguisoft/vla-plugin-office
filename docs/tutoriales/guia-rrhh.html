@@ -132,7 +132,7 @@ footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); borde
       <h1>Oficina Virtual para RRHH</h1>
       <p>Como RRHH usás la oficina igual que todos, y respondés solicitudes igual que un jefe. Esta guía explica lo que se suma por administrar la oficina. Lo básico está en la <a href="https://claude.ai/artifact/Uy5fqgTt7gMCCDBpdiG5PT">guía para colaboradores</a>, y cómo responder solicitudes, en la <a href="https://claude.ai/artifact/9WvA2uksnW3sKKbppxqdCJ">guía para jefes</a>.</p>
       <div class="dia" aria-label="Lo que suma RRHH">
-        <div><b>Ordenar</b><span>Decidís quién es jefe de quién, el país, los sábados y la zona del mapa de cada persona.</span></div>
+        <div><b>Ordenar</b><span>Decidís quién es jefe de quién, el país, los sábados y la zona del mapa de cada persona, y anulás o registrás ausencias.</span></div>
         <div><b>Calendario</b><span>Cargás los feriados de cada país.</span></div>
         <div><b>Revisar</b><span>Ves quién no marca o dejó la sesión abierta en toda la empresa.</span></div>
       </div>
@@ -141,11 +141,11 @@ footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); borde
 
     <section class="capitulo" id="donde" data-titulo="Dónde está lo tuyo">
       <header><span class="etiqueta">Para empezar</span><h2>Dónde está lo tuyo</h2></header>
-      <p>Con el permiso de administrar la oficina, en el encabezado aparece <span class="boton-ui">Administrar</span>. Ahí están las dos pantallas de RRHH.</p>
-      <figure class="media"><img src="capturas/29-rrhh-encabezado.png" alt="El encabezado de RRHH con Solicitudes, el ícono de las guías y el menú Administrar abierto con Personas y Feriados" width="361" height="203" loading="lazy"></figure>
+      <p>Con el permiso de administrar la oficina, en el encabezado aparece <span class="boton-ui">Administrar</span>. Ahí están las pantallas de RRHH.</p>
+      <figure class="media"><img src="capturas/29-rrhh-encabezado.png" alt="El encabezado de RRHH con Solicitudes, el ícono de las guías y el menú Administrar abierto con Personas, Ausencias y Feriados" width="361" height="254" loading="lazy"></figure>
       <ol class="leyenda">
         <li><span class="num">1</span><span><b>Solicitudes:</b> todas las que esperan respuesta en la empresa.</span></li>
-        <li><span class="num">2</span><span><b>Administrar:</b> Personas y Feriados.</span></li>
+        <li><span class="num">2</span><span><b>Administrar:</b> Personas, Ausencias y Feriados.</span></li>
         <li><span class="num">3</span><span><b>Las guías de uso:</b> como RRHH ves las tres.</span></li>
       </ol>
     </section>
@@ -192,21 +192,42 @@ footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); borde
         <li><span class="num">2</span><span>Tocá el día en el calendario.</span></li>
         <li><span class="num">3</span><span>Escribí el nombre y tocá <b>Agregar en Costa Rica</b> (o en el país de la pestaña).</span></li>
       </ol>
-      <div class="caja nota"><b class="titulo">Mover un feriado</b><p>Cuando alguien trabaja un feriado y lo toma otro día, lo aprueba su jefe directo. Esos pedidos no llegan a tu bandeja.</p></div>
+      <div class="caja nota"><b class="titulo">Mover un feriado</b><p>Cuando alguien trabaja un feriado y lo toma otro día, lo aprueba su jefe directo o vos: esos pedidos también te llegan a Solicitudes. Si la persona no tiene jefe, queda aprobado solo y te llega un aviso.</p></div>
     </section>
 
     <section class="capitulo" id="solicitudes" data-titulo="Solicitudes de toda la empresa">
       <header><span class="etiqueta">Responder</span><h2>Solicitudes de toda la empresa</h2></header>
-      <p>En <span class="boton-ui">Solicitudes</span> ves todos los permisos, citas y vacaciones que esperan respuesta, de cualquier equipo. Podés responder cualquiera, igual que su jefe. Cómo se hace está en la <a href="https://claude.ai/artifact/9WvA2uksnW3sKKbppxqdCJ">guía para jefes</a>.</p>
-      <figure class="media"><img src="capturas/34-rrhh-bandeja.png" alt="La bandeja de RRHH con el texto Como RRHH ves las de todo el equipo y las vacaciones de Nicolás Brenes primero" width="528" height="591" loading="lazy"></figure>
+      <p>En <span class="boton-ui">Solicitudes</span> ves todos los permisos, citas, vacaciones y feriados movidos que esperan respuesta, de cualquier equipo. Podés responder cualquiera, igual que su jefe. Cómo se hace está en la <a href="https://claude.ai/artifact/9WvA2uksnW3sKKbppxqdCJ">guía para jefes</a>.</p>
+      <figure class="media"><img src="capturas/34-rrhh-bandeja.png" alt="La bandeja de RRHH con el texto Como RRHH ves las de todo el equipo y las vacaciones de Nicolás Brenes primero" width="528" height="718" loading="lazy"></figure>
       <ol class="leyenda">
         <li><span class="num">1</span><span>Como RRHH ves las de todos.</span></li>
         <li><span class="num">2</span><span><b>Quien no tiene jefe</b> (acá, Nicolás): esas solicitudes te tocan a vos.</span></li>
       </ol>
-      <div class="caja nota"><b class="titulo">Las de quien no tiene jefe no avisan</b><p>Cuando alguien sin jefe pide algo, no sale ningún aviso ni recordatorio: solo aparece en tu bandeja. Mirá el número rojo de Solicitudes.</p></div>
+      <div class="caja nota"><b class="titulo">Las de quien no tiene jefe</b><p>Te llega un aviso en la oficina, en Windows y en Bitrix (a quienes tienen el rol «RRHH Oficina»), y un correo a rrhh@grupovla.com. Si pasan más de 20 horas sin respuesta, también te llega el recordatorio de las 9:00.</p></div>
       <h3>Lo que te llega por correo</h3>
       <p>Cada vez que alguien aprueba o no una solicitud o un feriado movido, el correo a la persona va <b>con copia a rrhh@grupovla.com</b> y a quien respondió. Así queda registro sin que nadie tenga que reenviar nada.</p>
       <p>Si vos no tenés jefe, tus propias solicitudes quedan aprobadas solas.</p>
+    </section>
+
+    <section class="capitulo" id="ausencias" data-titulo="Anular o registrar una ausencia">
+      <header><span class="etiqueta">Corregir</span><h2>Anular o registrar una ausencia</h2></header>
+      <p>En <span class="boton-ui">Administrar</span> → <b>Ausencias</b> elegís a una persona y ves todas sus solicitudes. Desde ahí podés anular una (por ejemplo, unas vacaciones que su jefe aprobó por error) o registrar una ausencia por ella (por ejemplo, una incapacidad que te trajo en papel).</p>
+      <figure class="media"><img src="capturas/37-rrhh-ausencias.png" alt="La pantalla Ausencias con Bruno Méndez elegido, los botones para registrar una ausencia y sus solicitudes, con las vacaciones a punto de anularse y el motivo escrito" width="576" height="846" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>La persona.</b></span></li>
+        <li><span class="num">2</span><span><b>Registrar una ausencia:</b> incapacidad, vacaciones, permiso o cita médica. Queda aprobada al registrarla, sin pasar por su jefe.</span></li>
+        <li><span class="num">3</span><span><b>Anular:</b> está en cada solicitud pendiente o aprobada, aunque ya haya empezado.</span></li>
+        <li><span class="num">4</span><span><b>El motivo</b> es obligatorio y le llega a la persona. Al anularla se quita de la oficina y queda en su historial como cancelada.</span></li>
+      </ol>
+      <h3>Registrar por otra persona</h3>
+      <p>Se abre el mismo formulario que usa la persona, con su nombre arriba.</p>
+      <figure class="media"><img src="capturas/38-rrhh-registrar.png" alt="El formulario Incapacidad de Bruno Méndez con el 23 al 25 de noviembre elegidos, 3 días hábiles, y el aviso de que queda aprobada" width="448" height="747" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>Para quién es.</span></li>
+        <li><span class="num">2</span><span>Los días se cuentan con <b>su</b> sábado y <b>sus</b> feriados, no con los tuyos.</span></li>
+        <li><span class="num">3</span><span>Queda aprobada. A la persona le llega un aviso y un correo, con copia a RRHH.</span></li>
+      </ol>
+      <div class="caja truco"><b class="titulo">Fechas pasadas</b><p>Las vacaciones y las incapacidades se pueden registrar hasta 60 días hacia atrás, por ejemplo una incapacidad que llegó tarde.</p></div>
     </section>
 
     <section class="capitulo" id="mapa" data-titulo="Lo que ves en el mapa">
@@ -237,8 +258,9 @@ footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); borde
 
     <section class="capitulo faq" id="preguntas" data-titulo="Preguntas frecuentes">
       <header><span class="etiqueta">Dudas</span><h2>Preguntas frecuentes</h2></header>
-      <details><summary>Un jefe aprobó algo por error, o hay que anular una ausencia.</summary><p>Por ahora la oficina no tiene un botón para anular la solicitud de otra persona. Pedíselo al equipo de sistemas. La persona sí puede cancelar la suya mientras no haya empezado.</p></details>
-      <details><summary>¿Cómo anoto la incapacidad de otra persona?</summary><p>Por ahora la registra la persona desde su oficina; la guía para colaboradores explica cómo. No hay un botón para cargarla por otra persona.</p></details>
+      <details><summary>Un jefe aprobó algo por error, o hay que anular una ausencia.</summary><p>En Administrar → Ausencias, elegí a la persona y tocá <b>Anular</b> en esa solicitud. Te pide el motivo, que le llega a la persona.</p></details>
+      <details><summary>¿Cómo anoto la incapacidad de otra persona?</summary><p>En Administrar → Ausencias, elegí a la persona y tocá <b>Incapacidad</b>. Queda aprobada y a la persona le llega un aviso.</p></details>
+      <details><summary>¿Quién recibe los avisos de RRHH?</summary><p>Quienes tienen el rol «RRHH Oficina», más el correo rrhh@grupovla.com. El nombre del rol y el correo se cambian en la configuración del módulo Oficina.</p></details>
       <details><summary>Alguien no aparece en el mapa.</summary><p>En Personas tiene «Sin zona». Elegí su zona en la columna Zona del mapa.</p></details>
       <details><summary>A un jefe le llegan solicitudes de alguien que no es de su equipo, o le falta alguien en Tiempos.</summary><p>El jefe directo de esa persona está mal. Corregilo en Personas.</p></details>
       <details><summary>Alguien de otro país tiene los feriados de Costa Rica.</summary><p>Su país está por defecto o mal cargado. Corregilo en Personas, en la columna País.</p></details>

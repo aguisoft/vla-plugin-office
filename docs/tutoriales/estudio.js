@@ -177,6 +177,17 @@ const FERIADOS_2026 = [
   ['CO', '01-01', 'Año Nuevo'], ['CO', '01-12', 'Día de los Reyes Magos'], ['CO', '05-01', 'Día del Trabajo'], ['CO', '07-20', 'Día de la Independencia'],
   ['CO', '08-07', 'Batalla de Boyacá'], ['CO', '12-08', 'Inmaculada Concepción'], ['CO', '12-25', 'Navidad'],
 ];
+const anuladasRrhh = new Map();
+const registradasRrhh = [];
+function solicitudesBruno() {
+  const s = (o) => ({ userId: 'bruno', adjuntos: [], motivoResolucion: null, creadaPor: 'bruno', ...o });
+  return [
+    s({ id: 'sb1', tipo: 'PERMISO', startAt: '2026-11-25T20:00:00Z', endAt: '2026-11-25T20:30:00Z', justificacion: 'Trámite en el banco', estado: 'pendiente', absenceId: 'a9', resueltaPor: null, resueltaEn: null, creadaEn: hace(40) }),
+    s({ id: 'sb2', tipo: 'VACACIONES', startAt: '2026-12-28T06:00:00Z', endAt: '2027-01-01T05:59:59Z', justificacion: 'Fin de año en Guanacaste', estado: 'aprobada', absenceId: 'a5', resueltaPor: 'paula', resueltaEn: hace(60 * 30), creadaEn: hace(60 * 50), nombreResolvio: 'Paula Núñez' }),
+    s({ id: 'sb3', tipo: 'CITA_MEDICA', startAt: '2026-11-12T15:00:00Z', endAt: '2026-11-12T16:30:00Z', justificacion: 'Control en la clínica', estado: 'aprobada', absenceId: 'a4', resueltaPor: 'paula', resueltaEn: hace(60 * 24 * 14), creadaEn: hace(60 * 24 * 15), nombreResolvio: 'Paula Núñez' }),
+    ...registradasRrhh.filter(x => x.userId === 'bruno'),
+  ].map(x => anuladasRrhh.has(x.id) ? { ...x, estado: 'cancelada', motivoResolucion: anuladasRrhh.get(x.id), nombreResolvio: 'Irene Salas' } : x);
+}
 function rutasRrhh(q, u, req, json, e) {
   const sol = (o) => ({ estado: 'pendiente', absenceId: null, resueltaPor: null, resueltaEn: null, motivoResolucion: null, creadaEn: hace(40), adjuntos: [], ...o });
   if (q === '/solicitudes/bandeja') return json({
@@ -185,11 +196,21 @@ function rutasRrhh(q, u, req, json, e) {
       sol({ id: 'v1', userId: 'ana', nombre: 'Ana Rojas', creadaPor: 'ana', tipo: 'VACACIONES', startAt: '2026-12-21T06:00:00Z', endAt: '2026-12-24T05:59:59Z', justificacion: 'Viaje familiar' }),
       sol({ id: 'c2', userId: 'felipe', nombre: 'Felipe Mora', creadaPor: 'felipe', tipo: 'CITA_MEDICA', startAt: '2026-11-26T20:00:00Z', endAt: '2026-11-26T21:30:00Z', absenceId: 'a7', justificacion: 'Control odontológico', usoMes: { permisoMin: 0, permisoTopeMin: 60, permisoRestanteMin: 60 } }),
     ],
-    // Los feriados movidos los decide solo el jefe directo: RRHH no los recibe.
-    feriados: [],
+    // RRHH ve y decide los feriados movidos de todos (desde 1.46.0).
+    feriados: [{ id: 'f1', userId: 'ana', nombre: 'Ana Rojas', holidayId: 'h-dic1', newDate: '2026-12-24', justification: 'Trabajo el feriado por el cierre de mes', status: 'PENDING', holidayName: 'Abolición del Ejército', holidayDate: '2026-12-01' }],
     esJefe: false, esRrhh: true,
   });
   if (q === '/avisos') return json({ sinLeer: 0, avisos: [] });
+  // Administrar → Ausencias: las solicitudes de Bruno, anularlas y registrar por él.
+  const de = q.match(/^\/solicitudes\/de\/(\w+)$/);
+  if (de) return json(de[1] === 'bruno' ? solicitudesBruno() : []);
+  const anul = q.match(/^\/solicitudes\/(\w+)\/cancelar$/);
+  if (anul && req.method() === 'POST') { anuladasRrhh.set(anul[1], req.postDataJSON()?.motivo ?? ''); return json({ ok: true }); }
+  if (q === '/absences' && req.method() === 'POST') {
+    const b = req.postDataJSON();
+    registradasRrhh.push({ id: 'r' + registradasRrhh.length, userId: b.userId, tipo: b.type, startAt: b.startAt.length === 10 ? b.startAt + 'T06:00:00Z' : b.startAt, endAt: b.endAt.length === 10 ? new Date(Date.parse(b.endAt + 'T05:59:59Z') + 86400000).toISOString() : b.endAt, justificacion: b.justification ?? null, estado: 'aprobada', absenceId: 'ra', resueltaPor: 'irene', resueltaEn: hace(0), motivoResolucion: null, creadaPor: 'irene', creadaEn: hace(0), nombreResolvio: 'Irene Salas', adjuntos: [] });
+    return json({ id: 'ra', solicitudId: 'r', estado: 'aprobada', aprobadorId: 'paula' }, 201);
+  }
   if (q === '/org/roster') return json({ defaultCountry: 'CR', zones: zonas.map(z => ({ id: z.id, name: z.name })), users: planilla() });
   if (q === '/org/departments') {
     const p = planilla();

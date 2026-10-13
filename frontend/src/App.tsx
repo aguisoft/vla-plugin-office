@@ -26,6 +26,7 @@ import { MyAbsencesModal } from './components/MyAbsencesModal';
 import { HolidayManager } from './components/HolidayManager';
 import { PersonasAdmin, type FiltroPersonas } from './components/PersonasAdmin';
 import { MenuAdministrar, type OpcionAdmin } from './components/MenuAdministrar';
+import { AusenciasAdmin } from './components/AusenciasAdmin';
 import { MenuPersonal } from './components/MenuPersonal';
 import { MenuGuias } from './components/MenuGuias';
 import { guiasPara } from './guiasUx';
@@ -106,6 +107,7 @@ export default function App() {
   const [showHolidayAdmin, setShowHolidayAdmin]     = useState(false);
   /** Personas abierta (con su filtro), o null. */
   const [personasAdmin, setPersonasAdmin]           = useState<FiltroPersonas | null>(null);
+  const [showAusenciasAdmin, setShowAusenciasAdmin] = useState(false);
   /** Sube al cerrar Personas: el organigrama se vuelve a cargar con lo corregido. */
   const [orgKey, setOrgKey]                         = useState(0);
   // La app de escritorio y el aviso de Bitrix abren pantallas con ?solicitudes=1, ?ausencias=1 o ?feriado=1.
@@ -576,6 +578,7 @@ export default function App() {
   const opcionesAdmin: OpcionAdmin[] = [
     ...(canManageHolidays ? [
       { id: 'personas', icono: '👥', titulo: 'Personas', detalle: 'País, departamento, jefe directo y zona del mapa', onClick: () => setPersonasAdmin({}) },
+      { id: 'ausencias', icono: '🗓️', titulo: 'Ausencias', detalle: 'Anular o registrar las de cualquier persona', onClick: () => setShowAusenciasAdmin(true) },
       { id: 'feriados', icono: '🎉', titulo: 'Feriados', detalle: 'Calendario de feriados por país', onClick: () => setShowHolidayAdmin(true) },
     ] : []),
     // Bitrix24 sigue siendo solo de ADMIN (rol), no de office.manage.
@@ -702,6 +705,9 @@ export default function App() {
       {showHolidayAdmin && canManageHolidays && (
         <HolidayManager onClose={() => setShowHolidayAdmin(false)}
           onAbrirPersonas={f => { setShowHolidayAdmin(false); setPersonasAdmin(f); }} />
+      )}
+      {showAusenciasAdmin && canManageHolidays && (
+        <AusenciasAdmin onClose={() => setShowAusenciasAdmin(false)} onChanged={() => { void loadData(); void cargarBandeja(); }} />
       )}
       {personasAdmin && canManageHolidays && (
         <PersonasAdmin inicial={personasAdmin} onClose={() => { setPersonasAdmin(null); setOrgKey(k => k + 1); }} />

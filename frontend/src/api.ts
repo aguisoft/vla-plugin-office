@@ -104,6 +104,8 @@ export const setStatus = (payload: StatusPayload) =>
  */
 export const createAbsence = (body: {
   type: string; startAt: string; endAt: string; justification?: string;
+  /** Para otra persona (solo RRHH): nace aprobada. */
+  userId?: string;
   /** Documentos de respaldo en base64; viajan con la solicitud. */
   adjuntos?: Array<{ nombre: string; tipo: string; contenido: string }>;
 }) => api.post<{ id: string; solicitudId?: string; estado?: 'pendiente' | 'aprobada'; aprobadorId?: string | null; adjuntos?: Array<{ id: string; nombre: string }>; avisoAdjuntos?: string }>(`${PLUGIN}/absences`, body);
@@ -111,6 +113,8 @@ export const createAbsence = (body: {
 /** URL de descarga de un documento. El servidor decide si quien pide puede verlo. */
 // ── Solicitudes de ausencia (con aprobación del jefe) ─────────────────────
 export const listMisSolicitudes = () => api.get<SolicitudAusencia[]>(`${PLUGIN}/solicitudes/mias`);
+/** Las de otra persona (solo RRHH: Administrar → Ausencias). */
+export const listSolicitudesDe = (userId: string) => api.get<SolicitudAusencia[]>(`${PLUGIN}/solicitudes/de/${encodeURIComponent(userId)}`);
 export const getBandejaSolicitudes = () => api.get<BandejaSolicitudes>(`${PLUGIN}/solicitudes/bandeja`);
 
 /** Días hábiles, reintegro, feriados del rango y quién aprueba (formulario de vacaciones). Fechas `YYYY-MM-DD`. */
@@ -123,8 +127,9 @@ export interface ResumenAusencia {
   feriados: Array<{ fecha: string; nombre: string }>;
   aprobador: { id: string; nombre: string } | null;
 }
-export const getResumenAusencia = (desde: string, hasta: string) =>
-  api.get<ResumenAusencia>(`${PLUGIN}/absences/resumen?desde=${desde}&hasta=${hasta}`);
+/** Con `userId` (solo RRHH), los días de otra persona: su sábado y sus feriados. */
+export const getResumenAusencia = (desde: string, hasta: string, userId?: string) =>
+  api.get<ResumenAusencia>(`${PLUGIN}/absences/resumen?desde=${desde}&hasta=${hasta}${userId ? `&userId=${encodeURIComponent(userId)}` : ''}`);
 
 // ── Avisos: la campana ───────────────────────────────────────────────────────
 export const getAvisos = () => api.get<{ avisos: Aviso[]; sinLeer: number }>(`${PLUGIN}/avisos`);

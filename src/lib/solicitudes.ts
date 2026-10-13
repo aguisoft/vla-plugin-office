@@ -136,6 +136,36 @@ export function fraseResolucion(
   return `${s.tu} ${r} ${verbo} por ${por}${motivo ? `: «${motivo}»` : ''}`;
 }
 
+/**
+ * «Irene Salas registró tus vacaciones del 3 al 7 nov». Lo que RRHH carga por
+ * otra persona nace aprobado; este es el aviso con el que la persona se entera.
+ */
+export function fraseCargada(tipo: string, rango: string, por: string): string {
+  const s = sujeto(tipo);
+  const r = DE_DIAS.has(tipo) && rango.startsWith('el ') ? `del ${rango.slice(3)}` : rango;
+  return `${por} registró ${s.tu.charAt(0).toLowerCase()}${s.tu.slice(1)} ${r}`;
+}
+
+/**
+ * A quién avisar un pedido: a su jefe directo; sin jefe, a RRHH, que es quien
+ * lo aprueba. Antes, sin jefe no se avisaba a nadie y el pedido solo aparecía
+ * en la bandeja (13-oct-2026). Nunca a quien lo pidió.
+ */
+export function aQuienAvisar(jefe: string | null, rrhh: string[], solicitanteId: string): { ids: string[]; esRrhh: boolean } {
+  if (jefe) return { ids: [jefe], esRrhh: false };
+  return { ids: [...new Set(rrhh)].filter(id => id !== solicitanteId), esRrhh: true };
+}
+
+/** El recordatorio de las 9:00: lo de su equipo, lo de quien no tiene jefe, o las dos cosas. */
+export function textoRecordatorio(equipo: number, sinJefe: number): string {
+  const n = equipo + sinJefe;
+  const cuantas = n === 1 ? '1 solicitud' : `${n} solicitudes`;
+  const de = sinJefe === 0 ? ' de tu equipo'
+    : equipo === 0 ? (sinJefe === 1 ? ' de alguien sin jefe' : ' de personas sin jefe')
+    : '';
+  return `Tenés ${cuantas}${de} sin responder desde ayer`;
+}
+
 /** «1 día hábil», «medio día hábil», «3,5 días hábiles». */
 export function textoDiasHabiles(n: number): string {
   if (n === 0.5) return 'medio día hábil';

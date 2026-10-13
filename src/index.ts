@@ -31,7 +31,7 @@ import { resumenMensual } from './lib/absence-usage';
 import { validarAdjuntos } from './lib/adjuntos';
 import { estadoDePlanta } from './lib/planta';
 import { SolicitudesService, type Solicitud } from './services/solicitudes.service';
-import { textoRango, NOMBRE_TIPO, fraseResolucion, fichaSolicitud, fechaLarga } from './lib/solicitudes';
+import { textoRango, NOMBRE_TIPO, fraseResolucion, fichaSolicitud, fechaLarga, fraseCargada, aQuienAvisar, textoRecordatorio } from './lib/solicitudes';
 import { resumenRango } from './lib/vacaciones';
 import { nombresPorUsuario } from './lib/user-names';
 import { AdjuntosService } from './services/adjuntos.service';
@@ -211,6 +211,27 @@ const plugin: PluginDefinition = {
     const correoRrhh = () => String(ctx.plugin.config.CORREO_RRHH || 'rrhh@grupovla.com').trim();
     const correoDe = async (userId: string): Promise<string | null> =>
       ((await ctx.prisma.user.findUnique({ where: { id: userId }, select: { email: true } }).catch(() => null)) as { email?: string } | null)?.email ?? null;
+    /**
+     * Quienes tienen el rol de RRHH (ROL_RRHH, «RRHH Oficina» por defecto): les
+     * llega lo que pide quien no tiene jefe (13-oct-2026). Es el rol y no el
+     * permiso office.manage porque ese permiso también lo traen roles que no
+     * son de RRHH (Admin Campañas) y los ADMIN.
+     */
+    async function rrhhIds(): Promise<string[]> {
+      const rol = String(ctx.plugin.config.ROL_RRHH || 'RRHH Oficina').trim();
+      try {
+        const filas = await ctx.prisma.user.findMany({
+          where: { isActive: true, customRoles: { some: { name: rol } } }, select: { id: true },
+        }) as Array<{ id: string }>;
+        return filas.map(u => u.id);
+      } catch (e) {
+        ctx.logger.warn(`No se pudo leer quién tiene el rol «${rol}»: ${e}`);
+        return [];
+      }
+    }
+    /** El correo al buzón de RRHH (uno solo, aunque el rol tenga varias personas). */
+    const correoAlBuzon = (a: { titulo: string; cuerpo: string; url?: string | null; ficha?: Array<[string, string]> | null }) =>
+      correo.enviar(correoRrhh(), a).catch(e => { ctx.logger.warn(`Correo a RRHH falló: ${e}`); return false; });
     const RANGO_YMD = /^\d{4}-\d{2}-\d{2}$/;
 
     /**
@@ -254,14 +275,28 @@ const plugin: PluginDefinition = {
     }
     const solicitudes = new SolicitudesService(ctx, absences, org, {
       async nueva(sol: Solicitud, aprobadorId: string | null) {
-        if (!aprobadorId) return; // sin jefe la ve RRHH en su bandeja
+        // Sin jefe la aprueba RRHH: le llega a quien tenga el rol, y un solo correo al buzón.
+        const destino = aQuienAvisar(aprobadorId, aprobadorId ? [] : await rrhhIds(), sol.userId);
         const quien = await nombreDe(sol.userId);
         const ficha = await fichaDe(sol);
         const total = ficha.find(f => f[0] === 'Total')?.[1];
         const texto = `${quien} pidió ${NOMBRE_TIPO[sol.tipo] ?? 'una ausencia'} ${textoRango(sol.tipo, sol.startAt, sol.endAt, tz())}${total ? ` (${total})` : ''}`;
-        await avisos.avisar([aprobadorId], {
-          tipo: 'solicitud.nueva', titulo: 'Solicitud de tu equipo', cuerpo: texto, url: RUTA_BANDEJA, correo: true, ficha,
-          bitrix: `${texto}. Respondé en la oficina: [URL=${URL_SOLICITUDES}]Solicitudes[/URL]`,
+        const cuerpo = destino.esRrhh ? `${texto}. No tiene jefe directo: la aprueba RRHH` : texto;
+        const titulo = destino.esRrhh ? 'Solicitud sin jefe' : 'Solicitud de tu equipo';
+        await avisos.avisar(destino.ids, {
+          tipo: 'solicitud.nueva', titulo, cuerpo, url: RUTA_BANDEJA, correo: !destino.esRrhh, ficha,
+          bitrix: `${cuerpo}. Respondé en la oficina: [URL=${URL_SOLICITUDES}]Solicitudes[/URL]`,
+        });
+        if (destino.esRrhh) await correoAlBuzon({ titulo, cuerpo, url: RUTA_BANDEJA, ficha });
+      },
+      async cargada(sol: Solicitud, porId: string) {
+        const por = await nombreDe(porId);
+        const texto = fraseCargada(sol.tipo, textoRango(sol.tipo, sol.startAt, sol.endAt, tz()), por);
+        const ficha = await fichaDe(sol, { por });
+        const copia = [await correoDe(porId), correoRrhh()].filter((c): c is string => !!c);
+        await avisos.avisar([sol.userId], {
+          tipo: 'solicitud.cargada', titulo: 'RRHH registró una ausencia', cuerpo: texto, url: RUTA_MIS_SOLICITUDES,
+          bitrix: texto, correo: true, ficha, copia,
         });
       },
       async resuelta(sol: Solicitud, porId: string) {
@@ -677,8 +712,12 @@ const plugin: PluginDefinition = {
     // Lo que muestra el formulario de vacaciones al elegir fechas: días hábiles,
     // reintegro, feriados del rango (con su nombre) y quién aprueba.
     ctx.router.get('/absences/resumen', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
-      const userId = (req as any).user?.sub;
-      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const yo = (req as any).user?.sub;
+      if (!yo) return res.status(401).json({ message: 'Unauthorized' });
+      // RRHH registra por otra persona: los días se cuentan con SU sábado y SUS feriados.
+      const pedido = String(req.query.userId ?? '');
+      if (pedido && pedido !== yo && !can(req, PERMS.MANAGE)) return res.status(403).json({ message: 'Solo RRHH puede consultar los días de otra persona' });
+      const userId = pedido || yo;
       const desde = String(req.query.desde ?? '');
       const hasta = String(req.query.hasta ?? '');
       if (!RANGO_YMD.test(desde) || !RANGO_YMD.test(hasta) || hasta < desde) {
@@ -786,6 +825,11 @@ const plugin: PluginDefinition = {
       return resumenMensual(await absences.listForUserDetailed(userId, desde, hasta), anio, mes, zona);
     }
 
+    /** Las de una persona, para que RRHH las anule (Administrar → Ausencias). */
+    ctx.router.get('/solicitudes/de/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {
+      res.json(await conAdjuntos(await solicitudes.mias(req.params.userId)));
+    }));
+
     ctx.router.get('/solicitudes/mias', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       res.json(await conAdjuntos(await solicitudes.mias((req as any).user?.sub)));
     }));
@@ -794,9 +838,14 @@ const plugin: PluginDefinition = {
     ctx.router.get('/solicitudes/bandeja', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const viewerId = (req as any).user?.sub;
       const aCargo = await org.managedUserIds(viewerId);
+      // RRHH ve los feriados movidos de todos, igual que las ausencias (13-oct-2026).
+      const deQuienFeriados = can(req, PERMS.MANAGE)
+        ? ((await ctx.prisma.user.findMany({ where: { isActive: true }, select: { id: true } })) as Array<{ id: string }>)
+          .map(u => u.id).filter(id => id !== viewerId)
+        : [...aCargo];
       const [ausencias, feriados] = await Promise.all([
         solicitudes.bandeja(viewerId, can(req, PERMS.MANAGE)),
-        holidays.pendientesDe([...aCargo], localDateString(new Date(), tz())),
+        holidays.pendientesDe(deQuienFeriados, localDateString(new Date(), tz())),
       ]);
       const nombres = feriados.length ? await nombresPorUsuario(ctx, [...new Set(feriados.map(f => f.userId))]) : null;
       const conSaldo = await Promise.all((await conAdjuntos(ausencias)).map(async a =>
@@ -939,9 +988,11 @@ const plugin: PluginDefinition = {
         if (!userId) return res.status(401).json({ message: 'Unauthorized' });
         const { note } = req.body as { note?: string };
 
+        // Lo decide su jefe directo o RRHH, igual que las ausencias (13-oct-2026).
+        const esRrhh = can(req, PERMS.MANAGE);
         const result = await holidays.decidir(
           req.params.id, userId, accion, note ?? '',
-          solicitanteId => org.isManagerOf(userId, solicitanteId),
+          async solicitanteId => esRrhh || await org.isManagerOf(userId, solicitanteId),
         );
         if (result.ok) {
           const [o] = await ctx.query<{ user_id: string; holiday_id: string; new_date: Date | string; decision_note: string | null }>(
@@ -997,17 +1048,25 @@ const plugin: PluginDefinition = {
         userId, req.params.id, new Date(newDate), justification ?? '', country, tz(), tieneJefe,
       );
       if (!result.ok) return res.status(400).json({ message: 'Datos inválidos', errors: result.errors });
+      const h = await ctx.prisma.holiday.findUnique({ where: { id: req.params.id } }).catch(() => null) as any;
+      const fecha = (d: string) => new Intl.DateTimeFormat('es-CR', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(`${d.slice(0, 10)}T00:00:00Z`)).replace('.', '');
+      const texto = `${await nombreDe(userId)} pidió trabajar el feriado${h ? ` «${h.name}» (${fecha(new Date(h.date).toISOString())})` : ''} y tomarlo el ${fecha(newDate)}`;
       if (result.status === 'PENDING') {
         const jefe = await org.managerOf(userId);
         if (jefe) {
-          const h = await ctx.prisma.holiday.findUnique({ where: { id: req.params.id } }).catch(() => null) as any;
-          const fecha = (d: string) => new Intl.DateTimeFormat('es-CR', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(`${d.slice(0, 10)}T00:00:00Z`)).replace('.', '');
-          const texto = `${await nombreDe(userId)} pidió trabajar el feriado${h ? ` «${h.name}» (${fecha(new Date(h.date).toISOString())})` : ''} y tomarlo el ${fecha(newDate)}`;
           await avisos.avisar([jefe], {
             tipo: 'feriado.nuevo', titulo: 'Solicitud de tu equipo', cuerpo: texto, url: RUTA_BANDEJA, correo: true,
             bitrix: `${texto}. Respondé en la oficina: [URL=${URL_SOLICITUDES}]Solicitudes[/URL]`,
           });
         }
+      } else if (!tieneJefe) {
+        // Sin jefe queda aprobado solo (no hay quién lo revise), pero RRHH se
+        // entera: antes no lo sabía nadie (13-oct-2026).
+        const cuerpo = `${texto}. No tiene jefe directo: quedó aprobado`;
+        await avisos.avisar((await rrhhIds()).filter(id => id !== userId), {
+          tipo: 'feriado.sin-jefe', titulo: 'Feriado movido sin jefe', cuerpo, url: '/dashboard/office', bitrix: cuerpo,
+        });
+        await correoAlBuzon({ titulo: 'Feriado movido sin jefe', cuerpo, url: '/dashboard/office' });
       }
       res.status(201).json({ ok: true, status: result.status });
     }));
@@ -2410,24 +2469,29 @@ const plugin: PluginDefinition = {
       res.json(await runTimemanSync());
     }));
 
-    // ── Cron: recordarle al jefe lo que su equipo espera desde ayer ───────────
+    // ── Cron: recordarle al jefe (o a RRHH, si no hay jefe) lo que espera desde ayer ──
     ctx.cron('0 15 * * 1-5', async () => {
       try {
         const viejas = await solicitudes.pendientesViejas(20);
-        const porJefe = new Map<string, number>();
+        const rrhh = viejas.length ? await rrhhIds() : [];
+        const porPersona = new Map<string, { equipo: number; sinJefe: number }>();
         for (const sol of viejas) {
-          const jefe = await org.managerOf(sol.userId);
-          if (jefe) porJefe.set(jefe, (porJefe.get(jefe) ?? 0) + 1);
+          const destino = aQuienAvisar(await org.managerOf(sol.userId), rrhh, sol.userId);
+          for (const id of destino.ids) {
+            const c = porPersona.get(id) ?? { equipo: 0, sinJefe: 0 };
+            if (destino.esRrhh) c.sinJefe++; else c.equipo++;
+            porPersona.set(id, c);
+          }
         }
-        for (const [jefe, n] of porJefe) {
-          const texto = `Tenés ${n === 1 ? '1 solicitud' : `${n} solicitudes`} de tu equipo sin responder desde ayer`;
+        for (const [id, c] of porPersona) {
+          const texto = textoRecordatorio(c.equipo, c.sinJefe);
           // Recordatorio: sale en vivo y por Bitrix, pero no se guarda (la bandeja ya las lista).
-          await avisos.avisar([jefe], {
+          await avisos.avisar([id], {
             tipo: 'solicitud.recordatorio', titulo: 'Solicitudes sin responder', cuerpo: texto, url: RUTA_BANDEJA,
             guardar: false, bitrix: `${texto}. [URL=${URL_SOLICITUDES}]Responder[/URL]`,
           });
         }
-        if (porJefe.size) ctx.logger.log(`Recordatorio de solicitudes: ${porJefe.size} jefes`);
+        if (porPersona.size) ctx.logger.log(`Recordatorio de solicitudes: ${porPersona.size} personas`);
       } catch (e) {
         ctx.logger.warn(`Recordatorio de solicitudes falló: ${e}`);
       }

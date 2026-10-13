@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 /**
- * Lo de administración en un solo menú (Personas, Feriados, Bitrix24) en vez
+ * Lo de administración en un solo menú (Personas, Ausencias, Feriados, Bitrix24) en vez
  * de un botón suelto por pantalla: el encabezado ya tiene Organigrama,
  * Escritorio, Solicitudes, la campana y Tiempos, que usa todo el mundo.
  * Cada opción trae su propio permiso; sin ninguna, el menú no aparece.

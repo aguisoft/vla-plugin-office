@@ -16,14 +16,19 @@ import {
  * días hábiles (sin fines de semana ni los feriados de la persona), el día que
  * se reintegra, comentarios y quién la aprueba.
  *
+ * Con `para`, RRHH la registra por otra persona: los días se cuentan con su
+ * sábado y sus feriados, se puede ir hasta 60 días atrás y nace aprobada.
+ *
  * Las fechas viajan como `YYYY-MM-DD` puras (ver la nota del contrato de
  * POST /absences): nada de `Date` del navegador acá.
  */
 
 const DIAS = ['L', 'M', 'M', 'J', 'V', 'S', 'D'];
 
-export function SolicitudDiasModal({ status, onClose, onConfirm }: {
+export function SolicitudDiasModal({ status, para, onClose, onConfirm }: {
   status: string;
+  /** RRHH registra por otra persona. */
+  para?: { userId: string; nombre: string };
   onClose: () => void;
   onConfirm: (startAt: string, endAt: string, justification?: string, adjuntos?: DocAdjunto[]) => void;
 }) {
@@ -42,18 +47,18 @@ export function SolicitudDiasModal({ status, onClose, onConfirm }: {
 
   // Vacaciones: de hoy en adelante. Incapacidad: se carga a veces después, hasta 60 días atrás.
   const minimo = useMemo(() => {
-    if (esVacaciones) return hoy;
+    if (esVacaciones && !para) return hoy;
     const d = new Date(`${hoy}T12:00:00Z`);
     d.setUTCDate(d.getUTCDate() - 60);
     return d.toISOString().slice(0, 10);
-  }, [esVacaciones, hoy]);
+  }, [esVacaciones, hoy, para]);
 
   useEffect(() => {
     const l = limitesMes(mes);
     let vivo = true;
-    getResumenAusencia(l.desde, l.hasta).then(r => { if (vivo) setDelMes(r); }).catch(() => undefined);
+    getResumenAusencia(l.desde, l.hasta, para?.userId).then(r => { if (vivo) setDelMes(r); }).catch(() => undefined);
     return () => { vivo = false; };
-  }, [mes]);
+  }, [mes, para?.userId]);
 
   const rango = rangoDe(sel);
   useEffect(() => {
@@ -61,12 +66,12 @@ export function SolicitudDiasModal({ status, onClose, onConfirm }: {
     let vivo = true;
     setCargando(true);
     setError(null);
-    getResumenAusencia(rango.desde, rango.hasta)
+    getResumenAusencia(rango.desde, rango.hasta, para?.userId)
       .then(r => { if (vivo) setResumen(r); })
       .catch(() => { if (vivo) { setResumen(null); setError('No se pudieron calcular los días'); } })
       .finally(() => { if (vivo) setCargando(false); });
     return () => { vivo = false; };
-  }, [rango?.desde, rango?.hasta]);
+  }, [rango?.desde, rango?.hasta, para?.userId]);
 
   const feriados = new Map((delMes?.feriados ?? []).map(f => [f.fecha, f.nombre]));
   // Hay gente que trabaja el sábado (medio día o completo): para ella cuenta.
@@ -81,7 +86,7 @@ export function SolicitudDiasModal({ status, onClose, onConfirm }: {
       <div className="max-h-[92vh] w-full max-w-md overflow-y-auto rounded-2xl bg-white p-5 shadow-xl" onClick={e => e.stopPropagation()} data-testid="solicitud-dias">
         <div className="mb-3 flex items-center gap-2">
           <span className={`h-2 w-2 rounded-full ${cfg.dot}`} />
-          <h2 className="text-sm font-semibold text-gray-800">{esVacaciones ? 'Solicitar vacaciones' : 'Cargar una incapacidad'}</h2>
+          <h2 className="text-sm font-semibold text-gray-800">{para ? `${esVacaciones ? 'Vacaciones' : 'Incapacidad'} de ${para.nombre}` : esVacaciones ? 'Solicitar vacaciones' : 'Cargar una incapacidad'}</h2>
           <button onClick={onClose} aria-label="Cerrar" className="ml-auto text-gray-400 hover:text-gray-600">✕</button>
         </div>
 
@@ -111,7 +116,7 @@ export function SolicitudDiasModal({ status, onClose, onConfirm }: {
                 return (
                   <button key={j} type="button" disabled={pasado} onClick={() => setSel(s => elegirDia(s, d.fecha))}
                     data-testid={`dia-${d.fecha}`}
-                    title={pasado ? (esVacaciones ? 'Ya pasó' : 'Demasiado atrás') : feriado ? `Feriado: ${feriado} (no se cuenta)` : noHabil ? 'Fin de semana (no se cuenta)' : sabadoMedio ? 'Sábado: trabajás medio día (cuenta ½)' : undefined}
+                    title={pasado ? (esVacaciones && !para ? 'Ya pasó' : 'Demasiado atrás') : feriado ? `Feriado: ${feriado} (no se cuenta)` : noHabil ? 'Fin de semana (no se cuenta)' : sabadoMedio ? (para ? 'Sábado: trabaja medio día (cuenta ½)' : 'Sábado: trabajás medio día (cuenta ½)') : undefined}
                     className={`h-8 rounded-lg text-[11px] transition-colors ${
                       extremo ? 'bg-gray-900 font-semibold text-white'
                       : dentro ? (noHabil ? 'bg-sky-50 text-gray-400' : 'bg-sky-100 font-medium text-sky-900')
@@ -129,7 +134,7 @@ export function SolicitudDiasModal({ status, onClose, onConfirm }: {
           ))}
           <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[9px] text-gray-400">
             <span className="flex items-center gap-1"><span className="inline-block h-2 w-2 rounded-sm bg-amber-100" /> feriado</span>
-            <span data-testid="regla-dias">{sabado === 0.5 ? 'Tu sábado cuenta medio día (½); domingos y feriados no se cuentan.' : sabado === 1 ? 'Trabajás los sábados: cuentan como día completo. Domingos y feriados no se cuentan.' : 'Sábados, domingos y feriados no se cuentan.'}</span>
+            <span data-testid="regla-dias">{sabado === 0.5 ? `${para ? 'Su' : 'Tu'} sábado cuenta medio día (½); domingos y feriados no se cuentan.` : sabado === 1 ? `${para ? 'Trabaja' : 'Trabajás'} los sábados: cuentan como día completo. Domingos y feriados no se cuentan.` : 'Sábados, domingos y feriados no se cuentan.'}</span>
           </p>
         </div>
         <p className="mt-1.5 text-[10px] text-gray-500">
@@ -153,7 +158,7 @@ export function SolicitudDiasModal({ status, onClose, onConfirm }: {
               </dd>
             </div>
             <div className="flex justify-between gap-3 py-1.5">
-              <dt className="text-gray-500">Me reintegro</dt>
+              <dt className="text-gray-500">{para ? 'Se reintegra' : 'Me reintegro'}</dt>
               <dd className="font-medium text-gray-800" data-testid="reintegro">{resumen ? fechaEnPalabras(resumen.reintegro) : '—'}</dd>
             </div>
             {resumen && resumen.feriados.filter(f => f.fecha >= rango.desde && f.fecha <= rango.hasta).map(f => (
@@ -171,16 +176,18 @@ export function SolicitudDiasModal({ status, onClose, onConfirm }: {
           {esVacaciones ? 'Comentarios (opcional)' : 'Motivo'}
           <textarea value={texto} onChange={e => setTexto(e.target.value)} rows={2}
             className="mt-1 w-full resize-none rounded-xl border border-gray-200 p-2.5 text-xs font-normal text-gray-700 focus:border-gray-400 focus:outline-none"
-            placeholder={esVacaciones ? 'Algo que tu jefe o RRHH deban saber' : 'Reposo médico por 5 días, adjunto la boleta de incapacidad'} />
+            placeholder={esVacaciones ? (para ? 'Algo que convenga dejar anotado' : 'Algo que tu jefe o RRHH deban saber') : 'Reposo médico por 5 días, adjunto la boleta de incapacidad'} />
         </label>
         {!esVacaciones && <AdjuntarDocs docs={docs} onChange={setDocs} />}
 
         {/* ── Quién aprueba ── */}
         <p className="mt-3 rounded-xl bg-sky-50 px-3 py-2 text-[10px] leading-relaxed text-sky-900" data-testid="quien-aprueba">
-          {aprobador
+          {para
+            ? <>Queda <strong>aprobada</strong> al registrarla. A {para.nombre} le llega un aviso y un correo, con copia a RRHH.</>
+            : aprobador
             ? <>Las aprueba <strong>{aprobador.nombre}</strong>, tu jefe directo.</>
             : <>No tenés jefe directo asignado: las aprueba <strong>RRHH</strong>.</>}
-          {esVacaciones
+          {para ? null : esVacaciones
             ? ' Hasta que las apruebe no valen. La respuesta te llega por la oficina y por correo, con copia a RRHH.'
             : ' La incapacidad vale desde ya; tu jefe la aprueba después.'}
         </p>
@@ -190,7 +197,7 @@ export function SolicitudDiasModal({ status, onClose, onConfirm }: {
           <button disabled={invalido} data-testid="enviar-solicitud"
             onClick={() => rango && onConfirm(rango.desde, rango.hasta, texto.trim() || undefined, esVacaciones ? undefined : docs)}
             className="rounded-xl bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-gray-700 disabled:opacity-40">
-            {faltan > 0 ? missingLabel(faltan) : esVacaciones ? 'Enviar solicitud' : 'Cargar incapacidad'}
+            {faltan > 0 ? missingLabel(faltan) : para ? 'Registrar' : esVacaciones ? 'Enviar solicitud' : 'Cargar incapacidad'}
           </button>
         </div>
       </div>

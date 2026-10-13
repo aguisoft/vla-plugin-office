@@ -47,8 +47,9 @@ Con `rol: 'jefe'` el estudio cambia de punto de vista: quien mira es Paula
 Núñez, jefa de Ventas, con Ana, Bruno y Camila a cargo (bandeja, avisos, equipo
 en Tiempos y cronómetros en rojo; ver `rutasJefe` en `estudio.js`). Con
 `rol: 'rrhh'` mira Irene Salas, con office.manage y sin gente a cargo: Personas
-(`PLANILLA`), Feriados (CR y CO 2026; 2027 vacío), Cumplimiento y la bandeja de
-toda la empresa (`rutasRrhh`).
+(`PLANILLA`), Feriados (CR y CO 2026; 2027 vacío), Cumplimiento, la bandeja de
+toda la empresa y Ausencias con las solicitudes de Bruno (`rutasRrhh`,
+`solicitudesBruno`).
 
 ## Trampas conocidas
 
@@ -69,7 +70,8 @@ toda la empresa (`rutasRrhh`).
   (`TOPE_PERMISO_MES_MIN`), cita hasta 3 h, motivo de 10 letras como mínimo
   (`MIN_JUSTIFICATION`), motivo de rechazo de 5 (`MIN_MOTIVO`), límites del
   cronómetro, recordatorio de pendientes de más de 20 h (lunes a viernes 9:00).
-  Los feriados movidos los decide solo el jefe directo (`holidays.decidir`),
-  RRHH no. En la web no hay botón para anular la solicitud de otra persona
-  ni para cargar una ausencia por otro (la API sí lo permite a RRHH).
+  Desde 1.46.0: los feriados movidos los decide el jefe directo o RRHH; lo que
+  pide alguien sin jefe avisa a quien tenga el rol ROL_RRHH («RRHH Oficina») y
+  al buzón CORREO_RRHH; RRHH anula o registra por otra persona en
+  Administrar → Ausencias (`AusenciasAdmin`).
   Si cambian ahí, hay que cambiar el texto.

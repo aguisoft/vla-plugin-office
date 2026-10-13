@@ -176,6 +176,48 @@ const ESCENAS = {
     await foto(page, '36-rrhh-cumplimiento', panel);
     await browser.close();
   },
+
+  async '37-rrhh-ausencias'() {
+    const { browser, page } = await abrir({ ...RRHH, alto: 1000 });
+    await page.getByTestId('menu-administrar').click();
+    await page.getByTestId('admin-ausencias').click();
+    const m = page.getByTestId('ausencias-admin');
+    await m.getByLabel('Persona').selectOption('bruno');
+    await m.getByTestId('solicitud-sb2').waitFor();
+    await m.getByTestId('anular-sb2').click();
+    await m.getByLabel('Motivo').fill('Se aprobó por error: esa semana cubre el inventario');
+    await page.waitForTimeout(300);
+    await anotar(page, [
+      { n: 1, blanco: m.getByLabel('Persona'), pad: 4 },
+      { n: 2, blanco: m.getByTestId('registrar-ausencia'), pad: 3 },
+      { n: 3, blanco: m.getByTestId('anular-sb1'), pad: 4 },
+      { n: 4, blanco: [m.getByLabel('Motivo'), m.getByTestId('confirmar-anular-sb2')], pad: 4 },
+    ]);
+    await foto(page, '37-rrhh-ausencias', await union(page, [m], 0));
+    await browser.close();
+  },
+
+  async '38-rrhh-registrar'() {
+    const { browser, page } = await abrir({ ...RRHH, alto: 1000 });
+    await page.getByTestId('menu-administrar').click();
+    await page.getByTestId('admin-ausencias').click();
+    const m = page.getByTestId('ausencias-admin');
+    await m.getByLabel('Persona').selectOption('bruno');
+    await m.getByTestId('solicitud-sb1').waitFor();
+    await m.getByTestId('registrar-INCAPACIDAD').click();
+    const d = page.getByTestId('solicitud-dias');
+    await d.getByTestId('dia-2026-11-23').click();
+    await d.getByTestId('dia-2026-11-25').click();
+    await d.locator('textarea').fill('Reposo por gripe, adjunto la boleta de la CCSS');
+    await page.waitForTimeout(500);
+    await anotar(page, [
+      { n: 1, blanco: d.locator('h2'), pad: 4 },
+      { n: 2, blanco: d.getByTestId('ficha-solicitud'), pad: 3 },
+      { n: 3, blanco: d.getByTestId('quien-aprueba'), pad: 3 },
+    ]);
+    await foto(page, '38-rrhh-registrar', await union(page, [d], 0));
+    await browser.close();
+  },
 };
 
 (async () => {

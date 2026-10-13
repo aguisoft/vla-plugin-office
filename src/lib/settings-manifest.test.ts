@@ -40,6 +40,8 @@ describe('el manifiesto declara lo que el código lee', () => {
     'CORREO_HOST', 'CORREO_PUERTO', 'CORREO_SSL', 'CORREO_USUARIO', 'CORREO_CLAVE', 'CORREO_REMITENTE',
     // index.ts → correoRrhh (respaldo en duro: rrhh@grupovla.com)
     'CORREO_RRHH',
+    // index.ts → rrhhIds (respaldo en duro: «RRHH Oficina»)
+    'ROL_RRHH',
   ];
 
   it.each(LEIDOS_POR_EL_CODIGO)('declara %s', clave => {

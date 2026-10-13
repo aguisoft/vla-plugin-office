@@ -61,6 +61,8 @@ const COLUMNAS = `id, user_id, tipo, start_at, end_at, justificacion, estado, ab
 export interface AvisosSolicitud {
   nueva(s: Solicitud, aprobadorId: string | null): Promise<void>;
   resuelta(s: Solicitud, porId: string): Promise<void>;
+  /** RRHH la cargó por la persona: nace aprobada y la persona se entera por acá. */
+  cargada?(s: Solicitud, porId: string): Promise<void>;
 }
 
 export interface Organigrama {
@@ -123,6 +125,8 @@ export class SolicitudesService {
     await this.evento(s.id, 'creada', creadaPor, { estado });
     if (estado === 'pendiente') {
       await this.avisos.nueva(s, jefe).catch(e => this.ctx.logger.warn(`Aviso de solicitud nueva falló: ${e}`));
+    } else if (creadaPor !== userId) {
+      await this.avisos.cargada?.(s, creadaPor).catch(e => this.ctx.logger.warn(`Aviso de ausencia cargada falló: ${e}`));
     }
     return { ok: true, solicitud: s, aprobadorId: jefe, idAdjuntos: absenceId ?? s.id };
   }

@@ -64,7 +64,7 @@ function armar(o: { jefeDe?: Record<string, string | null>; equipoDe?: Record<st
     managerOf: vi.fn(async (u: string) => (o.jefeDe ?? { ana: 'jefa' })[u] ?? null),
     managedUserIds: vi.fn(async (v: string) => new Set((o.equipoDe ?? { jefa: ['ana'] })[v] ?? [])),
   };
-  const avisos = { nueva: vi.fn(async () => undefined), resuelta: vi.fn(async () => undefined) };
+  const avisos = { nueva: vi.fn(async () => undefined), resuelta: vi.fn(async () => undefined), cargada: vi.fn(async () => undefined) };
   const svc = new SolicitudesService(ctx, absences as any, org, avisos);
   return { svc, sol, eventos, reKeys, llamadas, ausencias, avisos, absences };
 }
@@ -96,12 +96,20 @@ describe('SolicitudesService: crear', () => {
     expect(r).toMatchObject({ ok: false, conflict: expect.anything() });
   });
 
-  it('cargada por RRHH para otra persona: ya aprobada y sin aviso', async () => {
+  it('cargada por RRHH para otra persona: ya aprobada, sin pedirle a nadie, y la persona se entera', async () => {
     const { svc, avisos, ausencias } = armar();
     const r = await svc.crear('ana', vacaciones, 'rrhh', { esRrhh: true }, TZ);
     expect(r.ok && r.solicitud.estado).toBe('aprobada');
     expect(ausencias).toHaveLength(1);
     expect(avisos.nueva).not.toHaveBeenCalled();
+    expect(avisos.cargada).toHaveBeenCalledWith(expect.objectContaining({ userId: 'ana', estado: 'aprobada' }), 'rrhh');
+  });
+
+  it('RRHH sin jefe que pide para sí: aprobada sola y sin el aviso de «cargada»', async () => {
+    const { svc, avisos } = armar({ jefeDe: {} });
+    const r = await svc.crear('rrhh', vacaciones, 'rrhh', { esRrhh: true }, TZ);
+    expect(r.ok && r.solicitud.estado).toBe('aprobada');
+    expect(avisos.cargada).not.toHaveBeenCalled();
   });
 });
 

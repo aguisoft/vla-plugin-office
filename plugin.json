@@ -1,6 +1,6 @@
 {
   "name": "office",
-  "version": "1.45.0",
+  "version": "1.46.0",
   "description": "Presencia en tiempo real de trabajadores en la oficina virtual. Integración con Bitrix24.",
   "author": "VLA Team",
   "vlaMinVersion": "1.1.0",
@@ -265,6 +265,13 @@
             "label": "Correo de RRHH",
             "description": "Recibe en copia cada respuesta a una solicitud (junto con quien la respondió).",
             "default": "rrhh@grupovla.com"
+          },
+          {
+            "key": "ROL_RRHH",
+            "type": "string",
+            "label": "Rol de RRHH",
+            "description": "Quienes tengan este rol reciben en la oficina y por Bitrix lo que pide quien no tiene jefe directo (el correo va al buzón de RRHH).",
+            "default": "RRHH Oficina"
           }
         ]
       }

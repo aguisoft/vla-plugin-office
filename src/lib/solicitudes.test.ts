@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { valeMientrasPendiente, estadoInicial, puedeResolver, transicion, textoRango, fraseResolucion, fichaSolicitud, fechaLarga, textoDiasHabiles } from './solicitudes';
+import { valeMientrasPendiente, estadoInicial, puedeResolver, transicion, textoRango, fraseResolucion, fichaSolicitud, fechaLarga, textoDiasHabiles, fraseCargada, aQuienAvisar, textoRecordatorio } from './solicitudes';
 
 describe('valeMientrasPendiente', () => {
   it('permiso, cita e incapacidad valen ya; vacaciones esperan', () => {
@@ -116,5 +116,39 @@ describe('textoDiasHabiles', () => {
     expect(textoDiasHabiles(0.5)).toBe('medio día hábil');
     expect(textoDiasHabiles(5.5)).toBe('5,5 días hábiles');
     expect(textoDiasHabiles(3)).toBe('3 días hábiles');
+  });
+});
+
+describe('fraseCargada — lo que RRHH registra por otra persona', () => {
+  it('concuerda con el tipo y usa «del» en las de días', () => {
+    expect(fraseCargada('VACACIONES', 'del 3 al 7 nov', 'Irene Salas')).toBe('Irene Salas registró tus vacaciones del 3 al 7 nov');
+    expect(fraseCargada('INCAPACIDAD', 'el 5 nov', 'Irene Salas')).toBe('Irene Salas registró tu incapacidad del 5 nov');
+    expect(fraseCargada('PERMISO', 'el 20 oct de 09:00 a 10:00', 'Irene')).toBe('Irene registró tu permiso el 20 oct de 09:00 a 10:00');
+    expect(fraseCargada('CITA_MEDICA', 'el 20 oct de 09:00 a 10:00', 'Irene')).toBe('Irene registró tu cita médica el 20 oct de 09:00 a 10:00');
+  });
+});
+
+describe('aQuienAvisar — el pedido nuevo', () => {
+  it('con jefe, solo al jefe', () => {
+    expect(aQuienAvisar('paula', ['irene', 'milady'], 'ana')).toEqual({ ids: ['paula'], esRrhh: false });
+  });
+  it('sin jefe, a RRHH', () => {
+    expect(aQuienAvisar(null, ['irene', 'milady'], 'nicolas')).toEqual({ ids: ['irene', 'milady'], esRrhh: true });
+  });
+  it('nunca a quien lo pidió, aunque sea de RRHH', () => {
+    expect(aQuienAvisar(null, ['irene', 'milady', 'irene'], 'irene')).toEqual({ ids: ['milady'], esRrhh: true });
+  });
+  it('sin jefe y sin nadie en el rol, a nadie (queda en la bandeja)', () => {
+    expect(aQuienAvisar(null, [], 'nicolas')).toEqual({ ids: [], esRrhh: true });
+  });
+});
+
+describe('textoRecordatorio', () => {
+  it('distingue el equipo de quien no tiene jefe', () => {
+    expect(textoRecordatorio(1, 0)).toBe('Tenés 1 solicitud de tu equipo sin responder desde ayer');
+    expect(textoRecordatorio(3, 0)).toBe('Tenés 3 solicitudes de tu equipo sin responder desde ayer');
+    expect(textoRecordatorio(0, 1)).toBe('Tenés 1 solicitud de alguien sin jefe sin responder desde ayer');
+    expect(textoRecordatorio(0, 2)).toBe('Tenés 2 solicitudes de personas sin jefe sin responder desde ayer');
+    expect(textoRecordatorio(2, 1)).toBe('Tenés 3 solicitudes sin responder desde ayer');
   });
 });
