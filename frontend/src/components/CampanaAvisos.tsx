@@ -104,7 +104,7 @@ export function CampanaAvisos({ recarga, onAbrir }: {
       </button>
 
       {abierta && (
-        <div className="absolute right-0 top-full z-50 mt-2 flex max-h-[70vh] w-80 flex-col rounded-2xl border border-gray-100 bg-white shadow-xl" data-testid="panel-avisos">
+        <div className="absolute right-0 top-full z-50 mt-2 flex max-h-[70vh] w-80 max-w-[calc(100vw-2rem)] flex-col rounded-2xl border border-gray-100 bg-white shadow-xl" data-testid="panel-avisos">
           <div className="flex items-center justify-between border-b border-gray-100 px-4 py-2.5">
             <span className="text-xs font-semibold text-gray-800">Avisos</span>
             {sinLeer > 0 && (

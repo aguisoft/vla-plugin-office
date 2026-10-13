@@ -147,6 +147,18 @@ export function fraseCargada(tipo: string, rango: string, por: string): string {
 }
 
 /**
+ * «Ana Rojas canceló sus vacaciones del 21 al 23 dic, que estaban aprobadas».
+ * Para el jefe y RRHH, que ya las daban por hechas (RRHH tenía la copia del
+ * correo de aprobación).
+ */
+export function fraseCanceladaPorDueno(tipo: string, rango: string, quien: string): string {
+  const s = sujeto(tipo);
+  const r = DE_DIAS.has(tipo) && rango.startsWith('el ') ? `del ${rango.slice(3)}` : rango;
+  const su = s.tu.replace(/^Tu(s?) /, (_m, pl: string) => `su${pl} `);
+  return `${quien} canceló ${su} ${r}, que ${s.plural ? 'estaban' : 'estaba'} ${participio('aprobad', s)}`;
+}
+
+/**
  * A quién avisar un pedido: a su jefe directo; sin jefe, a RRHH, que es quien
  * lo aprueba. Antes, sin jefe no se avisaba a nadie y el pedido solo aparecía
  * en la bandeja (13-oct-2026). Nunca a quien lo pidió.

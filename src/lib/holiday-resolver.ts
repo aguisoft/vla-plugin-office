@@ -202,7 +202,11 @@ export function validateOverrideInput(
    * «a» ese mismo día: el cambio se pide ANTES del feriado y a un día hábil que
    * todavía no pasó.
    */
-  opciones: { hoy?: string; otrosFeriados?: string[] } = {},
+  opciones: {
+    hoy?: string; otrosFeriados?: string[];
+    /** Lo que trabaja la persona el sábado (0, 0.5 o 1): si lo trabaja, puede tomarlo ese día. */
+    sabado?: number;
+  } = {},
 ): ValidationError[] {
   const errors: ValidationError[] = [];
 
@@ -218,8 +222,11 @@ export function validateOverrideInput(
     errors.push({ field: 'newDate', message: 'Elegí un día distinto al del feriado' });
   } else if (opciones.hoy && nueva <= opciones.hoy) {
     errors.push({ field: 'newDate', message: 'Elegí un día que todavía no pasó' });
-  } else if ([0, 6].includes(new Date(`${nueva}T00:00:00Z`).getUTCDay())) {
-    errors.push({ field: 'newDate', message: 'Elegí un día hábil (de lunes a viernes)' });
+  } else if (!esDiaQueTrabaja(nueva, opciones.sabado ?? 0)) {
+    errors.push({
+      field: 'newDate',
+      message: (opciones.sabado ?? 0) > 0 ? 'Elegí un día que trabajes (de lunes a sábado)' : 'Elegí un día hábil (de lunes a viernes)',
+    });
   } else if (opciones.otrosFeriados?.includes(nueva)) {
     errors.push({ field: 'newDate', message: 'Ese día ya es feriado' });
   }
@@ -252,6 +259,15 @@ export function validateOverrideInput(
  * usa el booleano de acá adentro — sin reimplementarla ni pedirla a la base
  * una segunda vez.
  */
+/**
+ * ¿La persona trabaja ese día? De lunes a viernes sí; el sábado, solo quien
+ * lo trabaja (medio día o completo, ver Personas); el domingo, nadie.
+ */
+export function esDiaQueTrabaja(fecha: string, sabado: number): boolean {
+  const d = new Date(`${fecha}T00:00:00Z`).getUTCDay();
+  return d !== 0 && (d !== 6 || sabado > 0);
+}
+
 export function dateOnly(d: Date): string {
   return d.toISOString().slice(0, 10);
 }

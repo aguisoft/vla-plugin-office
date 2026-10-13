@@ -30,6 +30,7 @@ import { AusenciasAdmin } from './components/AusenciasAdmin';
 import { MenuPersonal } from './components/MenuPersonal';
 import { MenuGuias } from './components/MenuGuias';
 import { guiasPara } from './guiasUx';
+import { useEsCelular } from './lib/useEsCelular';
 import { NavegacionVistas } from './components/NavegacionVistas';
 import { TimesheetScreen } from './components/TimesheetScreen';
 import { OrgChart } from './components/OrgChart';
@@ -108,6 +109,7 @@ export default function App() {
   /** Personas abierta (con su filtro), o null. */
   const [personasAdmin, setPersonasAdmin]           = useState<FiltroPersonas | null>(null);
   const [showAusenciasAdmin, setShowAusenciasAdmin] = useState(false);
+  const celular = useEsCelular();
   /** Sube al cerrar Personas: el organigrama se vuelve a cargar con lo corregido. */
   const [orgKey, setOrgKey]                         = useState(0);
   // La app de escritorio y el aviso de Bitrix abren pantallas con ?solicitudes=1, ?ausencias=1 o ?feriado=1.
@@ -593,6 +595,31 @@ export default function App() {
    * administración, y lo mío (estado, salir, mi menú). Antes era una fila de
    * botones sin orden donde Tiempos y Organigrama parecían acciones.
    */
+  // Solicitudes, la campana y las guías: en la computadora van en el encabezado;
+  // en el celular, que esconde el encabezado, en la fila de Lista | Mapa. Antes
+  // en el celular no estaban en ningún lado y un jefe no llegaba a la bandeja.
+  const atajos = (
+    <>
+      {bandeja.aprueba && (
+        <button onClick={() => setShowBandeja(true)} data-testid="boton-solicitudes"
+          className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] text-gray-500 hover:bg-gray-100 transition-colors"
+          title="Solicitudes de tu equipo">
+          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          <span className="hidden xl:inline">Solicitudes</span>
+          {bandeja.n > 0 && <span className="rounded-full bg-red-500 px-1.5 text-[9px] font-semibold leading-4 text-white">{bandeja.n}</span>}
+        </button>
+      )}
+
+      <CampanaAvisos recarga={recargaAvisos} onAbrir={abrirRuta} />
+
+      {/* Las guías de uso: páginas estáticas que viajan con el plugin
+          (frontend/public/ayuda), con capturas de una oficina de ejemplo. */}
+      <MenuGuias guias={guiasPara({ aprueba: bandeja.aprueba, rrhh: canManageHolidays })} base={import.meta.env.BASE_URL} />
+    </>
+  );
+
   const officeActions = (
     <div className="hidden md:flex items-center gap-1.5">
       {/* La conexión: un punto, y el texto solo cuando se cortó. */}
@@ -614,23 +641,7 @@ export default function App() {
         </button>
       )}
 
-      {bandeja.aprueba && (
-        <button onClick={() => setShowBandeja(true)} data-testid="boton-solicitudes"
-          className="relative flex items-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[10px] text-gray-500 hover:bg-gray-100 transition-colors"
-          title="Solicitudes de tu equipo">
-          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
-          </svg>
-          <span className="hidden xl:inline">Solicitudes</span>
-          {bandeja.n > 0 && <span className="rounded-full bg-red-500 px-1.5 text-[9px] font-semibold leading-4 text-white">{bandeja.n}</span>}
-        </button>
-      )}
-
-      <CampanaAvisos recarga={recargaAvisos} onAbrir={abrirRuta} />
-
-      {/* Las guías de uso: páginas estáticas que viajan con el plugin
-          (frontend/public/ayuda), con capturas de una oficina de ejemplo. */}
-      <MenuGuias guias={guiasPara({ aprueba: bandeja.aprueba, rrhh: canManageHolidays })} base={import.meta.env.BASE_URL} />
+      {!celular && atajos}
 
       <MenuAdministrar opciones={opcionesAdmin} />
 
@@ -839,6 +850,7 @@ export default function App() {
                 >
                   ⊞ Mapa
                 </button>
+                {celular && <div className="ml-auto flex items-center gap-1">{atajos}</div>}
               </div>
 
               <div className="flex-1 overflow-auto">

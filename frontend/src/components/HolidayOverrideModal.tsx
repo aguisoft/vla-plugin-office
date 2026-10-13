@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { listMovableHolidays, listMisSolicitudesFeriado, retirarSolicitudFeriado, ApiError } from '../api';
+import { listMovableHolidays, listMisSolicitudesFeriado, retirarSolicitudFeriado, getResumenAusencia, ApiError } from '../api';
 import { MIN_JUSTIFICATION } from '../statusConfig';
 import { fmtDateOnly, monthName, hoyLocal } from '../format';
 import { Shell, Actions, missingLabel } from './modalParts';
@@ -30,6 +30,11 @@ export function HolidayOverrideModal({ onClose, onConfirm }: {
   const [newDate, setNewDate] = useState('');
   const [text, setText] = useState('');
   const hoy = hoyLocal();
+  // Lo que trabaja el sábado: quien lo trabaja puede tomar el feriado ese día.
+  const [sabado, setSabado] = useState(0);
+  useEffect(() => {
+    void getResumenAusencia(hoy, hoy).then(r => setSabado(r.sabado)).catch(() => undefined);
+  }, [hoy]);
 
   const cargarSolicitudes = () =>
     // El historial es accesorio: si falla, el modal sigue sirviendo para pedir.
@@ -98,10 +103,10 @@ export function HolidayOverrideModal({ onClose, onConfirm }: {
             feriado={fechaFeriado}
             elegido={newDate}
             onElegir={setNewDate}
-            motivo={f => motivoNoElegible(f, { hoy, feriado: fechaFeriado, otrosFeriados })}
+            motivo={f => motivoNoElegible(f, { hoy, feriado: fechaFeriado, otrosFeriados, sabado })}
           />
           <p className="mt-1 text-[10px] text-gray-400">
-            Días hábiles de {monthName(chosen.date)} que todavía no pasaron. Podés pedirlo
+            Días hábiles de {monthName(chosen.date)}{sabado > 0 ? ' (con los sábados, que trabajás)' : ''} que todavía no pasaron. Podés pedirlo
             hasta el día anterior al feriado.
           </p>
         </>

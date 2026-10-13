@@ -20,6 +20,11 @@ describe('motivoNoElegible', () => {
     ['2026-10-21', 'Ya es feriado'],
     ['2026-10-20', null],
   ])('%s → %s', (f, m) => expect(motivoNoElegible(f, c)).toBe(m));
+
+  it('quien trabaja el sábado puede elegirlo; el domingo, nadie', () => {
+    expect(motivoNoElegible('2026-10-17', { ...c, sabado: 0.5 })).toBeNull();
+    expect(motivoNoElegible('2026-10-18', { ...c, sabado: 1 })).toBe('Fin de semana');
+  });
 });
 
 describe('qué se oculta', () => {

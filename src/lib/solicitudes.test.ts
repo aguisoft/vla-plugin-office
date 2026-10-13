@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { valeMientrasPendiente, estadoInicial, puedeResolver, transicion, textoRango, fraseResolucion, fichaSolicitud, fechaLarga, textoDiasHabiles, fraseCargada, aQuienAvisar, textoRecordatorio } from './solicitudes';
+import { valeMientrasPendiente, estadoInicial, puedeResolver, transicion, textoRango, fraseResolucion, fichaSolicitud, fechaLarga, textoDiasHabiles, fraseCargada, aQuienAvisar, textoRecordatorio, fraseCanceladaPorDueno } from './solicitudes';
 
 describe('valeMientrasPendiente', () => {
   it('permiso, cita e incapacidad valen ya; vacaciones esperan', () => {
@@ -150,5 +150,14 @@ describe('textoRecordatorio', () => {
     expect(textoRecordatorio(0, 1)).toBe('Tenés 1 solicitud de alguien sin jefe sin responder desde ayer');
     expect(textoRecordatorio(0, 2)).toBe('Tenés 2 solicitudes de personas sin jefe sin responder desde ayer');
     expect(textoRecordatorio(2, 1)).toBe('Tenés 3 solicitudes sin responder desde ayer');
+  });
+});
+
+describe('fraseCanceladaPorDueno — la persona cancela algo ya aprobado', () => {
+  it('concuerda con el tipo', () => {
+    expect(fraseCanceladaPorDueno('VACACIONES', 'del 21 al 23 dic', 'Ana Rojas')).toBe('Ana Rojas canceló sus vacaciones del 21 al 23 dic, que estaban aprobadas');
+    expect(fraseCanceladaPorDueno('PERMISO', 'el 20 oct de 09:00 a 10:00', 'Bruno')).toBe('Bruno canceló su permiso el 20 oct de 09:00 a 10:00, que estaba aprobado');
+    expect(fraseCanceladaPorDueno('CITA_MEDICA', 'el 20 oct de 09:00 a 10:00', 'Camila')).toBe('Camila canceló su cita médica el 20 oct de 09:00 a 10:00, que estaba aprobada');
+    expect(fraseCanceladaPorDueno('INCAPACIDAD', 'el 5 nov', 'Diego')).toBe('Diego canceló su incapacidad del 5 nov, que estaba aprobada');
   });
 });

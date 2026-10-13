@@ -64,7 +64,7 @@ function armar(o: { jefeDe?: Record<string, string | null>; equipoDe?: Record<st
     managerOf: vi.fn(async (u: string) => (o.jefeDe ?? { ana: 'jefa' })[u] ?? null),
     managedUserIds: vi.fn(async (v: string) => new Set((o.equipoDe ?? { jefa: ['ana'] })[v] ?? [])),
   };
-  const avisos = { nueva: vi.fn(async () => undefined), resuelta: vi.fn(async () => undefined), cargada: vi.fn(async () => undefined) };
+  const avisos = { nueva: vi.fn(async () => undefined), resuelta: vi.fn(async () => undefined), cargada: vi.fn(async () => undefined), canceladaPorDueno: vi.fn(async () => undefined) };
   const svc = new SolicitudesService(ctx, absences as any, org, avisos);
   return { svc, sol, eventos, reKeys, llamadas, ausencias, avisos, absences };
 }
@@ -156,6 +156,18 @@ describe('SolicitudesService: responder', () => {
     expect(r).toMatchObject({ ok: true, solicitud: { estado: 'cancelada' } });
     expect(ausencias).toHaveLength(0);
     expect(avisos.resuelta).not.toHaveBeenCalled();
+    // Seguía pendiente: su jefa simplemente deja de verla en la bandeja.
+    expect(avisos.canceladaPorDueno).not.toHaveBeenCalled();
+  });
+
+  it('si cancela algo ya aprobado, se enteran su jefe y RRHH', async () => {
+    const { svc, avisos } = armar();
+    const c = await svc.crear('ana', permiso, 'ana', { esRrhh: false }, TZ);
+    const id = c.ok ? c.solicitud.id : '';
+    await svc.resolver(id, 'jefa', 'aprobar', '', false, AHORA);
+    const r = await svc.cancelar(id, 'ana', '', false, AHORA);
+    expect(r).toMatchObject({ ok: true, solicitud: { estado: 'cancelada' } });
+    expect(avisos.canceladaPorDueno).toHaveBeenCalledWith(expect.objectContaining({ id, estado: 'cancelada' }));
   });
 });
 

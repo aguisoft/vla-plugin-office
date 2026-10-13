@@ -250,6 +250,8 @@ export class HolidayService {
   async setOverride(
     userId: string, holidayId: string, newDate: Date, justification: string, country: string, tz: string,
     tieneJefe: boolean,
+    /** Lo que trabaja el sábado: si lo trabaja, puede tomar el feriado ese día. */
+    sabado = 0,
   ): Promise<{ ok: true; status: OverrideStatus } | { ok: false; errors: ValidationError[] }> {
     const holiday = await this.ctx.prisma.holiday.findUnique({ where: { id: holidayId } });
     if (!holiday) {
@@ -262,7 +264,7 @@ export class HolidayService {
     const otrosFeriados = (await this.list(undefined, country))
       .filter(h => h.id !== holidayId).map(h => dateOnly(h.date));
     const errors = validateOverrideInput((holiday as any).date, newDate, justification, tz, {
-      hoy: localDateString(new Date(), tz), otrosFeriados,
+      hoy: localDateString(new Date(), tz), otrosFeriados, sabado,
     });
     if (errors.length) return { ok: false, errors };
 

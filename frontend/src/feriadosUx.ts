@@ -31,10 +31,12 @@ export function semanasDelMes(fechaFeriado: string): Array<Array<Dia | null>> {
 }
 
 /** Por qué no se puede elegir ese día, o `null` si se puede. */
-export function motivoNoElegible(fecha: string, c: { hoy: string; feriado: string; otrosFeriados: string[] }): string | null {
+export function motivoNoElegible(fecha: string, c: { hoy: string; feriado: string; otrosFeriados: string[]; sabado?: number }): string | null {
   if (fecha === c.feriado) return 'Es el día del feriado';
   if (fecha <= c.hoy) return 'Ya pasó';
-  if ([0, 6].includes(diaSemana(fecha))) return 'Fin de semana';
+  // Quien trabaja el sábado (medio día o completo) puede tomarlo ese día.
+  const ds = diaSemana(fecha);
+  if (ds === 0 || (ds === 6 && !(c.sabado ?? 0))) return 'Fin de semana';
   if (c.otrosFeriados.includes(fecha)) return 'Ya es feriado';
   return null;
 }

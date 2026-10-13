@@ -31,7 +31,7 @@ import { resumenMensual } from './lib/absence-usage';
 import { validarAdjuntos } from './lib/adjuntos';
 import { estadoDePlanta } from './lib/planta';
 import { SolicitudesService, type Solicitud } from './services/solicitudes.service';
-import { textoRango, NOMBRE_TIPO, fraseResolucion, fichaSolicitud, fechaLarga, fraseCargada, aQuienAvisar, textoRecordatorio } from './lib/solicitudes';
+import { textoRango, NOMBRE_TIPO, fraseResolucion, fichaSolicitud, fechaLarga, fraseCargada, aQuienAvisar, textoRecordatorio, fraseCanceladaPorDueno } from './lib/solicitudes';
 import { resumenRango } from './lib/vacaciones';
 import { nombresPorUsuario } from './lib/user-names';
 import { AdjuntosService } from './services/adjuntos.service';
@@ -223,6 +223,8 @@ const plugin: PluginDefinition = {
         const filas = await ctx.prisma.user.findMany({
           where: { isActive: true, customRoles: { some: { name: rol } } }, select: { id: true },
         }) as Array<{ id: string }>;
+        // Si renombran el rol, la consulta no falla: vuelve vacía y nadie se entera.
+        if (!filas.length) ctx.logger.warn(`Nadie tiene el rol «${rol}» (ROL_RRHH): lo de quien no tiene jefe solo llega al buzón de RRHH`);
         return filas.map(u => u.id);
       } catch (e) {
         ctx.logger.warn(`No se pudo leer quién tiene el rol «${rol}»: ${e}`);
@@ -288,6 +290,15 @@ const plugin: PluginDefinition = {
           bitrix: `${cuerpo}. Respondé en la oficina: [URL=${URL_SOLICITUDES}]Solicitudes[/URL]`,
         });
         if (destino.esRrhh) await correoAlBuzon({ titulo, cuerpo, url: RUTA_BANDEJA, ficha });
+      },
+      async canceladaPorDueno(sol: Solicitud) {
+        // Su jefe (o RRHH, si no tiene) en la oficina y por Bitrix; el correo, al buzón de RRHH,
+        // que tenía la copia de la aprobación.
+        const quien = await nombreDe(sol.userId);
+        const texto = fraseCanceladaPorDueno(sol.tipo, textoRango(sol.tipo, sol.startAt, sol.endAt, tz()), quien);
+        const destino = aQuienAvisar(await org.managerOf(sol.userId), await rrhhIds(), sol.userId);
+        await avisos.avisar(destino.ids, { tipo: 'solicitud.cancelada', titulo: 'Solicitud cancelada', cuerpo: texto, url: '/dashboard/office', bitrix: texto });
+        await correoAlBuzon({ titulo: 'Solicitud cancelada', cuerpo: texto, url: '/dashboard/office', ficha: await fichaDe(sol, { por: quien }) });
       },
       async cargada(sol: Solicitud, porId: string) {
         const por = await nombreDe(porId);
@@ -1045,7 +1056,7 @@ const plugin: PluginDefinition = {
       // pantalla cuál de los dos casos mostrar.
       const tieneJefe = (await org.managerOf(userId)) !== null;
       const result = await holidays.setOverride(
-        userId, req.params.id, new Date(newDate), justification ?? '', country, tz(), tieneJefe,
+        userId, req.params.id, new Date(newDate), justification ?? '', country, tz(), tieneJefe, await org.sabadoDe(userId),
       );
       if (!result.ok) return res.status(400).json({ message: 'Datos inválidos', errors: result.errors });
       const h = await ctx.prisma.holiday.findUnique({ where: { id: req.params.id } }).catch(() => null) as any;

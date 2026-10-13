@@ -63,6 +63,8 @@ export interface AvisosSolicitud {
   resuelta(s: Solicitud, porId: string): Promise<void>;
   /** RRHH la cargó por la persona: nace aprobada y la persona se entera por acá. */
   cargada?(s: Solicitud, porId: string): Promise<void>;
+  /** La persona canceló algo que ya estaba aprobado: se enteran su jefe y RRHH. */
+  canceladaPorDueno?(s: Solicitud): Promise<void>;
 }
 
 export interface Organigrama {
@@ -232,6 +234,9 @@ export class SolicitudesService {
     await this.evento(s.id, t.nuevo, viewerId, { motivo: motivo.trim() || null, efecto: t.efecto });
     if (accion !== 'cancelar' || viewerId !== s.userId) {
       await this.avisos.resuelta(nueva, viewerId).catch(e => this.ctx.logger.warn(`Aviso de solicitud resuelta falló: ${e}`));
+    } else if (s.estado === 'aprobada') {
+      // Antes no se enteraba nadie, y RRHH seguía con la copia de la aprobación (13-oct-2026).
+      await this.avisos.canceladaPorDueno?.(nueva).catch(e => this.ctx.logger.warn(`Aviso de cancelación falló: ${e}`));
     }
     return { ok: true, solicitud: nueva };
   }

@@ -144,6 +144,15 @@ describe('movableHolidays', () => {
 describe('validateOverrideInput', () => {
   const JUST = 'tomo el feriado el viernes siguiente';
 
+  it('el sábado solo para quien lo trabaja; el domingo, para nadie', () => {
+    const sab = new Date('2026-09-26T00:00:00Z');
+    const dom = new Date('2026-09-27T00:00:00Z');
+    expect(validateOverrideInput(indep.date, sab, JUST, TZ)).toEqual([{ field: 'newDate', message: 'Elegí un día hábil (de lunes a viernes)' }]);
+    expect(validateOverrideInput(indep.date, sab, JUST, TZ, { sabado: 0.5 })).toEqual([]);
+    expect(validateOverrideInput(indep.date, sab, JUST, TZ, { sabado: 1 })).toEqual([]);
+    expect(validateOverrideInput(indep.date, dom, JUST, TZ, { sabado: 1 })).toEqual([{ field: 'newDate', message: 'Elegí un día que trabajes (de lunes a sábado)' }]);
+  });
+
   it('acepta otra fecha del mismo mes', () => {
     expect(validateOverrideInput(
       indep.date, new Date('2026-09-25T00:00:00Z'), JUST, TZ,
