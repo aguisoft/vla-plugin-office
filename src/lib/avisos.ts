@@ -28,6 +28,10 @@ export interface AvisoNuevo {
   bitrix?: string | null;
   /** También por correo (Amazon SES). Por defecto no: solo solicitudes y sus respuestas. */
   correo?: boolean;
+  /** Para el correo: los datos de la solicitud como tabla (campo, valor). */
+  ficha?: Array<[string, string]> | null;
+  /** Para el correo: direcciones en copia (quien aprobó, RRHH). */
+  copia?: string[];
 }
 
 export const MAX_TITULO = 140;

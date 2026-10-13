@@ -97,7 +97,7 @@ export const setStatus = (payload: StatusPayload) =>
 /**
  * `startAt`/`endAt` cambian de forma según `type`: PERMISO manda un instante
  * real (ISO datetime, ver PermisoModal.tsx); VACACIONES/INCAPACIDAD mandan
- * fecha PURA "YYYY-MM-DD" sin hora ni zona (ver DateRangeModal.tsx) -- el
+ * fecha PURA "YYYY-MM-DD" sin hora ni zona (ver SolicitudDiasModal.tsx) -- el
  * servidor es quien la ancla a la zona de la operación. No conviertas estos
  * dos con `new Date(...).toISOString()` antes de llamar: eso reintroduce la
  * doble conversión de zona que corría la ausencia un día entero.
@@ -112,6 +112,17 @@ export const createAbsence = (body: {
 // ── Solicitudes de ausencia (con aprobación del jefe) ─────────────────────
 export const listMisSolicitudes = () => api.get<SolicitudAusencia[]>(`${PLUGIN}/solicitudes/mias`);
 export const getBandejaSolicitudes = () => api.get<BandejaSolicitudes>(`${PLUGIN}/solicitudes/bandeja`);
+
+/** Días hábiles, reintegro, feriados del rango y quién aprueba (formulario de vacaciones). Fechas `YYYY-MM-DD`. */
+export interface ResumenAusencia {
+  diasHabiles: number;
+  diasCorridos: number;
+  reintegro: string;
+  feriados: Array<{ fecha: string; nombre: string }>;
+  aprobador: { id: string; nombre: string } | null;
+}
+export const getResumenAusencia = (desde: string, hasta: string) =>
+  api.get<ResumenAusencia>(`${PLUGIN}/absences/resumen?desde=${desde}&hasta=${hasta}`);
 
 // ── Avisos: la campana ───────────────────────────────────────────────────────
 export const getAvisos = () => api.get<{ avisos: Aviso[]; sinLeer: number }>(`${PLUGIN}/avisos`);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { configCorreo, armarCorreo, REMITENTE_POR_DEFECTO } from './correo-aviso';
+import { configCorreo, armarCorreo, direccionesCopia, REMITENTE_POR_DEFECTO } from './correo-aviso';
 
 describe('configCorreo', () => {
   const base = { CORREO_HOST: 'email-smtp.us-east-1.amazonaws.com', CORREO_USUARIO: 'AKIA', CORREO_CLAVE: 'x' };
@@ -32,5 +32,26 @@ describe('armarCorreo', () => {
   });
   it('sin url abre la oficina', () => {
     expect(armarCorreo({ titulo: 't', cuerpo: '' }, 'https://s.com').texto).toContain('https://s.com/dashboard/office');
+  });
+});
+
+describe('armarCorreo con ficha', () => {
+  const ficha: Array<[string, string]> = [['Colaborador', 'Ana Mora'], ['Tipo', 'Vacaciones'], ['Total', '5 días hábiles'], ['Comentarios', '<b>viaje</b>']];
+  it('el asunto dice de quién es, y la ficha va en el texto y como tabla', () => {
+    const c = armarCorreo({ titulo: 'Solicitud aprobada', cuerpo: 'Tus vacaciones…', ficha }, 'https://s.com');
+    expect(c.asunto).toBe('Solicitud aprobada · Vacaciones de Ana Mora');
+    expect(c.texto).toContain('Total: 5 días hábiles');
+    expect(c.html).toContain('5 días hábiles');
+    expect(c.html).toContain('&lt;b&gt;viaje&lt;/b&gt;');
+  });
+  it('sin ficha, el asunto es el título', () => {
+    expect(armarCorreo({ titulo: 'Hola', cuerpo: '' }, 'https://s.com').asunto).toBe('Hola');
+  });
+});
+
+describe('direccionesCopia', () => {
+  it('sin repetir, sin el destinatario y solo direcciones válidas', () => {
+    expect(direccionesCopia('ana@x.com', ['Jefe@x.com', 'rrhh@grupovla.com', 'jefe@x.com', 'ANA@x.com', null, 'no-es-correo']))
+      .toEqual(['jefe@x.com', 'rrhh@grupovla.com']);
   });
 });

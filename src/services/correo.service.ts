@@ -1,8 +1,8 @@
 import type { PluginContext } from '@vla/plugin-sdk';
-import { configCorreo, armarCorreo, type ConfigCorreo } from '../lib/correo-aviso';
+import { configCorreo, armarCorreo, direccionesCopia, type ConfigCorreo } from '../lib/correo-aviso';
 
 interface Transporte {
-  sendMail(m: { from: string; to: string; subject: string; text: string; html: string }): Promise<{ messageId?: string }>;
+  sendMail(m: { from: string; to: string; cc?: string[]; subject: string; text: string; html: string }): Promise<{ messageId?: string }>;
 }
 
 /**
@@ -41,12 +41,17 @@ export class CorreoService {
     return { t: this.transporte, c };
   }
 
-  /** Manda el aviso a esa dirección. Devuelve si salió. */
-  async enviar(para: string, aviso: { titulo: string; cuerpo: string; url?: string | null }): Promise<boolean> {
+  /** Manda el aviso a esa dirección, con copia a las que se pidan. Devuelve si salió. */
+  async enviar(
+    para: string,
+    aviso: { titulo: string; cuerpo: string; url?: string | null; ficha?: Array<[string, string]> | null },
+    copia: Array<string | null | undefined> = [],
+  ): Promise<boolean> {
     const x = this.obtener();
     if (!x || !para) return false;
     const m = armarCorreo(aviso, this.base());
-    await x.t.sendMail({ from: x.c.from, to: para, subject: m.asunto, text: m.texto, html: m.html });
+    const cc = direccionesCopia(para, copia);
+    await x.t.sendMail({ from: x.c.from, to: para, ...(cc.length ? { cc } : {}), subject: m.asunto, text: m.texto, html: m.html });
     return true;
   }
 }

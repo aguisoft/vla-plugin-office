@@ -105,3 +105,71 @@ export function textoRango(tipo: string, startIso: string, endIso: string, tz: s
   const [, mb] = b.split(' ');
   return ma === mb ? `del ${da} al ${b}` : `del ${a} al ${b}`;
 }
+
+/** Cómo se nombra cada tipo y con qué concuerda («Tus vacaciones … fueron aprobadas»). */
+const SUJETO: Record<string, { tu: string; titulo: string; plural: boolean; fem: boolean }> = {
+  PERMISO: { tu: 'Tu permiso', titulo: 'Permiso', plural: false, fem: false },
+  CITA_MEDICA: { tu: 'Tu cita médica', titulo: 'Cita médica', plural: false, fem: true },
+  VACACIONES: { tu: 'Tus vacaciones', titulo: 'Vacaciones', plural: true, fem: true },
+  INCAPACIDAD: { tu: 'Tu incapacidad', titulo: 'Incapacidad', plural: false, fem: true },
+};
+const sujeto = (tipo: string) => SUJETO[tipo] ?? { tu: 'Tu ausencia', titulo: 'Ausencia', plural: false, fem: true };
+const participio = (raiz: string, s: { plural: boolean; fem: boolean }) => `${raiz}${s.fem ? 'a' : 'o'}${s.plural ? 's' : ''}`;
+
+/** Las de días completos: llevan «del 23 oct», no «el 23 oct». */
+const DE_DIAS = new Set(['VACACIONES', 'INCAPACIDAD']);
+
+/**
+ * «Tus vacaciones del 26 al 30 oct fueron aprobadas por Josué Rodríguez»,
+ * «Tu permiso el 20 oct de 09:00 a 10:00 no fue aprobado por …: «motivo»».
+ * Antes salía «Tu vacaciones el 23 oct fue aprobada».
+ */
+export function fraseResolucion(
+  tipo: string, rango: string, estado: EstadoSolicitud, por: string, motivo?: string | null,
+): string {
+  const s = sujeto(tipo);
+  const r = DE_DIAS.has(tipo) && rango.startsWith('el ') ? `del ${rango.slice(3)}` : rango;
+  const fue = s.plural ? 'fueron' : 'fue';
+  const verbo = estado === 'aprobada' ? `${fue} ${participio('aprobad', s)}`
+    : estado === 'rechazada' ? `no ${fue} ${participio('aprobad', s)}`
+    : `${fue} ${participio('cancelad', s)}`;
+  return `${s.tu} ${r} ${verbo} por ${por}${motivo ? `: «${motivo}»` : ''}`;
+}
+
+/** «lunes 26 oct 2026», de un instante (en la zona dada) o de una fecha `YYYY-MM-DD`. */
+export function fechaLarga(v: string, tz: string): string {
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(`${v}T12:00:00Z`) : new Date(v);
+  const zona = /^\d{4}-\d{2}-\d{2}$/.test(v) ? 'UTC' : tz;
+  return new Intl.DateTimeFormat('es-CR', { timeZone: zona, weekday: 'long', day: 'numeric', month: 'short', year: 'numeric' })
+    .format(d).replace(/\./g, '').replace(/,/g, '').replace(/ de /g, ' ');
+}
+
+/**
+ * La ficha de una solicitud para el correo: los mismos campos del formulario
+ * de papel de RRHH (desde, hasta, total de días, se reintegra, comentarios) y,
+ * si ya se resolvió, quién y con qué motivo.
+ */
+export function fichaSolicitud(o: {
+  nombre: string; tipo: string; startIso: string; endIso: string; tz: string;
+  /** Solo las de días: desde `resumenRango`, con los feriados de la persona. */
+  diasHabiles?: number | null; reintegro?: string | null;
+  comentarios?: string | null;
+  estado?: EstadoSolicitud; resolvio?: string | null; motivo?: string | null;
+}): Array<[string, string]> {
+  const filas: Array<[string, string]> = [['Colaborador', o.nombre], ['Tipo', sujeto(o.tipo).titulo]];
+  if (DE_DIAS.has(o.tipo)) {
+    filas.push(['Desde', fechaLarga(o.startIso, o.tz)], ['Hasta', fechaLarga(o.endIso, o.tz)]);
+    if (o.diasHabiles != null) filas.push(['Total', `${o.diasHabiles} ${o.diasHabiles === 1 ? 'día hábil' : 'días hábiles'}`]);
+    if (o.reintegro) filas.push(['Se reintegra', fechaLarga(o.reintegro, o.tz)]);
+  } else {
+    const hora = (iso: string) => new Intl.DateTimeFormat('es-CR', { timeZone: o.tz, hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
+    filas.push(['Fecha', fechaLarga(o.startIso, o.tz)], ['Horario', `${hora(o.startIso)} a ${hora(o.endIso)}`]);
+  }
+  if (o.comentarios?.trim()) filas.push(['Comentarios', o.comentarios.trim()]);
+  if (o.estado && o.estado !== 'pendiente') {
+    filas.push(['Estado', o.estado === 'aprobada' ? 'Aprobada' : o.estado === 'rechazada' ? 'No aprobada' : 'Cancelada']);
+    if (o.resolvio) filas.push([o.estado === 'cancelada' ? 'Cancelada por' : 'Resuelta por', o.resolvio]);
+    if (o.motivo?.trim()) filas.push(['Motivo', o.motivo.trim()]);
+  }
+  return filas;
+}

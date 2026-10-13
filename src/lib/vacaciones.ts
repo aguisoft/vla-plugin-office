@@ -189,3 +189,34 @@ export function validarSolicitud(args: {
 export function ajustePara(saldoActual: number, deseado: number): number {
   return c(deseado - saldoActual);
 }
+
+/**
+ * El día que la persona vuelve: el primer día hábil después de `hasta`
+ * (salta fines de semana y feriados). Es el «Me reintegro el día» del
+ * formulario de papel de RRHH.
+ */
+export function diaDeReintegro(hasta: string, feriados: Iterable<string> = [], tz: string = DEFAULT_TZ): string {
+  const noLaborables = feriados instanceof Set ? feriados : new Set(feriados);
+  const [y, m, d] = hasta.split('-').map(Number);
+  let cursor = zonedTimeToUtc(y, m, d, 12, 0, 0, tz);
+  for (let i = 0; i < 60; i++) {
+    cursor = new Date(cursor.getTime() + DIA_MS);
+    const fecha = localDateString(cursor, tz);
+    if (!esFinDeSemana(fecha, tz) && !noLaborables.has(fecha)) return fecha;
+  }
+  return localDateString(cursor, tz);
+}
+
+/** Lo que muestra el formulario y lleva el correo: días hábiles, días corridos y reintegro. */
+export function resumenRango(
+  desde: string, hasta: string, feriados: Iterable<string> = [], tz: string = DEFAULT_TZ,
+): { diasHabiles: number; diasCorridos: number; reintegro: string } {
+  const noLaborables = feriados instanceof Set ? feriados : new Set(feriados);
+  const corridos = hasta < desde ? 0
+    : Math.round((Date.parse(`${hasta}T12:00:00Z`) - Date.parse(`${desde}T12:00:00Z`)) / DIA_MS) + 1;
+  return {
+    diasHabiles: diasHabiles(desde, hasta, noLaborables, tz),
+    diasCorridos: corridos,
+    reintegro: diaDeReintegro(hasta, noLaborables, tz),
+  };
+}

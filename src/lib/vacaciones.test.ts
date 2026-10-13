@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  diaDeReintegro, resumenRango,
   diasHabiles, mesesCumplidos, calcularSaldo, validarSolicitud, ajustePara,
   SALDO_INICIAL, DEVENGO_MENSUAL, TOPE_ALERTA,
 } from './vacaciones';
@@ -192,5 +193,27 @@ describe('el tope avisa pero no corta', () => {
     const s = calcularSaldo({ corte: dia('2026-10-06'), ahora: dia('2028-10-06'), tz: TZ });
     expect(s.saldo).toBeGreaterThan(TOPE_ALERTA);
     expect(s.devengado).toBe(45);   // 15 + 24 × 1,25
+  });
+});
+
+describe('diaDeReintegro', () => {
+  it('el día hábil siguiente: de un jueves vuelve el viernes, de un viernes el lunes', () => {
+    expect(diaDeReintegro('2026-10-08')).toBe('2026-10-09');
+    expect(diaDeReintegro('2026-10-09')).toBe('2026-10-12');
+  });
+  it('salta los feriados', () => {
+    expect(diaDeReintegro('2026-10-09', ['2026-10-12'])).toBe('2026-10-13');
+  });
+});
+
+describe('resumenRango', () => {
+  it('una semana de lunes a viernes: 5 hábiles, 5 corridos, vuelve el lunes', () => {
+    expect(resumenRango('2026-10-26', '2026-10-30')).toEqual({ diasHabiles: 5, diasCorridos: 5, reintegro: '2026-11-02' });
+  });
+  it('con un feriado y un fin de semana en el medio', () => {
+    expect(resumenRango('2026-10-08', '2026-10-13', ['2026-10-12'])).toEqual({ diasHabiles: 3, diasCorridos: 6, reintegro: '2026-10-14' });
+  });
+  it('el ejemplo del formulario de papel: 1 día, se reintegra el viernes', () => {
+    expect(resumenRango('2026-10-08', '2026-10-08')).toEqual({ diasHabiles: 1, diasCorridos: 1, reintegro: '2026-10-09' });
   });
 });

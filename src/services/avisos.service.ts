@@ -48,7 +48,7 @@ export class AvisosService {
     private readonly vivo: CanalesEnVivo,
     private readonly bitrix: (userId: string, mensaje: string) => Promise<void>,
     /** Correo a la persona; sin él, los avisos que lo piden salen igual por lo demás. */
-    private readonly correo?: (userId: string, aviso: { titulo: string; cuerpo: string; url?: string | null }) => Promise<void>,
+    private readonly correo?: (userId: string, aviso: AvisoNuevo) => Promise<void>,
   ) {}
 
   async avisar(userIds: string[], a: AvisoNuevo): Promise<void> {

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { valeMientrasPendiente, estadoInicial, puedeResolver, transicion, textoRango } from './solicitudes';
+import { valeMientrasPendiente, estadoInicial, puedeResolver, transicion, textoRango, fraseResolucion, fichaSolicitud, fechaLarga } from './solicitudes';
 
 describe('valeMientrasPendiente', () => {
   it('permiso, cita e incapacidad valen ya; vacaciones esperan', () => {
@@ -68,5 +68,44 @@ describe('textoRango', () => {
   it('vacaciones de varios días y de uno solo', () => {
     expect(textoRango('VACACIONES', '2026-10-26T06:00:00.000Z', '2026-10-31T05:59:59.999Z', TZ)).toBe('del 26 al 30 oct');
     expect(textoRango('VACACIONES', '2026-10-08T06:00:00.000Z', '2026-10-09T05:59:59.999Z', TZ)).toBe('el 8 oct');
+  });
+});
+
+describe('fraseResolucion', () => {
+  it('concuerda con el tipo: «Tus vacaciones … fueron aprobadas», «Tu permiso … fue aprobado»', () => {
+    expect(fraseResolucion('VACACIONES', 'el 23 oct', 'aprobada', 'Josué Rodríguez'))
+      .toBe('Tus vacaciones del 23 oct fueron aprobadas por Josué Rodríguez');
+    expect(fraseResolucion('VACACIONES', 'del 26 al 30 oct', 'rechazada', 'Josué', 'cierre de mes'))
+      .toBe('Tus vacaciones del 26 al 30 oct no fueron aprobadas por Josué: «cierre de mes»');
+    expect(fraseResolucion('PERMISO', 'el 20 oct de 09:00 a 10:00', 'aprobada', 'Laura'))
+      .toBe('Tu permiso el 20 oct de 09:00 a 10:00 fue aprobado por Laura');
+    expect(fraseResolucion('CITA_MEDICA', 'el 20 oct de 09:00 a 10:00', 'cancelada', 'RRHH'))
+      .toBe('Tu cita médica el 20 oct de 09:00 a 10:00 fue cancelada por RRHH');
+    expect(fraseResolucion('INCAPACIDAD', 'el 5 oct', 'aprobada', 'Laura')).toBe('Tu incapacidad del 5 oct fue aprobada por Laura');
+  });
+});
+
+describe('fichaSolicitud', () => {
+  const TZ = 'America/Costa_Rica';
+  it('vacaciones: los campos del formulario de papel, más quién la resolvió', () => {
+    const f = fichaSolicitud({
+      nombre: 'Ana Mora', tipo: 'VACACIONES', startIso: '2026-10-08T06:00:00Z', endIso: '2026-10-09T05:59:59Z', tz: TZ,
+      diasHabiles: 1, reintegro: '2026-10-09', comentarios: '  Trámite personal ', estado: 'aprobada', resolvio: 'Josué Rodríguez',
+    });
+    expect(f).toEqual([
+      ['Colaborador', 'Ana Mora'], ['Tipo', 'Vacaciones'],
+      ['Desde', fechaLarga('2026-10-08T06:00:00Z', TZ)], ['Hasta', fechaLarga('2026-10-09T05:59:59Z', TZ)],
+      ['Total', '1 día hábil'], ['Se reintegra', fechaLarga('2026-10-09', TZ)],
+      ['Comentarios', 'Trámite personal'], ['Estado', 'Aprobada'], ['Resuelta por', 'Josué Rodríguez'],
+    ]);
+  });
+  it('permiso: fecha y horario; pendiente no lleva estado', () => {
+    const f = fichaSolicitud({ nombre: 'Ana', tipo: 'PERMISO', startIso: '2026-10-20T15:00:00Z', endIso: '2026-10-20T16:00:00Z', tz: TZ, estado: 'pendiente' });
+    expect(f.map(x => x[0])).toEqual(['Colaborador', 'Tipo', 'Fecha', 'Horario']);
+    expect(f[3][1]).toBe('09:00 a 10:00');
+  });
+  it('fechaLarga: día de la semana, día, mes y año, en la zona de la oficina', () => {
+    expect(fechaLarga('2026-10-09', TZ)).toMatch(/^viernes 9 oct\w* 2026$/);
+    expect(fechaLarga('2026-10-08T06:00:00Z', TZ)).toMatch(/^jueves 8 oct/);
   });
 });

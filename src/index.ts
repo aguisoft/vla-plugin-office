@@ -31,7 +31,8 @@ import { resumenMensual } from './lib/absence-usage';
 import { validarAdjuntos } from './lib/adjuntos';
 import { estadoDePlanta } from './lib/planta';
 import { SolicitudesService, type Solicitud } from './services/solicitudes.service';
-import { textoRango, NOMBRE_TIPO } from './lib/solicitudes';
+import { textoRango, NOMBRE_TIPO, fraseResolucion, fichaSolicitud, fechaLarga } from './lib/solicitudes';
+import { resumenRango } from './lib/vacaciones';
 import { nombresPorUsuario } from './lib/user-names';
 import { AdjuntosService } from './services/adjuntos.service';
 import { AvisosService } from './services/avisos.service';
@@ -183,7 +184,7 @@ const plugin: PluginDefinition = {
       // Correo al de su cuenta (Amazon SES, ver services/correo.service.ts).
       async (userId, aviso) => {
         const u = await ctx.prisma.user.findUnique({ where: { id: userId }, select: { email: true, isActive: true } }) as { email?: string; isActive?: boolean } | null;
-        if (u?.email && u.isActive !== false) await correo.enviar(u.email, aviso);
+        if (u?.email && u.isActive !== false) await correo.enviar(u.email, aviso, aviso.copia);
       },
     );
     // Los demás plugins avisan por el hook, sin conocer la oficina por dentro:
@@ -205,23 +206,70 @@ const plugin: PluginDefinition = {
     const URL_SOLICITUDES = `${String(ctx.plugin.config.URL_PUBLICA || 'https://system.somosvla.com').replace(/\/+$/, '')}/dashboard/office?solicitudes=1`;
     const RUTA_BANDEJA = '/dashboard/office?solicitudes=1';
     const RUTA_MIS_SOLICITUDES = '/dashboard/office?ausencias=1';
+    /** El buzón de RRHH: recibe en copia cada respuesta a una solicitud (12-oct-2026). */
+    const correoRrhh = () => String(ctx.plugin.config.CORREO_RRHH || 'rrhh@grupovla.com').trim();
+    const correoDe = async (userId: string): Promise<string | null> =>
+      ((await ctx.prisma.user.findUnique({ where: { id: userId }, select: { email: true } }).catch(() => null)) as { email?: string } | null)?.email ?? null;
+    const RANGO_YMD = /^\d{4}-\d{2}-\d{2}$/;
+
+    /**
+     * Días hábiles, días corridos, día de reintegro y feriados de un rango, con
+     * los feriados de ESA persona (su país y sus feriados movidos). Lo usan el
+     * formulario de vacaciones y la ficha del correo.
+     */
+    async function resumenAusencia(userId: string, desde: string, hasta: string) {
+      const country = await org.countryOf(userId);
+      // Hasta un mes después: el reintegro puede caer pasado un feriado.
+      const tope = new Date(`${hasta}T12:00:00Z`);
+      tope.setUTCDate(tope.getUTCDate() + 31);
+      const fechas = (await holidays.effectiveDatesByUser(new Map([[userId, country]]), new Date(`${desde}T12:00:00Z`), tope))
+        .get(userId) ?? new Set<string>();
+      const nombres = new Map(((await ctx.prisma.holiday.findMany({
+        where: { country, date: { gte: new Date(`${desde}T00:00:00Z`), lte: tope } }, select: { date: true, name: true },
+      }).catch(() => [])) as Array<{ date: Date; name: string }>).map(h => [h.date.toISOString().slice(0, 10), h.name]));
+      const topeYmd = tope.toISOString().slice(0, 10);
+      return {
+        ...resumenRango(desde, hasta, fechas, tz()),
+        feriados: [...fechas].filter(f => f >= desde && f <= topeYmd).sort()
+          .map(fecha => ({ fecha, nombre: nombres.get(fecha) ?? 'Feriado' })),
+      };
+    }
+
+    /** La ficha del correo de una solicitud (los campos del formulario de papel de RRHH). */
+    async function fichaDe(sol: Solicitud, resuelta?: { por: string }) {
+      let diasHabiles: number | null = null;
+      let reintegro: string | null = null;
+      if (sol.tipo === 'VACACIONES' || sol.tipo === 'INCAPACIDAD') {
+        const r = await resumenAusencia(sol.userId, localDateString(new Date(sol.startAt), tz()), localDateString(new Date(sol.endAt), tz())).catch(() => null);
+        diasHabiles = r?.diasHabiles ?? null;
+        reintegro = r?.reintegro ?? null;
+      }
+      return fichaSolicitud({
+        nombre: await nombreDe(sol.userId), tipo: sol.tipo, startIso: sol.startAt, endIso: sol.endAt, tz: tz(),
+        diasHabiles, reintegro, comentarios: sol.justificacion,
+        estado: resuelta ? sol.estado : undefined, resolvio: resuelta?.por ?? null, motivo: sol.motivoResolucion,
+      });
+    }
     const solicitudes = new SolicitudesService(ctx, absences, org, {
       async nueva(sol: Solicitud, aprobadorId: string | null) {
         if (!aprobadorId) return; // sin jefe la ve RRHH en su bandeja
         const quien = await nombreDe(sol.userId);
-        const texto = `${quien} pidió ${NOMBRE_TIPO[sol.tipo] ?? 'una ausencia'} ${textoRango(sol.tipo, sol.startAt, sol.endAt, tz())}`;
+        const ficha = await fichaDe(sol);
+        const total = ficha.find(f => f[0] === 'Total')?.[1];
+        const texto = `${quien} pidió ${NOMBRE_TIPO[sol.tipo] ?? 'una ausencia'} ${textoRango(sol.tipo, sol.startAt, sol.endAt, tz())}${total ? ` (${total})` : ''}`;
         await avisos.avisar([aprobadorId], {
-          tipo: 'solicitud.nueva', titulo: 'Solicitud de tu equipo', cuerpo: texto, url: RUTA_BANDEJA, correo: true,
+          tipo: 'solicitud.nueva', titulo: 'Solicitud de tu equipo', cuerpo: texto, url: RUTA_BANDEJA, correo: true, ficha,
           bitrix: `${texto}. Respondé en la oficina: [URL=${URL_SOLICITUDES}]Solicitudes[/URL]`,
         });
       },
       async resuelta(sol: Solicitud, porId: string) {
         const por = await nombreDe(porId);
-        const que = `Tu ${NOMBRE_TIPO[sol.tipo] ?? 'ausencia'} ${textoRango(sol.tipo, sol.startAt, sol.endAt, tz())}`;
-        const verbo = sol.estado === 'aprobada' ? 'fue aprobada' : sol.estado === 'rechazada' ? 'no fue aprobada' : 'fue cancelada';
-        const texto = `${que} ${verbo} por ${por}${sol.motivoResolucion ? `: «${sol.motivoResolucion}»` : ''}`;
+        const texto = fraseResolucion(sol.tipo, textoRango(sol.tipo, sol.startAt, sol.endAt, tz()), sol.estado, por, sol.motivoResolucion);
+        // El correo de la respuesta va con copia a quien resolvió y a RRHH (pedido del 13-oct-2026).
+        const ficha = await fichaDe(sol, { por });
+        const copia = [await correoDe(porId), correoRrhh()].filter((c): c is string => !!c);
         const titulo = sol.estado === 'aprobada' ? 'Solicitud aprobada' : sol.estado === 'rechazada' ? 'Solicitud no aprobada' : 'Solicitud cancelada';
-        await avisos.avisar([sol.userId], { tipo: 'solicitud.resuelta', titulo, cuerpo: texto, url: RUTA_MIS_SOLICITUDES, bitrix: texto, correo: true });
+        await avisos.avisar([sol.userId], { tipo: 'solicitud.resuelta', titulo, cuerpo: texto, url: RUTA_MIS_SOLICITUDES, bitrix: texto, correo: true, ficha, copia });
       },
     });
     // Jornada de Bitrix desde el widget, también como cada persona.
@@ -624,6 +672,21 @@ const plugin: PluginDefinition = {
      * GET /absences, acá NO viaja la justificación: son minutos, no motivos, y
      * así el líder puede ver el saldo sin leer datos de salud.
      */
+    // Lo que muestra el formulario de vacaciones al elegir fechas: días hábiles,
+    // reintegro, feriados del rango (con su nombre) y quién aprueba.
+    ctx.router.get('/absences/resumen', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      const userId = (req as any).user?.sub;
+      if (!userId) return res.status(401).json({ message: 'Unauthorized' });
+      const desde = String(req.query.desde ?? '');
+      const hasta = String(req.query.hasta ?? '');
+      if (!RANGO_YMD.test(desde) || !RANGO_YMD.test(hasta) || hasta < desde) {
+        return res.status(400).json({ message: 'Fechas inválidas (desde y hasta como AAAA-MM-DD, hasta ≥ desde)' });
+      }
+      if (Date.parse(hasta) - Date.parse(desde) > 366 * 86_400_000) return res.status(400).json({ message: 'El rango no puede pasar de un año' });
+      const jefe = await org.managerOf(userId);
+      res.json({ ...(await resumenAusencia(userId, desde, hasta)), aprobador: jefe ? { id: jefe, nombre: await nombreDe(jefe) } : null });
+    }));
+
     ctx.router.get('/absences/usage', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const requesterId = (req as any).user?.sub;
       if (!requesterId) return res.status(401).json({ message: 'Unauthorized' });
@@ -879,14 +942,24 @@ const plugin: PluginDefinition = {
           solicitanteId => org.isManagerOf(userId, solicitanteId),
         );
         if (result.ok) {
-          const [o] = await ctx.query<{ user_id: string; new_date: Date | string; decision_note: string | null }>(
-            'SELECT user_id, new_date, decision_note FROM office_holiday_overrides WHERE id = $1', [req.params.id]).catch(() => []);
+          const [o] = await ctx.query<{ user_id: string; holiday_id: string; new_date: Date | string; decision_note: string | null }>(
+            'SELECT user_id, holiday_id, new_date, decision_note FROM office_holiday_overrides WHERE id = $1', [req.params.id]).catch(() => []);
           if (o) {
             const dia = new Intl.DateTimeFormat('es-CR', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(o.new_date)).replace('.', '');
             const texto = `Tu pedido de tomar el feriado el ${dia} ${accion === 'approve' ? 'fue aprobado' : 'no fue aprobado'} por ${await nombreDe(userId)}${o.decision_note ? `: «${o.decision_note}»` : ''}`;
+            const h = await ctx.prisma.holiday.findUnique({ where: { id: o.holiday_id } }).catch(() => null) as { name: string; date: Date } | null;
+            const ymd = (d: Date | string) => new Date(d).toISOString().slice(0, 10);
+            const ficha: Array<[string, string]> = [
+              ['Colaborador', await nombreDe(o.user_id)], ['Tipo', 'Mover un feriado'],
+              ...(h ? [['Feriado', `${h.name} (${fechaLarga(ymd(h.date), tz())})`] as [string, string]] : []),
+              ['Lo toma el', fechaLarga(ymd(o.new_date), tz())],
+              ['Estado', accion === 'approve' ? 'Aprobado' : 'No aprobado'], ['Resuelto por', await nombreDe(userId)],
+              ...(o.decision_note ? [['Motivo', o.decision_note] as [string, string]] : []),
+            ];
             await avisos.avisar([o.user_id], {
               tipo: 'feriado.resuelto', titulo: accion === 'approve' ? 'Feriado aprobado' : 'Feriado no aprobado',
-              cuerpo: texto, url: '/dashboard/office', bitrix: texto, correo: true,
+              cuerpo: texto, url: '/dashboard/office', bitrix: texto, correo: true, ficha,
+              copia: [await correoDe(userId), correoRrhh()].filter((c): c is string => !!c),
             });
           }
           return res.json({ ok: true });

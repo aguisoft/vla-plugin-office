@@ -1,6 +1,6 @@
 {
   "name": "office",
-  "version": "1.39.0",
+  "version": "1.40.0",
   "description": "Presencia en tiempo real de trabajadores en la oficina virtual. Integración con Bitrix24.",
   "author": "VLA Team",
   "vlaMinVersion": "1.1.0",
@@ -258,6 +258,13 @@
             "label": "Remitente",
             "description": "Tiene que ser de un dominio verificado en SES.",
             "default": "VLA Oficina <oficina@grupovla.com>"
+          },
+          {
+            "key": "CORREO_RRHH",
+            "type": "string",
+            "label": "Correo de RRHH",
+            "description": "Recibe en copia cada respuesta a una solicitud (junto con quien la respondió).",
+            "default": "rrhh@grupovla.com"
           }
         ]
       }

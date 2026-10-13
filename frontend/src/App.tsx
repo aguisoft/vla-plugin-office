@@ -13,7 +13,7 @@ import { MobileBottomBar } from './components/MobileBottomBar';
 import { ZoneListView } from './components/ZoneListView';
 import { JustificationModal } from './components/JustificationModal';
 import { TimeRangeModal } from './components/TimeRangeModal';
-import { DateRangeModal } from './components/DateRangeModal';
+import { SolicitudDiasModal } from './components/SolicitudDiasModal';
 import { PermisoModal } from './components/PermisoModal';
 import { ParticipantPicker } from './components/ParticipantPicker';
 import { MeetingInviteModal } from './components/MeetingInviteModal';
@@ -327,7 +327,7 @@ export default function App() {
   // absence-validation.ts, lado servidor): PERMISO manda `startAt`/`endAt`
   // como instantes reales (ISO datetime); VACACIONES/INCAPACIDAD mandan
   // fecha PURA "YYYY-MM-DD" -- sin hora, sin `new Date()`/`toISOString()`
-  // de por medio (ver DateRangeModal.tsx). Por eso acá abajo la fecha de un
+  // de por medio (ver SolicitudDiasModal.tsx). Por eso acá abajo la fecha de un
   // permiso se lee con fmtDate (instante) y la de los otros dos con
   // fmtDateOnly (fecha pura) -- son formatos de entrada distintos, no
   // intercambiables.
@@ -430,7 +430,7 @@ export default function App() {
         );
       case 'dateRange':
         return (
-          <DateRangeModal
+          <SolicitudDiasModal
             status={pending.status}
             onClose={() => setPending(null)}
             onConfirm={(startAt, endAt, justification, adjuntos) =>

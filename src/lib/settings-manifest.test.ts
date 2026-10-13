@@ -38,6 +38,8 @@ describe('el manifiesto declara lo que el código lee', () => {
     'TIMEZONE', 'DEFAULT_COUNTRY', 'WORKDAY_HOURS', 'MAX_OPEN_SESSION_HOURS', 'bitrixWebhookSecret',
     // lib/correo-aviso.ts → configCorreo
     'CORREO_HOST', 'CORREO_PUERTO', 'CORREO_SSL', 'CORREO_USUARIO', 'CORREO_CLAVE', 'CORREO_REMITENTE',
+    // index.ts → correoRrhh (respaldo en duro: rrhh@grupovla.com)
+    'CORREO_RRHH',
   ];
 
   it.each(LEIDOS_POR_EL_CODIGO)('declara %s', clave => {
@@ -136,5 +138,6 @@ describe('manifiesto: correo de los avisos', () => {
     const { REMITENTE_POR_DEFECTO } = await import('./correo-aviso');
     expect(campo('CORREO_REMITENTE')?.default).toBe(REMITENTE_POR_DEFECTO);
     expect(campo('CORREO_PUERTO')?.default).toBe(465);
+    expect(campo('CORREO_RRHH')?.default).toBe('rrhh@grupovla.com');
   });
 });
