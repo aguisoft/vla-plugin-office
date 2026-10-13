@@ -1,12 +1,14 @@
 import { useEffect, useState } from 'react';
-import { getOrgRoster, listSolicitudesDe, cancelarSolicitud, createAbsence, ApiError } from '../api';
+import { getOrgRoster, listSolicitudesDe, cancelarSolicitud, createAbsence, getSaldoVacaciones, cargarSaldoVacaciones, ApiError } from '../api';
+import { textoDias } from '../vacacionesUx';
+import { fmtDateOnly } from '../format';
 import { anulable, vigenteEnHistorial } from '../solicitudesUx';
 import { cfgOf } from '../statusConfig';
 import { TarjetaSolicitud } from './TarjetaSolicitud';
 import { SolicitudDiasModal } from './SolicitudDiasModal';
 import { PermisoModal } from './PermisoModal';
 import type { DocAdjunto } from './AdjuntarDocs';
-import type { RosterUser, SolicitudAusencia } from '../types';
+import type { RosterUser, SolicitudAusencia, SaldoVacaciones } from '../types';
 
 /**
  * Administrar → Ausencias: RRHH anula o registra las ausencias de cualquier
@@ -43,6 +45,9 @@ export function AusenciasAdmin({ onClose, onChanged }: {
   const [ocupado, setOcupado] = useState(false);
   const [registrar, setRegistrar] = useState<Tipo | null>(null);
   const [verAnteriores, setVerAnteriores] = useState(false);
+  const [saldoV, setSaldoV] = useState<SaldoVacaciones | null>(null);
+  const [diasCarga, setDiasCarga] = useState('');
+  const [motivoCarga, setMotivoCarga] = useState('');
 
   useEffect(() => {
     getOrgRoster()
@@ -54,8 +59,9 @@ export function AusenciasAdmin({ onClose, onChanged }: {
   const nombre = persona ? `${persona.firstName} ${persona.lastName}` : '';
 
   const cargar = async (id: string) => {
-    if (!id) { setRows(null); return; }
+    if (!id) { setRows(null); setSaldoV(null); return; }
     setRows(null);
+    getSaldoVacaciones(id).then(setSaldoV).catch(() => setSaldoV(null));
     try {
       setRows(await listSolicitudesDe(id));
     } catch (e) {
@@ -65,7 +71,7 @@ export function AusenciasAdmin({ onClose, onChanged }: {
   };
 
   useEffect(() => {
-    setAnulando(null); setMotivo(''); setHecho(null); setError(null); setVerAnteriores(false);
+    setAnulando(null); setMotivo(''); setHecho(null); setError(null); setVerAnteriores(false); setDiasCarga(''); setMotivoCarga('');
     void cargar(userId);
   }, [userId]);
 
@@ -98,6 +104,24 @@ export function AusenciasAdmin({ onClose, onChanged }: {
       onChanged();
     } catch (e) {
       setError(mensaje(e, 'No se pudo registrar'));
+    } finally {
+      setOcupado(false);
+    }
+  };
+
+  const guardarSaldo = async () => {
+    const dias = Number(diasCarga.replace(',', '.'));
+    if (!Number.isFinite(dias)) return;
+    setOcupado(true);
+    setError(null);
+    setHecho(null);
+    try {
+      setSaldoV(await cargarSaldoVacaciones(userId, dias, motivoCarga.trim()));
+      setDiasCarga('');
+      setMotivoCarga('');
+      setHecho(`Saldo guardado: desde hoy ${nombre} tiene ${textoDias(dias)}, y devenga 1,25 por mes.`);
+    } catch (e) {
+      setError(mensaje(e, 'No se pudo guardar el saldo'));
     } finally {
       setOcupado(false);
     }
@@ -148,7 +172,42 @@ export function AusenciasAdmin({ onClose, onChanged }: {
 
             {persona && (
               <>
-                <div className="mt-4 rounded-2xl border border-gray-100 p-3" data-testid="registrar-ausencia">
+                <div className="mt-4 rounded-2xl border border-gray-100 p-3" data-testid="saldo-admin">
+                  <p className="text-[11px] font-semibold text-gray-700">Saldo de vacaciones</p>
+                  {saldoV === null ? <p className="mt-1 text-[11px] text-gray-400">Cargando…</p>
+                    : saldoV.cargado ? (
+                      <>
+                        <p className="mt-1 text-xs text-gray-700">
+                          Disponible: <strong>{textoDias(saldoV.disponible)}</strong>
+                          {saldoV.apartados > 0 && <span className="text-gray-400"> · {textoDias(saldoV.apartados)} apartados por pedidos sin responder</span>}
+                        </p>
+                        <p className="mt-0.5 text-[10px] leading-relaxed text-gray-400">
+                          {saldoV.cargadoPor ?? 'RRHH'} cargó {textoDias(saldoV.inicial)} el {fmtDateOnly(saldoV.corte)}{saldoV.motivo ? ` («${saldoV.motivo}»)` : ''}.
+                          {[
+                            saldoV.devengado > saldoV.inicial && `devengó ${textoDias(saldoV.devengado - saldoV.inicial)}`,
+                            saldoV.tomados > 0 && `se le descuentan ${textoDias(saldoV.tomados)} de vacaciones aprobadas`,
+                          ].filter(Boolean).join(' y ').replace(/^./, m => ` Desde entonces ${m}`)}{saldoV.devengado > saldoV.inicial || saldoV.tomados > 0 ? '.' : ''}
+                        </p>
+                      </>
+                    ) : <p className="mt-1 text-[11px] text-amber-700">Todavía no tiene saldo cargado: puede pedir vacaciones sin tope.</p>}
+                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                    <input value={diasCarga} onChange={e => setDiasCarga(e.target.value)} inputMode="decimal" aria-label="Días que tiene hoy"
+                      placeholder="Días que tiene hoy" className="w-36 rounded-xl border border-gray-200 px-2.5 py-1.5 text-xs focus:border-gray-400 focus:outline-none" />
+                    <input value={motivoCarga} onChange={e => setMotivoCarga(e.target.value)} aria-label="De dónde sale el número"
+                      placeholder="De dónde sale (opcional)" className="min-w-0 flex-1 rounded-xl border border-gray-200 px-2.5 py-1.5 text-xs focus:border-gray-400 focus:outline-none" />
+                    <button onClick={() => void guardarSaldo()} disabled={ocupado || !diasCarga.trim() || !Number.isFinite(Number(diasCarga.replace(',', '.')))}
+                      data-testid="guardar-saldo"
+                      className="rounded-xl bg-gray-900 px-3 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40">
+                      {saldoV?.cargado ? 'Corregir saldo' : 'Guardar saldo'}
+                    </button>
+                  </div>
+                  <p className="mt-1.5 text-[10px] leading-relaxed text-gray-400">
+                    Los días que tiene hoy, sin contar las vacaciones que ya tiene aprobadas en la oficina de hoy en adelante: esas se descuentan solas.
+                    Sin saldo suficiente no puede pedir vacaciones.
+                  </p>
+                </div>
+
+                <div className="mt-3 rounded-2xl border border-gray-100 p-3" data-testid="registrar-ausencia">
                   <p className="text-[11px] font-semibold text-gray-700">Registrar una ausencia de {persona.firstName}</p>
                   <div className="mt-2 flex flex-wrap gap-1.5">
                     {TIPOS.map(t => {

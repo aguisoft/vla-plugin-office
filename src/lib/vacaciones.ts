@@ -197,6 +197,62 @@ export function validarSolicitud(args: {
   return { ok: true, dias };
 }
 
+/** Lo que cargó RRHH: los días que la persona tenía ese día (el corte, `YYYY-MM-DD` local). */
+export interface CargaSaldo {
+  inicial: number;
+  corte: string;
+}
+
+export interface SaldoVacaciones {
+  inicial: number;
+  corte: string;
+  mesesDevengados: number;
+  /** Lo cargado más 1,25 por mes cumplido desde el corte. */
+  devengado: number;
+  /** Vacaciones aprobadas, de la parte que cae desde el corte. */
+  tomados: number;
+  /** Pedidas y sin responder: apartan saldo hasta que se resuelvan. */
+  apartados: number;
+  saldo: number;
+  /** Lo que se puede pedir hoy: el saldo menos lo apartado. */
+  disponible: number;
+}
+
+/**
+ * El saldo a partir de lo que cargó RRHH (13-oct-2026: «RRHH carga el saldo
+ * de cada persona»). RRHH carga los días que la persona tiene ESE día sin
+ * contar las vacaciones ya aprobadas en la oficina de ahí en adelante: esas, y
+ * las que se aprueben después, se descuentan acá. Solo la parte desde el corte,
+ * para no descontar dos veces lo que ya había tomado. Cuenta con SU sábado y SUS
+ * feriados, igual que el formulario.
+ */
+export function saldoDesdeCarga(args: {
+  carga: CargaSaldo;
+  ahora?: Date;
+  aprobadas?: VacacionAprobada[];
+  pendientes?: VacacionAprobada[];
+  feriados?: Iterable<string>;
+  tz?: string;
+  sabado?: number;
+}): SaldoVacaciones {
+  const { carga, ahora = new Date(), aprobadas = [], pendientes = [], feriados = [], tz = DEFAULT_TZ, sabado = 0 } = args;
+  const noLaborables = feriados instanceof Set ? feriados : new Set(feriados);
+  const [y, m, d] = carga.corte.split('-').map(Number);
+  const meses = mesesCumplidos(zonedTimeToUtc(y, m, d, 12, 0, 0, tz), ahora, tz);
+  const desdeCorte = (v: VacacionAprobada) =>
+    diasHabiles(v.desde > carga.corte ? v.desde : carga.corte, v.hasta, noLaborables, tz, sabado);
+  const devengado = c(carga.inicial + meses * DEVENGO_MENSUAL);
+  const tomados = c(aprobadas.reduce((s, v) => s + desdeCorte(v), 0));
+  const apartados = c(pendientes.reduce((s, v) => s + desdeCorte(v), 0));
+  const saldo = c(devengado - tomados);
+  return { inicial: carga.inicial, corte: carga.corte, mesesDevengados: meses, devengado, tomados, apartados, saldo, disponible: c(saldo - apartados) };
+}
+
+/** ¿Alcanza para pedir `dias` hábiles? Sin saldo cargado no se bloquea. */
+export function alcanzaSaldo(saldo: SaldoVacaciones | null, dias: number): boolean {
+  return !saldo || c(dias) <= saldo.disponible;
+}
+
 /** El delta que hay que guardar para que el saldo quede en `deseado`. */
 export function ajustePara(saldoActual: number, deseado: number): number {
   return c(deseado - saldoActual);

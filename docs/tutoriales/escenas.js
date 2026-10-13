@@ -150,9 +150,10 @@ const ESCENAS = {
     await anotar(page, [
       { n: 1, blanco: m.locator('div.rounded-xl.border').first() },
       { n: 2, blanco: page.getByTestId('ficha-solicitud') },
-      { n: 3, blanco: m.locator('textarea') },
-      { n: 4, blanco: page.getByTestId('quien-aprueba') },
-      { n: 5, blanco: page.getByTestId('enviar-solicitud') },
+      { n: 3, blanco: page.getByTestId('saldo-vacaciones') },
+      { n: 4, blanco: m.locator('textarea') },
+      { n: 5, blanco: page.getByTestId('quien-aprueba') },
+      { n: 6, blanco: page.getByTestId('enviar-solicitud') },
     ]);
     await foto(page, '11-vacaciones', await recorte(page, m, 30));
     await browser.close();
@@ -168,12 +169,33 @@ const ESCENAS = {
     await page.waitForTimeout(200);
     const tarjetas = lista.locator(':scope > div');
     await anotar(page, [
-      { n: 1, blanco: tarjetas.nth(0) },
-      { n: 2, blanco: tarjetas.nth(1) },
-      { n: 3, blanco: tarjetas.nth(2) },
-      { n: 4, blanco: page.getByTestId('mover-feriado') },
+      { n: 1, blanco: page.getByTestId('mi-saldo') },
+      { n: 2, blanco: page.getByTestId('mover-feriado') },
+      { n: 3, blanco: tarjetas.nth(0) },
+      { n: 4, blanco: tarjetas.nth(1) },
+      { n: 5, blanco: tarjetas.nth(2) },
     ]);
     await foto(page, '12-mis-ausencias', await recorte(page, modal(page)));
+    await browser.close();
+  },
+
+  async '39-vacaciones-sin-saldo'() {
+    // Ana tiene 2 días y pide 3: no la deja enviar.
+    const { browser, page } = await abrir({ saldoAna: 2 });
+    await elegirEstado(page, 'Vacaciones');
+    const m = page.getByTestId('solicitud-dias');
+    await m.getByLabel('Mes siguiente').click();
+    await page.getByTestId('dia-2026-12-21').click();
+    await page.getByTestId('dia-2026-12-23').click();
+    await page.waitForTimeout(500);
+    await anotar(page, [
+      { n: 1, blanco: page.getByTestId('saldo-vacaciones'), pad: 4 },
+      { n: 2, blanco: page.getByTestId('enviar-solicitud'), pad: 4 },
+    ]);
+    const caja = await m.boundingBox();
+    const ficha = await page.getByTestId('ficha-solicitud').boundingBox();
+    const boton = await page.getByTestId('enviar-solicitud').boundingBox();
+    await foto(page, '39-vacaciones-sin-saldo', { x: caja.x, y: ficha.y - 30, width: caja.width, height: boton.y + boton.height + 30 - (ficha.y - 30) });
     await browser.close();
   },
 

@@ -31,8 +31,8 @@ import { resumenMensual } from './lib/absence-usage';
 import { validarAdjuntos } from './lib/adjuntos';
 import { estadoDePlanta } from './lib/planta';
 import { SolicitudesService, type Solicitud } from './services/solicitudes.service';
-import { textoRango, NOMBRE_TIPO, fraseResolucion, fichaSolicitud, fechaLarga, fraseCargada, aQuienAvisar, textoRecordatorio, fraseCanceladaPorDueno } from './lib/solicitudes';
-import { resumenRango } from './lib/vacaciones';
+import { textoRango, NOMBRE_TIPO, fraseResolucion, fichaSolicitud, fechaLarga, fraseCargada, aQuienAvisar, textoRecordatorio, fraseCanceladaPorDueno, textoDiasHabiles } from './lib/solicitudes';
+import { resumenRango, saldoDesdeCarga, alcanzaSaldo, type SaldoVacaciones } from './lib/vacaciones';
 import { nombresPorUsuario } from './lib/user-names';
 import { AdjuntosService } from './services/adjuntos.service';
 import { AvisosService } from './services/avisos.service';
@@ -258,6 +258,35 @@ const plugin: PluginDefinition = {
         feriados: [...fechas].filter(f => f >= desde && f <= topeYmd).sort()
           .map(fecha => ({ fecha, nombre: nombres.get(fecha) ?? 'Feriado' })),
       };
+    }
+
+    /**
+     * El saldo de vacaciones desde la última carga de RRHH, o null si nunca se
+     * cargó (entonces no se bloquea nada). Las vacaciones aprobadas descuentan y
+     * las pendientes apartan, con los feriados y el sábado de esa persona.
+     */
+    async function saldoDe(userId: string): Promise<(SaldoVacaciones & { cargadoPor: string | null; cargadoEn: string; motivo: string | null }) | null> {
+      const [carga] = await ctx.query<{ inicial: string; corte: string; cargado_por: string; cargado_en: string; motivo: string | null }>(
+        `SELECT inicial::text AS inicial, to_char(corte, 'YYYY-MM-DD') AS corte, cargado_por, cargado_en::text AS cargado_en, motivo
+           FROM office_vacaciones_saldo WHERE user_id = $1 ORDER BY cargado_en DESC, id DESC LIMIT 1`, [userId]);
+      if (!carga) return null;
+      const filas = await ctx.query<{ start_at: string; end_at: string; estado: string }>(
+        `SELECT start_at::text AS start_at, end_at::text AS end_at, estado FROM office_solicitudes
+          WHERE user_id = $1 AND tipo = 'VACACIONES' AND estado IN ('aprobada', 'pendiente') AND end_at >= $2::timestamptz`,
+        [userId, `${carga.corte}T00:00:00Z`]);
+      const rangos = filas.map(f => ({
+        desde: localDateString(new Date(f.start_at), tz()), hasta: localDateString(new Date(f.end_at), tz()), estado: f.estado,
+      }));
+      const hastaMax = rangos.reduce((m, r) => (r.hasta > m ? r.hasta : m), carga.corte);
+      const [country, sabado] = await Promise.all([org.countryOf(userId), org.sabadoDe(userId)]);
+      const feriados = (await holidays.effectiveDatesByUser(
+        new Map([[userId, country]]), new Date(`${carga.corte}T12:00:00Z`), new Date(`${hastaMax}T12:00:00Z`),
+      )).get(userId) ?? new Set<string>();
+      const s = saldoDesdeCarga({
+        carga: { inicial: Number(carga.inicial), corte: carga.corte }, tz: tz(), sabado, feriados,
+        aprobadas: rangos.filter(r => r.estado === 'aprobada'), pendientes: rangos.filter(r => r.estado === 'pendiente'),
+      });
+      return { ...s, cargadoPor: await nombreDe(carga.cargado_por), cargadoEn: carga.cargado_en, motivo: carga.motivo };
     }
 
     /** La ficha del correo de una solicitud (los campos del formulario de papel de RRHH). */
@@ -647,6 +676,17 @@ const plugin: PluginDefinition = {
         if (malos.length) return res.status(400).json({ message: 'Documento inválido', errors: malos });
       }
 
+      // Sin saldo no se piden vacaciones (13-oct-2026). Solo si RRHH ya lo cargó.
+      if (req.body?.type === 'VACACIONES' && RANGO_YMD.test(String(req.body.startAt)) && RANGO_YMD.test(String(req.body.endAt))) {
+        const saldo = await saldoDe(targetUserId);
+        const dias = saldo ? (await resumenAusencia(targetUserId, req.body.startAt, req.body.endAt)).diasHabiles : 0;
+        if (saldo && !alcanzaSaldo(saldo, dias)) {
+          const quien = targetUserId === requesterId ? 'Te quedan' : `A ${await nombreDe(targetUserId)} le quedan`;
+          const message = `${quien} ${textoDiasHabiles(saldo.disponible)} de vacaciones y este pedido usa ${textoDiasHabiles(dias)}`;
+          return res.status(400).json({ message, errors: [{ field: 'saldo', message }], saldo: { disponible: saldo.disponible, dias } });
+        }
+      }
+
       const result = await solicitudes.crear(targetUserId, req.body, requesterId, { esRrhh: can(req, PERMS.MANAGE) }, tz());
       if ('errors' in result) return res.status(400).json({ message: 'Datos inválidos', errors: result.errors });
       if ('conflict' in result) {
@@ -835,6 +875,29 @@ const plugin: PluginDefinition = {
       const hasta = new Date(Date.UTC(anio, mes, 2));
       return resumenMensual(await absences.listForUserDetailed(userId, desde, hasta), anio, mes, zona);
     }
+
+    // ── Saldo de vacaciones: lo ve la persona, su jefe y RRHH; lo carga RRHH ──
+    ctx.router.get('/vacaciones/saldo', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      const yo = (req as any).user?.sub;
+      const userId = String(req.query.userId || yo);
+      if (userId !== yo && !can(req, PERMS.MANAGE) && !(await org.isManagerOf(yo, userId))) {
+        return res.status(403).json({ message: 'Solo la persona, su jefe o RRHH ven su saldo' });
+      }
+      const saldo = await saldoDe(userId);
+      res.json(saldo ? { cargado: true, ...saldo } : { cargado: false });
+    }));
+
+    ctx.router.put('/vacaciones/saldo/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {
+      const dias = Number(req.body?.dias);
+      if (!Number.isFinite(dias) || dias < -60 || dias > 120 || Math.round(dias * 100) !== dias * 100) {
+        return res.status(400).json({ message: 'El saldo tiene que ser un número de días entre -60 y 120 (hasta dos decimales)' });
+      }
+      const motivo = String(req.body?.motivo ?? '').trim().slice(0, 300) || null;
+      await ctx.query(
+        `INSERT INTO office_vacaciones_saldo (user_id, inicial, corte, motivo, cargado_por) VALUES ($1, $2::numeric, $3::date, $4, $5)`,
+        [req.params.userId, String(dias), localDateString(new Date(), tz()), motivo, (req as any).user?.sub]);
+      res.json({ cargado: true, ...(await saldoDe(req.params.userId)) });
+    }));
 
     /** Las de una persona, para que RRHH las anule (Administrar → Ausencias). */
     ctx.router.get('/solicitudes/de/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {

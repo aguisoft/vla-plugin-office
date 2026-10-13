@@ -1,7 +1,7 @@
 import type {
   Absence, Department, Holiday, MapZone, PendingInvite, RosterUser, UnavailableParticipant,
   TimesheetOfficeResponse, TimesheetScope, TimesheetTeamResponse, Cumplimiento,
-  SolicitudFeriado, EstadoSolicitud, SolicitudAusencia, BandejaSolicitudes, Aviso,
+  SolicitudFeriado, EstadoSolicitud, SolicitudAusencia, BandejaSolicitudes, Aviso, SaldoVacaciones,
 } from './types';
 // La forma de una persona del organigrama la define el módulo que arma el
 // árbol, no `types.ts`: es él quien la consume y quien la tiene probada.
@@ -113,6 +113,12 @@ export const createAbsence = (body: {
 /** URL de descarga de un documento. El servidor decide si quien pide puede verlo. */
 // ── Solicitudes de ausencia (con aprobación del jefe) ─────────────────────
 export const listMisSolicitudes = () => api.get<SolicitudAusencia[]>(`${PLUGIN}/solicitudes/mias`);
+/** Saldo de vacaciones: el propio, o (jefe/RRHH) el de otra persona. */
+export const getSaldoVacaciones = (userId?: string) =>
+  api.get<SaldoVacaciones>(`${PLUGIN}/vacaciones/saldo${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`);
+/** RRHH carga los días que la persona tiene hoy (sin contar lo ya aprobado en la oficina desde hoy). */
+export const cargarSaldoVacaciones = (userId: string, dias: number, motivo: string) =>
+  api.put<SaldoVacaciones>(`${PLUGIN}/vacaciones/saldo/${encodeURIComponent(userId)}`, { dias, motivo });
 /** Las de otra persona (solo RRHH: Administrar → Ausencias). */
 export const listSolicitudesDe = (userId: string) => api.get<SolicitudAusencia[]>(`${PLUGIN}/solicitudes/de/${encodeURIComponent(userId)}`);
 export const getBandejaSolicitudes = () => api.get<BandejaSolicitudes>(`${PLUGIN}/solicitudes/bandeja`);

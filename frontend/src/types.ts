@@ -364,6 +364,25 @@ export interface Cumplimiento {
 }
 
 /** Respuesta de GET /absences/usage: minutos, sin motivos. */
+/** GET /vacaciones/saldo. Sin carga de RRHH, `cargado: false` y no se bloquea nada. */
+export type SaldoVacaciones =
+  | { cargado: false }
+  | {
+      cargado: true;
+      inicial: number;
+      /** Día de la carga (`YYYY-MM-DD`): desde ahí devenga 1,25 por mes. */
+      corte: string;
+      mesesDevengados: number;
+      devengado: number;
+      tomados: number;
+      apartados: number;
+      saldo: number;
+      disponible: number;
+      cargadoPor: string | null;
+      cargadoEn: string;
+      motivo: string | null;
+    };
+
 export interface UsoAusencias {
   anio: number;
   mes: number;

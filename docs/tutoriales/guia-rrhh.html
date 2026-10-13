@@ -132,7 +132,7 @@ footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); borde
       <h1>Oficina Virtual para RRHH</h1>
       <p>Como RRHH usás la oficina igual que todos, y respondés solicitudes igual que un jefe. Esta guía explica lo que se suma por administrar la oficina. Lo básico está en la <a href="https://claude.ai/artifact/Uy5fqgTt7gMCCDBpdiG5PT">guía para colaboradores</a>, y cómo responder solicitudes, en la <a href="https://claude.ai/artifact/9WvA2uksnW3sKKbppxqdCJ">guía para jefes</a>.</p>
       <div class="dia" aria-label="Lo que suma RRHH">
-        <div><b>Ordenar</b><span>Decidís quién es jefe de quién, el país, los sábados y la zona del mapa de cada persona, y anulás o registrás ausencias.</span></div>
+        <div><b>Ordenar</b><span>Decidís quién es jefe de quién, el país, los sábados y la zona del mapa de cada persona, cargás su saldo de vacaciones y anulás o registrás ausencias.</span></div>
         <div><b>Calendario</b><span>Cargás los feriados de cada país.</span></div>
         <div><b>Revisar</b><span>Ves quién no marca o dejó la sesión abierta en toda la empresa.</span></div>
       </div>
@@ -212,7 +212,7 @@ footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); borde
     <section class="capitulo" id="ausencias" data-titulo="Anular o registrar una ausencia">
       <header><span class="etiqueta">Corregir</span><h2>Anular o registrar una ausencia</h2></header>
       <p>En <span class="boton-ui">Administrar</span> → <b>Ausencias</b> elegís a una persona y ves todas sus solicitudes. Desde ahí podés anular una (por ejemplo, unas vacaciones que su jefe aprobó por error) o registrar una ausencia por ella (por ejemplo, una incapacidad que te trajo en papel).</p>
-      <figure class="media"><img src="capturas/37-rrhh-ausencias.png" alt="La pantalla Ausencias con Bruno Méndez elegido, los botones para registrar una ausencia y sus solicitudes, con las vacaciones a punto de anularse y el motivo escrito" width="576" height="846" loading="lazy"></figure>
+      <figure class="media"><img src="capturas/37-rrhh-ausencias.png" alt="La pantalla Ausencias con Bruno Méndez elegido, los botones para registrar una ausencia y sus solicitudes, con las vacaciones a punto de anularse y el motivo escrito" width="576" height="920" loading="lazy"></figure>
       <ol class="leyenda">
         <li><span class="num">1</span><span><b>La persona.</b></span></li>
         <li><span class="num">2</span><span><b>Registrar una ausencia:</b> incapacidad, vacaciones, permiso o cita médica. Queda aprobada al registrarla, sin pasar por su jefe.</span></li>
@@ -228,6 +228,22 @@ footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); borde
         <li><span class="num">3</span><span>Queda aprobada. A la persona le llega un aviso y un correo, con copia a RRHH.</span></li>
       </ol>
       <div class="caja truco"><b class="titulo">Fechas pasadas</b><p>Las vacaciones y las incapacidades se pueden registrar hasta 60 días hacia atrás, por ejemplo una incapacidad que llegó tarde.</p></div>
+    </section>
+
+    <section class="capitulo" id="saldo" data-titulo="Saldo de vacaciones">
+      <header><span class="etiqueta">Ordenar</span><h2>Saldo de vacaciones</h2></header>
+      <p>Cada persona tiene su saldo de vacaciones. Lo cargás vos, una vez, y después la oficina lo lleva sola: suma <b>1,25 días por mes</b>, descuenta las vacaciones aprobadas y aparta las que están pedidas sin responder. <b>Sin saldo suficiente, la persona no puede pedir vacaciones</b>: la ventana se lo dice y no la deja enviar.</p>
+      <p>Se carga en <span class="boton-ui">Administrar</span> → <b>Ausencias</b>: elegís a la persona y arriba está el cuadro <b>Saldo de vacaciones</b>.</p>
+      <figure class="media"><img src="capturas/40-rrhh-saldo.png" alt="El cuadro Saldo de vacaciones de Bruno Méndez, todavía sin saldo cargado, con 10,5 días escritos, de dónde sale el número y el botón Guardar saldo" width="588" height="251" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Cómo está:</b> sin saldo cargado, o cuántos días tiene disponibles y quién los cargó.</span></li>
+        <li><span class="num">2</span><span><b>Los días que tiene hoy.</b> Admite medio día y decimales: 10,5 o 12,25.</span></li>
+        <li><span class="num">3</span><span><b>De dónde sale el número</b>, por ejemplo «Planilla de RRHH al 25-nov». Es opcional y queda en el historial.</span></li>
+        <li><span class="num">4</span><span><b>Guardar saldo.</b> Después pasa a decir <b>Corregir saldo</b>.</span></li>
+      </ol>
+      <div class="caja nota"><b class="titulo">Qué número cargar</b><p>Los días que tiene hoy, <b>sin contar las vacaciones que ya tiene aprobadas en la oficina de hoy en adelante</b>: esas se descuentan solas. Por ejemplo, si tiene 10 días y ya le aprobaron 3 para diciembre, cargá 10: le quedan 7 disponibles.</p></div>
+      <div class="caja truco"><b class="titulo">Para corregirlo</b><p>Cargá el número de nuevo con <b>Corregir saldo</b>. Manda la última carga, y desde ese día vuelve a sumar 1,25 por mes. Las cargas anteriores quedan guardadas, con quién y cuándo.</p></div>
+      <p>Mientras una persona no tenga saldo cargado, puede pedir vacaciones sin tope, y la ventana le avisa que falta cargarlo. Conviene cargárselo a todos.</p>
     </section>
 
     <section class="capitulo" id="mapa" data-titulo="Lo que ves en el mapa">
@@ -260,6 +276,7 @@ footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); borde
       <header><span class="etiqueta">Dudas</span><h2>Preguntas frecuentes</h2></header>
       <details><summary>Un jefe aprobó algo por error, o hay que anular una ausencia.</summary><p>En Administrar → Ausencias, elegí a la persona y tocá <b>Anular</b> en esa solicitud. Te pide el motivo, que le llega a la persona.</p></details>
       <details><summary>¿Cómo anoto la incapacidad de otra persona?</summary><p>En Administrar → Ausencias, elegí a la persona y tocá <b>Incapacidad</b>. Queda aprobada y a la persona le llega un aviso.</p></details>
+      <details><summary>¿Dónde configuro el saldo de vacaciones?</summary><p>En Administrar → Ausencias, eligiendo a la persona: el cuadro <b>Saldo de vacaciones</b> está arriba. Está explicado en el capítulo «Saldo de vacaciones».</p></details>
       <details><summary>¿Quién recibe los avisos de RRHH?</summary><p>Quienes tienen el rol «RRHH Oficina», más el correo rrhh@grupovla.com. El nombre del rol y el correo se cambian en la configuración del módulo Oficina.</p></details>
       <details><summary>Alguien no aparece en el mapa.</summary><p>En Personas tiene «Sin zona». Elegí su zona en la columna Zona del mapa.</p></details>
       <details><summary>A un jefe le llegan solicitudes de alguien que no es de su equipo, o le falta alguien en Tiempos.</summary><p>El jefe directo de esa persona está mal. Corregilo en Personas.</p></details>

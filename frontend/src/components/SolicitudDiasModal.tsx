@@ -2,11 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { AdjuntarDocs, type DocAdjunto } from './AdjuntarDocs';
 import { MIN_JUSTIFICATION, cfgOf } from '../statusConfig';
 import { missingLabel } from './modalParts';
-import { getResumenAusencia, type ResumenAusencia } from '../api';
+import { getResumenAusencia, getSaldoVacaciones, type ResumenAusencia } from '../api';
+import type { SaldoVacaciones } from '../types';
 import { hoyLocal } from '../format';
 import { semanasDelMes } from '../feriadosUx';
 import {
-  elegirDia, rangoDe, moverMes, limitesMes, nombreMes, fechaEnPalabras, diaSemana, textoDias, type Seleccion,
+  elegirDia, rangoDe, moverMes, limitesMes, nombreMes, fechaEnPalabras, diaSemana, textoDias, lecturaSaldo, type Seleccion,
 } from '../vacacionesUx';
 
 /**
@@ -44,6 +45,14 @@ export function SolicitudDiasModal({ status, para, onClose, onConfirm }: {
   const [resumen, setResumen] = useState<ResumenAusencia | null>(null);
   const [cargando, setCargando] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Saldo de vacaciones: sin saldo no se piden (si RRHH ya lo cargó).
+  const [saldoV, setSaldoV] = useState<SaldoVacaciones | null>(null);
+  useEffect(() => {
+    if (!esVacaciones) return;
+    let vivo = true;
+    getSaldoVacaciones(para?.userId).then(s => { if (vivo) setSaldoV(s); }).catch(() => undefined);
+    return () => { vivo = false; };
+  }, [esVacaciones, para?.userId]);
 
   // Vacaciones: de hoy en adelante. Incapacidad: se carga a veces después, hasta 60 días atrás.
   const minimo = useMemo(() => {
@@ -79,7 +88,9 @@ export function SolicitudDiasModal({ status, para, onClose, onConfirm }: {
   const aprobador = (resumen ?? delMes)?.aprobador;
   const faltan = esVacaciones ? 0 : Math.max(0, MIN_JUSTIFICATION - texto.trim().length);
   const sinHabiles = !!resumen && resumen.diasHabiles === 0;
-  const invalido = !rango || cargando || sinHabiles || faltan > 0;
+  const lectura = esVacaciones && saldoV ? lecturaSaldo(saldoV, resumen && rango ? resumen.diasHabiles : null, !para) : null;
+  const sinSaldo = !!lectura && !lectura.alcanza;
+  const invalido = !rango || cargando || sinHabiles || faltan > 0 || sinSaldo;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4" onClick={onClose}>
@@ -168,6 +179,12 @@ export function SolicitudDiasModal({ status, para, onClose, onConfirm }: {
             ))}
           </dl>
         )}
+        {lectura && (
+          <p data-testid="saldo-vacaciones"
+            className={`mt-2 rounded-xl px-3 py-2 text-[11px] ${sinSaldo ? 'bg-red-50 font-medium text-red-700' : 'bg-gray-50 text-gray-600'}`}>
+            {lectura.texto}
+          </p>
+        )}
         {sinHabiles && <p className="mt-2 text-[11px] text-red-600">Ese rango no tiene días hábiles: son fines de semana o feriados.</p>}
         {error && <p className="mt-2 text-[11px] text-red-600">{error}</p>}
 
@@ -197,7 +214,7 @@ export function SolicitudDiasModal({ status, para, onClose, onConfirm }: {
           <button disabled={invalido} data-testid="enviar-solicitud"
             onClick={() => rango && onConfirm(rango.desde, rango.hasta, texto.trim() || undefined, esVacaciones ? undefined : docs)}
             className="rounded-xl bg-gray-900 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-gray-700 disabled:opacity-40">
-            {faltan > 0 ? missingLabel(faltan) : para ? 'Registrar' : esVacaciones ? 'Enviar solicitud' : 'Cargar incapacidad'}
+            {sinSaldo ? 'Sin saldo suficiente' : faltan > 0 ? missingLabel(faltan) : para ? 'Registrar' : esVacaciones ? 'Enviar solicitud' : 'Cargar incapacidad'}
           </button>
         </div>
       </div>

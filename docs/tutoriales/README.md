@@ -74,4 +74,10 @@ toda la empresa y Ausencias con las solicitudes de Bruno (`rutasRrhh`,
   pide alguien sin jefe avisa a quien tenga el rol ROL_RRHH («RRHH Oficina») y
   al buzón CORREO_RRHH; RRHH anula o registra por otra persona en
   Administrar → Ausencias (`AusenciasAdmin`).
+  Desde 1.48.0: saldo de vacaciones. RRHH lo carga en Ausencias (tabla
+  `office_vacaciones_saldo`, manda la última carga); devenga 1,25/mes, descuenta lo
+  aprobado y aparta lo pendiente desde el corte; sin saldo suficiente no se piden
+  vacaciones (`alcanzaSaldo`, servidor y pantalla); sin saldo cargado no se
+  bloquea. En el estudio: `saldoAna` en el escenario (11, 2 o 'ninguno') y la
+  carga de Bruno en `rutasRrhh`.
   Si cambian ahí, hay que cambiar el texto.

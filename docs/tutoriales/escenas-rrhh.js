@@ -197,6 +197,27 @@ const ESCENAS = {
     await browser.close();
   },
 
+  async '40-rrhh-saldo'() {
+    const { browser, page } = await abrir({ ...RRHH, alto: 1000 });
+    await page.getByTestId('menu-administrar').click();
+    await page.getByTestId('admin-ausencias').click();
+    const m = page.getByTestId('ausencias-admin');
+    await m.getByLabel('Persona').selectOption('bruno');
+    await m.getByTestId('solicitud-sb1').waitFor();
+    const box = m.getByTestId('saldo-admin');
+    await box.getByLabel('Días que tiene hoy').fill('10,5');
+    await box.getByLabel('De dónde sale el número').fill('Planilla de RRHH al 25-nov');
+    await page.waitForTimeout(300);
+    await anotar(page, [
+      { n: 1, blanco: [box.getByText('Saldo de vacaciones', { exact: true }), box.getByText(/Todavía no tiene saldo cargado/)], pad: 6 },
+      { n: 2, blanco: box.getByLabel('Días que tiene hoy'), pad: 4 },
+      { n: 3, blanco: box.getByLabel('De dónde sale el número'), pad: 4 },
+      { n: 4, blanco: box.getByTestId('guardar-saldo'), pad: 4 },
+    ]);
+    await foto(page, '40-rrhh-saldo', await union(page, [m.getByLabel('Persona'), box], 30));
+    await browser.close();
+  },
+
   async '38-rrhh-registrar'() {
     const { browser, page } = await abrir({ ...RRHH, alto: 1000 });
     await page.getByTestId('menu-administrar').click();

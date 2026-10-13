@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react';
-import { listMisSolicitudes, cancelarSolicitud, ApiError } from '../api';
+import { listMisSolicitudes, cancelarSolicitud, getSaldoVacaciones, ApiError } from '../api';
+import { lecturaSaldo } from '../vacacionesUx';
 import { Shell } from './modalParts';
 import { TarjetaSolicitud } from './TarjetaSolicitud';
 import { cancelable, vigenteEnHistorial } from '../solicitudesUx';
-import type { SolicitudAusencia } from '../types';
+import type { SolicitudAusencia, SaldoVacaciones } from '../types';
 
 /**
  * Las ausencias propias como SOLICITUDES: cada una con su estado (aplicada y
@@ -27,6 +28,7 @@ export function MyAbsencesModal({ onClose, onChanged, onMoverFeriado }: {
   const [confirmando, setConfirmando] = useState<string | null>(null);
   const [cancelando, setCancelando] = useState<string | null>(null);
   const [verAnteriores, setVerAnteriores] = useState(false);
+  const [saldoV, setSaldoV] = useState<SaldoVacaciones | null>(null);
 
   const cargar = async () => {
     setError(null);
@@ -39,7 +41,10 @@ export function MyAbsencesModal({ onClose, onChanged, onMoverFeriado }: {
     }
   };
 
-  useEffect(() => { void cargar(); }, []);
+  useEffect(() => {
+    void cargar();
+    getSaldoVacaciones().then(setSaldoV).catch(() => undefined);
+  }, []);
 
   const cancelar = async (id: string) => {
     setCancelando(id);
@@ -69,6 +74,12 @@ export function MyAbsencesModal({ onClose, onChanged, onMoverFeriado }: {
   return (
     <Shell title="Mis ausencias y solicitudes" onClose={onClose}>
       {error && <div className="mb-2 rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">{error}</div>}
+
+      {saldoV && (
+        <p className="mb-3 rounded-xl bg-sky-50 px-3 py-2 text-[11px] text-sky-900" data-testid="mi-saldo">
+          🏖️ <span className="font-semibold">Vacaciones:</span> {lecturaSaldo(saldoV, null).texto}
+        </p>
+      )}
 
       {onMoverFeriado && (
         <button onClick={onMoverFeriado} data-testid="mover-feriado"

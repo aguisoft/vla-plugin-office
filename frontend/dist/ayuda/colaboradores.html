@@ -293,15 +293,24 @@ footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); borde
     <section class="capitulo" id="vacaciones" data-titulo="Pedir vacaciones">
       <header><span class="etiqueta">Ausencias</span><h2>Pedir vacaciones</h2></header>
       <p>Abrí tu estado y elegí <b>Vacaciones</b>. En el calendario tocá el <b>primer día</b> y después el <b>último</b>. Si es un solo día, tocalo una vez.</p>
-      <figure><img src="capturas/11-vacaciones.png" alt="La ventana Solicitar vacaciones: calendario de diciembre con del 21 al 23 elegidos, la ficha con 3 días hábiles y reintegro el jueves 24, comentarios, quién aprueba y Enviar solicitud" width="508" height="736" loading="lazy" style="max-width:min(100%,520px)"></figure>
+      <figure><img src="capturas/11-vacaciones.png" alt="La ventana Solicitar vacaciones: calendario de diciembre con del 21 al 23 elegidos, la ficha con 3 días hábiles y reintegro el jueves 24, lo que queda de saldo, comentarios, quién aprueba y Enviar solicitud" width="508" height="777" loading="lazy" style="max-width:min(100%,520px)"></figure>
       <ol class="leyenda">
         <li><span class="num">1</span><span><b>El calendario.</b> Con las flechas cambiás de mes. Los feriados están en amarillo y los días que no se cuentan, en gris. Si trabajás el sábado medio día, el sábado lleva un <b>½</b>.</span></li>
         <li><span class="num">2</span><span><b>El resumen.</b> Desde, hasta, cuántos días hábiles te descuenta y qué día volvés a trabajar.</span></li>
-        <li><span class="num">3</span><span><b>Comentarios</b>, si querés agregar algo. No es obligatorio.</span></li>
-        <li><span class="num">4</span><span><b>Quién las aprueba.</b> Tu jefe directo, o RRHH si no tenés jefe asignado.</span></li>
-        <li><span class="num">5</span><span><b>Enviar solicitud.</b></span></li>
+        <li><span class="num">3</span><span><b>Tu saldo:</b> cuántos días te quedan después de este pedido.</span></li>
+        <li><span class="num">4</span><span><b>Comentarios</b>, si querés agregar algo. No es obligatorio.</span></li>
+        <li><span class="num">5</span><span><b>Quién las aprueba.</b> Tu jefe directo, o RRHH si no tenés jefe asignado.</span></li>
+        <li><span class="num">6</span><span><b>Enviar solicitud.</b></span></li>
       </ol>
       <div class="caja nota"><b class="titulo">Las vacaciones no valen hasta que se aprueban</b><p>Mientras tu jefe no responda, en tus ausencias dicen <i>Esperando a tu jefe</i>. La respuesta te llega a la campana y a tu correo, con copia a RRHH.</p></div>
+      <h3>Si no te alcanza el saldo</h3>
+      <p>No podés pedir más días de los que tenés. Si elegís de más, la ventana te lo dice y no te deja enviar.</p>
+      <figure class="media"><img src="capturas/39-vacaciones-sin-saldo.png" alt="El aviso No alcanza: tenés 2 días hábiles disponibles y este pedido usa 3, y el botón Sin saldo suficiente apagado" width="448" height="419" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span>Cuántos días tenés y cuántos usa el pedido.</span></li>
+        <li><span class="num">2</span><span>El botón queda apagado. Elegí menos días, o hablá con RRHH si creés que tu saldo está mal.</span></li>
+      </ol>
+      <div class="caja truco"><b class="titulo">Cómo crece tu saldo</b><p>Lo carga RRHH y después suma 1,25 días por mes. Las vacaciones aprobadas lo descuentan, y las que pediste y todavía no te respondieron quedan apartadas. Si RRHH todavía no cargó tu saldo, la ventana lo dice y te deja pedir igual.</p></div>
       <h3>Incapacidad</h3>
       <p>Se carga igual que las vacaciones, con el mismo calendario, eligiendo <b>Incapacidad</b>. La diferencia es que tenés que escribir el motivo y adjuntar la boleta. Vale desde que la cargás, y la podés cargar hasta 60 días después.</p>
     </section>
@@ -309,12 +318,13 @@ footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); borde
     <section class="capitulo" id="mis-ausencias" data-titulo="Ver y cancelar lo que pediste">
       <header><span class="etiqueta">Ausencias</span><h2>Ver y cancelar lo que pediste</h2></header>
       <p>Abrí tu menú (tu nombre, arriba a la derecha) y elegí <b>Mis ausencias y solicitudes</b>. Ahí está todo lo que pediste, con su estado.</p>
-      <figure class="media"><img src="capturas/12-mis-ausencias.png" alt="Mis ausencias y solicitudes: una cita médica aplicada a falta de aprobación, unas vacaciones aprobadas, un permiso no aprobado con su motivo y el botón Mover un feriado" width="464" height="654" loading="lazy"></figure>
+      <figure class="media"><img src="capturas/12-mis-ausencias.png" alt="Mis ausencias y solicitudes: tus días de vacaciones disponibles, el botón Mover un feriado, una cita médica aplicada a falta de aprobación, unas vacaciones aprobadas, un permiso no aprobado con su motivo y el botón Mover un feriado" width="464" height="698" loading="lazy"></figure>
       <ol class="leyenda">
-        <li><span class="num">1</span><span><b>Aplicada, falta aprobación:</b> ya vale, pero tu jefe todavía no respondió.</span></li>
-        <li><span class="num">2</span><span><b>Aprobada:</b> dice quién la aprobó.</span></li>
-        <li><span class="num">3</span><span><b>No aprobada:</b> dice quién y por qué.</span></li>
-        <li><span class="num">4</span><span><b>Mover un feriado:</b> se explica en el capítulo siguiente.</span></li>
+        <li><span class="num">1</span><span><b>Tus vacaciones:</b> cuántos días hábiles tenés disponibles.</span></li>
+        <li><span class="num">2</span><span><b>Mover un feriado:</b> se explica en el capítulo siguiente.</span></li>
+        <li><span class="num">3</span><span><b>Aplicada, falta aprobación:</b> ya vale, pero tu jefe todavía no respondió.</span></li>
+        <li><span class="num">4</span><span><b>Aprobada:</b> dice quién la aprobó.</span></li>
+        <li><span class="num">5</span><span><b>No aprobada:</b> dice quién y por qué.</span></li>
       </ol>
       <p>Para cancelar, tocá <b>Cancelar</b> en la solicitud y confirmá. Solo se puede antes de que empiece. Lo cancelado queda en tu historial.</p>
     </section>
@@ -405,6 +415,7 @@ footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); borde
       <details><summary>Pedí vacaciones y dicen «Esperando a tu jefe».</summary><p>Tu jefe todavía no las respondió. Cuando lo haga, te llega un aviso a la campana y un correo.</p></details>
       <details><summary>Me equivoqué al pedir un permiso.</summary><p>Si todavía no empezó, cancelalo desde <b>Mis ausencias y solicitudes</b> y pedilo de nuevo.</p></details>
       <details><summary>No encuentro a un compañero en el mapa.</summary><p>Revisá que el filtro de arriba esté en <b>Todos</b>. Si no entró a la oficina, aparece apagado.</p></details>
+      <details><summary>¿Cuántos días de vacaciones tengo?</summary><p>Abrí tu menú y elegí <b>Mis ausencias y solicitudes</b>: está arriba de todo. También lo ves al pedir vacaciones. Si el número no te cierra, hablá con RRHH, que es quien lo carga.</p></details>
       <details><summary>¿Quién aprueba lo que pido?</summary><p>Tu jefe directo. Si no tenés uno asignado, RRHH. Lo ves en la ventana de vacaciones, abajo de todo.</p></details>
       <details><summary>Me fui sin tocar Salir.</summary><p>Hacelo apenas puedas. Si pasa mucho tiempo, el sistema cierra tu sesión solo, pero tus horas pueden quedar mal registradas.</p></details>
     </section>

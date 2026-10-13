@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   diaDeReintegro, resumenRango,
-  diasHabiles, mesesCumplidos, calcularSaldo, validarSolicitud, ajustePara,
+  diasHabiles, mesesCumplidos, calcularSaldo, validarSolicitud, ajustePara, saldoDesdeCarga, alcanzaSaldo,
   SALDO_INICIAL, DEVENGO_MENSUAL, TOPE_ALERTA,
 } from './vacaciones';
 
@@ -229,5 +229,49 @@ describe('quien trabaja el sábado', () => {
   it('un feriado en sábado no cuenta; sin sábado (lo de casi todos) todo sigue igual', () => {
     expect(diasHabiles('2026-10-17', '2026-10-17', ['2026-10-17'], undefined, 0.5)).toBe(0);
     expect(diasHabiles('2026-10-19', '2026-10-25')).toBe(5);
+  });
+});
+
+describe('saldoDesdeCarga — lo que carga RRHH', () => {
+  const carga = { inicial: 12, corte: '2026-10-14' };
+
+  it('el día de la carga, lo cargado', () => {
+    const s = saldoDesdeCarga({ carga, ahora: dia('2026-10-14'), tz: TZ });
+    expect(s).toMatchObject({ devengado: 12, tomados: 0, apartados: 0, saldo: 12, disponible: 12, mesesDevengados: 0 });
+  });
+
+  it('devenga 1,25 por mes cumplido desde el corte', () => {
+    expect(saldoDesdeCarga({ carga, ahora: dia('2026-12-14'), tz: TZ }).saldo).toBe(14.5);
+    expect(saldoDesdeCarga({ carga, ahora: dia('2026-12-13'), tz: TZ }).saldo).toBe(13.25);
+  });
+
+  it('descuenta lo aprobado y aparta lo pendiente', () => {
+    const s = saldoDesdeCarga({
+      carga, ahora: dia('2026-10-20'), tz: TZ,
+      aprobadas: [{ desde: '2026-12-21', hasta: '2026-12-23' }],    // lun–mié: 3
+      pendientes: [{ desde: '2026-11-02', hasta: '2026-11-03' }],   // lun–mar: 2
+    });
+    expect(s).toMatchObject({ tomados: 3, apartados: 2, saldo: 9, disponible: 7 });
+  });
+
+  it('de unas vacaciones que empezaron antes del corte, solo cuenta lo de después', () => {
+    // 12 al 16 oct (lun–vie); el corte es el miércoles 14: cuentan 14, 15 y 16.
+    const s = saldoDesdeCarga({ carga, ahora: dia('2026-10-20'), tz: TZ, aprobadas: [{ desde: '2026-10-12', hasta: '2026-10-16' }] });
+    expect(s.tomados).toBe(3);
+  });
+
+  it('cuenta con su sábado y sus feriados', () => {
+    // 30 nov (lun) al 5 dic (sáb), con el feriado del 1 dic: 4 días + medio sábado.
+    const s = saldoDesdeCarga({ carga, ahora: dia('2026-10-20'), tz: TZ, sabado: 0.5, feriados: ['2026-12-01'], aprobadas: [{ desde: '2026-11-30', hasta: '2026-12-05' }] });
+    expect(s.tomados).toBe(4.5);
+  });
+});
+
+describe('alcanzaSaldo', () => {
+  const s = saldoDesdeCarga({ carga: { inicial: 3.5, corte: '2026-10-14' }, ahora: dia('2026-10-14'), tz: TZ });
+  it('alcanza justo, no alcanza por medio día, y sin saldo cargado no se bloquea', () => {
+    expect(alcanzaSaldo(s, 3.5)).toBe(true);
+    expect(alcanzaSaldo(s, 4)).toBe(false);
+    expect(alcanzaSaldo(null, 30)).toBe(true);
   });
 });

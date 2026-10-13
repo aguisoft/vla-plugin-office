@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { elegirDia, rangoDe, moverMes, limitesMes, nombreMes, fechaEnPalabras, esFinDeSemana, textoDias, diaSemana } from './vacacionesUx';
+import { elegirDia, rangoDe, moverMes, limitesMes, nombreMes, fechaEnPalabras, esFinDeSemana, textoDias, diaSemana, lecturaSaldo } from './vacacionesUx';
 
 describe('elegirDia', () => {
   it('el primer toque abre el rango y el segundo lo cierra', () => {
@@ -44,5 +44,25 @@ describe('meses y fechas', () => {
     expect(textoDias(0.5)).toBe('medio día hábil');
     expect(textoDias(5.5)).toBe('5,5 días hábiles');
     expect(diaSemana('2026-10-17')).toBe(6);
+  });
+});
+
+describe('lecturaSaldo — el saldo al pedir vacaciones', () => {
+  const s = { cargado: true as const, disponible: 3.5 };
+  it('sin saldo cargado no bloquea, pero lo dice', () => {
+    expect(lecturaSaldo({ cargado: false }, 10)).toEqual({ alcanza: true, texto: 'RRHH todavía no cargó tu saldo de vacaciones.' });
+  });
+  it('sin días elegidos, lo disponible', () => {
+    expect(lecturaSaldo(s, null).texto).toBe('Tenés 3,5 días hábiles disponibles.');
+  });
+  it('alcanza justo, y lo que queda', () => {
+    expect(lecturaSaldo(s, 3.5)).toEqual({ alcanza: true, texto: 'Después de este pedido te quedan 0 días hábiles.' });
+    expect(lecturaSaldo(s, 3)).toEqual({ alcanza: true, texto: 'Después de este pedido te quedan medio día hábil.' });
+  });
+  it('no alcanza: se bloquea y se dice por qué', () => {
+    expect(lecturaSaldo(s, 4)).toEqual({ alcanza: false, texto: 'No alcanza: tenés 3,5 días hábiles disponibles y este pedido usa 4 días hábiles.' });
+  });
+  it('para otra persona (RRHH)', () => {
+    expect(lecturaSaldo(s, 4, false).texto).toBe('No alcanza: tiene 3,5 días hábiles disponibles y este pedido usa 4 días hábiles.');
   });
 });

@@ -74,6 +74,14 @@ function equipo(o) {
   return rrhh ? todos.map(x => ({ ...x, canSeeTimeAlerts: true })) : todos;
 }
 
+/** El saldo de Ana. `disponible` sale del escenario (`saldoAna`), o 11. */
+function saldoAna(e) {
+  if (e.saldoAna === 'ninguno') return { cargado: false };
+  const disponible = e.saldoAna ?? 11;
+  return { cargado: true, inicial: 12.75, corte: '2026-10-14', mesesDevengados: 1, devengado: 14, tomados: 3, apartados: 0,
+    saldo: disponible, disponible, cargadoPor: 'Irene Salas', cargadoEn: '2026-10-14T15:00:00Z', motivo: 'Planilla de RRHH' };
+}
+
 const ESCENARIO_BASE = {
   yoAdentro: true, yoEstado: 'AVAILABLE', yoHasta: undefined, yoMotivo: undefined, yoDesde: undefined,
   invitacion: false, feriadoProximo: false, avisos: true, jornadaAbierta: true,
@@ -178,6 +186,13 @@ const FERIADOS_2026 = [
   ['CO', '08-07', 'Batalla de Boyacá'], ['CO', '12-08', 'Inmaculada Concepción'], ['CO', '12-25', 'Navidad'],
 ];
 const anuladasRrhh = new Map();
+let cargaBruno = null;
+function saldoBruno() {
+  if (!cargaBruno) return { cargado: false };
+  const tomados = anuladasRrhh.has('sb2') ? 0 : 4;   // 28–31 dic, lun a jue
+  return { cargado: true, inicial: cargaBruno.dias, corte: '2026-11-25', mesesDevengados: 0, devengado: cargaBruno.dias, tomados, apartados: 0,
+    saldo: cargaBruno.dias - tomados, disponible: cargaBruno.dias - tomados, cargadoPor: 'Irene Salas', cargadoEn: hace(0), motivo: cargaBruno.motivo || null };
+}
 const registradasRrhh = [];
 function solicitudesBruno() {
   const s = (o) => ({ userId: 'bruno', adjuntos: [], motivoResolucion: null, creadaPor: 'bruno', ...o });
@@ -201,6 +216,8 @@ function rutasRrhh(q, u, req, json, e) {
     esJefe: false, esRrhh: true,
   });
   if (q === '/avisos') return json({ sinLeer: 0, avisos: [] });
+  if (q === '/vacaciones/saldo' && u.searchParams.get('userId') === 'bruno') return json(saldoBruno());
+  if (q === '/vacaciones/saldo/bruno' && req.method() === 'PUT') { cargaBruno = req.postDataJSON(); return json(saldoBruno()); }
   // Administrar → Ausencias: las solicitudes de Bruno, anularlas y registrar por él.
   const de = q.match(/^\/solicitudes\/de\/(\w+)$/);
   if (de) return json(de[1] === 'bruno' ? solicitudesBruno() : []);
@@ -284,6 +301,7 @@ async function abrir({ ancho = 1360, alto = 860, ruta = '/', ...esc } = {}) {
     if (q === '/layout') return json({ layout: { id: layoutReal.id, name: layoutReal.name, zones: zonas } });
     if (q === '/snapshot') return json(equipo(e));
     if (q === '/presence/me/aviso') return json(null);
+    if (q === '/vacaciones/saldo') return json(u.searchParams.get('userId') ? { cargado: false } : saldoAna(e));
     if (q === '/escritorio/mio') return json({ instalada: true, version: '0.9.6', ultimaVez: hace(2), alDia: true, companeros: 14, publicada: { version: '0.9.6', tamano: 117000000, tamanoTexto: '112 MB', fecha: '2026-10-13' } });
     if (q === '/solicitudes/bandeja') return json({ ausencias: [], feriados: [], esJefe: false, esRrhh: false });
     if (q === '/avisos') return json(e.avisos ? { sinLeer: 1, avisos: [

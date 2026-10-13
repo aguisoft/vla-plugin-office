@@ -68,6 +68,28 @@ export function textoDias(n: number, que = 'hábil'): string {
   return `${String(n).replace('.', ',')} días ${plural}`;
 }
 
+/**
+ * Qué decir del saldo al pedir vacaciones. Sin saldo cargado no se bloquea
+ * (todavía no hay con qué comparar); con saldo, no se puede pedir más de lo
+ * disponible (13-oct-2026: «sin saldo se bloquea y se avisa»).
+ */
+export function lecturaSaldo(
+  saldo: { cargado: false } | { cargado: true; disponible: number },
+  dias: number | null,
+  tuyo = true,
+): { alcanza: boolean; texto: string } {
+  if (!saldo.cargado) {
+    return { alcanza: true, texto: `RRHH todavía no cargó ${tuyo ? 'tu' : 'su'} saldo de vacaciones.` };
+  }
+  const disp = textoDias(saldo.disponible);
+  if (dias === null) return { alcanza: true, texto: `${tuyo ? 'Tenés' : 'Tiene'} ${disp} disponibles.` };
+  const quedan = Math.round((saldo.disponible - dias) * 100) / 100;
+  if (quedan < 0) {
+    return { alcanza: false, texto: `No alcanza: ${tuyo ? 'tenés' : 'tiene'} ${disp} disponibles y este pedido usa ${textoDias(dias)}.` };
+  }
+  return { alcanza: true, texto: `Después de este pedido ${tuyo ? 'te quedan' : 'le quedan'} ${textoDias(quedan)}.` };
+}
+
 /** 0 = domingo … 6 = sábado. */
 export function diaSemana(ymd: string): number {
   return new Date(`${ymd}T12:00:00Z`).getUTCDay();
