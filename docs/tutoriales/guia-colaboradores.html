@@ -109,6 +109,7 @@ ol.pasos { margin: 10px 0 0; padding-left: 1.3em; max-width: 72ch; display: grid
 
 footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); border-top: 1px solid var(--linea); padding-top: 16px; }
 @media (prefers-reduced-motion: no-preference) { html { scroll-behavior: smooth; } }
+main code { font: 13px/1.5 ui-monospace, Consolas, monospace; background: var(--bg); border: 1px solid var(--linea); padding: 1px 6px; border-radius: 6px; word-break: break-all; }
 </style>
 
 <div class="envoltura">
@@ -346,8 +347,34 @@ footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); borde
       <ol class="leyenda">
         <li><span class="num">1</span><span><b>Personalizar mi avatar:</b> el muñequito que te representa (pelo, ropa, accesorios).</span></li>
         <li><span class="num">2</span><span><b>Mis ausencias y solicitudes:</b> todo lo que pediste.</span></li>
-        <li><span class="num">3</span><span><b>App de escritorio y Bitrix:</b> para instalar la app de la oficina en tu computadora. Tiene su propia guía.</span></li>
+        <li><span class="num">3</span><span><b>App de escritorio y Bitrix:</b> para instalar la app de la oficina en tu computadora. Se explica en el capítulo siguiente.</span></li>
       </ol>
+    </section>
+
+    <section class="capitulo" id="escritorio" data-titulo="La app de escritorio">
+      <header><span class="etiqueta">Extras</span><h2>La app de escritorio</h2></header>
+      <p><b>VLA Oficina</b> es una app para Windows que te deja usar la oficina sin tener el navegador abierto: cambiás tu estado, te llegan los avisos como notificaciones de Windows y ves y contestás tus mensajes de Bitrix. Se actualiza sola.</p>
+      <p>Abrí tu menú y elegí <b>Instalar la app de escritorio</b> (si ya la tenés, dice <b>App de escritorio y Bitrix</b>).</p>
+      <figure class="media"><img src="capturas/41-escritorio.png" alt="La ventana App de escritorio con el botón Descargar VLA Oficina para Windows, el código K7P-3QX para vincular la app y el botón Conectar mi Bitrix" width="444" height="473" loading="lazy"></figure>
+      <ol class="leyenda">
+        <li><span class="num">1</span><span><b>Descargala</b> y abrila. Si Windows dice «Windows protegió su PC», tocá <b>Más información</b> y después <b>Ejecutar de todos modos</b>.</span></li>
+        <li><span class="num">2</span><span><b>Vinculala:</b> la app te muestra un código de 6 caracteres. Escribilo acá y tocá <b>Vincular</b>.</span></li>
+        <li><span class="num">3</span><span><b>Conectá tu Bitrix:</b> te lleva a Bitrix para que des permiso, y volvés solo.</span></li>
+      </ol>
+      <div class="caja truco"><b class="titulo">El camino corto</b><p>Si en la app tocás <b>Entrar con Bitrix</b>, los pasos 2 y 3 quedan hechos de una vez.</p></div>
+      <div class="caja nota"><b class="titulo">Un aviso, no dos</b><p>Con la app abierta, los avisos te llegan como notificación de Windows y el navegador no te repite el mismo aviso.</p></div>
+    </section>
+
+    <section class="capitulo" id="llave-bitrix" data-titulo="Tu llave de Bitrix (webhook)">
+      <header><span class="etiqueta">Extras</span><h2>Tu llave de Bitrix (webhook)</h2></header>
+      <p>Si usás una herramienta que trabaja con Bitrix (una planilla, n8n, un reporte o un programa propio), en lugar de un webhook de Bitrix usás una <b>llave</b> de la oficina. Funciona igual que un webhook, pero cada llave solo puede hacer lo que se le habilitó y cada llamada queda registrada.</p>
+      <ol class="pasos">
+        <li><b>Conectá tu Bitrix.</b> Es el paso 3 del capítulo anterior. Si ya lo hiciste para la app de escritorio, no hace falta repetirlo.</li>
+        <li><b>Pedile la llave a un administrador del sistema.</b> Contale para qué la querés (por ejemplo, «leer mis negociaciones para un reporte»): él elige qué puede hacer, hasta cuándo vale y cuántas llamadas por minuto admite.</li>
+        <li><b>Guardala apenas te la den.</b> La dirección completa se muestra una sola vez. Tiene esta forma:<br><code>https://system.somosvla.com/api/v1/p/bitrix-api/rest/&lt;tu-llave&gt;/</code></li>
+        <li><b>Usala como un webhook:</b> agregá el método de Bitrix al final. Por ejemplo:<br><code>https://system.somosvla.com/api/v1/p/bitrix-api/rest/&lt;tu-llave&gt;/crm.deal.list</code></li>
+      </ol>
+      <div class="caja nota"><b class="titulo">La llave trabaja como vos</b><p>Lo que haga en Bitrix queda a tu nombre y con tus permisos. No la compartas ni la pegues en lugares públicos. Si creés que alguien más la tiene, avisá a un administrador para que la revoque: deja de funcionar al instante.</p></div>
     </section>
 
     <section class="capitulo" id="salir" data-titulo="Terminar el día">
@@ -375,6 +402,7 @@ footer.pie { margin-top: 56px; font-size: 14px; color: var(--tinta-suave); borde
       <details><summary>Pedí vacaciones y dicen «Esperando a tu jefe».</summary><p>Tu jefe todavía no las respondió. Cuando lo haga, te llega un aviso a la campana y un correo.</p></details>
       <details><summary>Me equivoqué al pedir un permiso.</summary><p>Si todavía no empezó, cancelalo desde <b>Mis ausencias y solicitudes</b> y pedilo de nuevo.</p></details>
       <details><summary>No encuentro a un compañero en el mapa.</summary><p>Revisá que el filtro de arriba esté en <b>Todos</b>. Si no entró a la oficina, aparece apagado.</p></details>
+      <details><summary>Mi llave de Bitrix dejó de funcionar.</summary><p>Puede que haya vencido, que la hayan revocado o que tu Bitrix se haya desconectado. Revisá en tu menú → <b>App de escritorio y Bitrix</b> que diga conectado, y si sigue igual, hablá con un administrador.</p></details>
       <details><summary>¿Cuántos días de vacaciones tengo?</summary><p>Abrí tu menú y elegí <b>Mis ausencias y solicitudes</b>: está arriba de todo. También lo ves al pedir vacaciones. Si el número no te cierra, hablá con RRHH, que es quien lo carga.</p></details>
       <details><summary>¿Quién aprueba lo que pido?</summary><p>Tu jefe directo. Si no tenés uno asignado, RRHH. Lo ves en la ventana de vacaciones, abajo de todo.</p></details>
       <details><summary>Me fui sin tocar Salir.</summary><p>Hacelo apenas puedas. Si pasa mucho tiempo, el sistema cierra tu sesión solo, pero tus horas pueden quedar mal registradas.</p></details>

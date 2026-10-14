@@ -302,6 +302,9 @@ async function abrir({ ancho = 1360, alto = 860, ruta = '/', ...esc } = {}) {
     if (q === '/snapshot') return json(equipo(e));
     if (q === '/presence/me/aviso') return json(null);
     if (q === '/vacaciones/saldo') return json(u.searchParams.get('userId') ? { cargado: false } : saldoAna(e));
+    // `escritorio: 'nueva'`: todavía no instaló la app ni conectó Bitrix.
+    if (q === '/escritorio/mio' && e.escritorio === 'nueva') return json({ instalada: false, version: null, ultimaVez: null, alDia: false, companeros: 14, publicada: { version: '0.9.6', tamano: 117000000, tamanoTexto: '112 MB', fecha: '2026-10-13' } });
+    if (q === '/bitrix/oauth/estado' && e.escritorio === 'nueva') return json({ conectado: false });
     if (q === '/escritorio/mio') return json({ instalada: true, version: '0.9.6', ultimaVez: hace(2), alDia: true, companeros: 14, publicada: { version: '0.9.6', tamano: 117000000, tamanoTexto: '112 MB', fecha: '2026-10-13' } });
     if (q === '/solicitudes/bandeja') return json({ ausencias: [], feriados: [], esJefe: false, esRrhh: false });
     if (q === '/avisos') return json(e.avisos ? { sinLeer: 1, avisos: [

@@ -199,6 +199,23 @@ const ESCENAS = {
     await browser.close();
   },
 
+  async '41-escritorio'() {
+    const { browser, page } = await abrir({ escritorio: 'nueva', alto: 900 });
+    await page.getByTestId('menu-personal').click();
+    await page.getByTestId('personal-escritorio').click();
+    await page.getByTestId('paso-descargar').waitFor();
+    await page.getByLabel('Código de la app de escritorio').fill('K7P3QX');
+    await page.waitForTimeout(400);
+    const m = modal(page);
+    await anotar(page, [
+      { n: 1, blanco: page.getByRole('link', { name: /Descargar VLA Oficina/ }), pad: 4 },
+      { n: 2, blanco: [page.getByLabel('Código de la app de escritorio'), page.getByRole('button', { name: 'Vincular' })], pad: 4 },
+      { n: 3, blanco: page.getByRole('button', { name: 'Conectar mi Bitrix' }), pad: 4 },
+    ]);
+    await foto(page, '41-escritorio', await recorte(page, m, 30));
+    await browser.close();
+  },
+
   async '13-aviso-feriado'() {
     const { browser, page } = await abrir({ feriadoProximo: true });
     await page.waitForTimeout(600);
