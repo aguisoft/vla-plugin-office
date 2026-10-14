@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import type { PluginContext } from '@vla/plugin-sdk';
 import {
   ALCANCES_GOOGLE, dominioPermitido, firmarEstado, leerEstado, firmaDe, planDeAusencias, ocupadoHasta, coincide,
@@ -18,7 +19,8 @@ export class ErrorGoogle extends Error {
   constructor(readonly codigo: string, mensaje?: string) { super(mensaje ?? codigo); }
 }
 
-interface Config { clientId: string; clientSecret: string; urlPublica: string; tz: string }
+/** llaveEstado: solo para las pruebas; en producción la llave del state es al azar por proceso. */
+interface Config { clientId: string; clientSecret: string; urlPublica: string; tz: string; llaveEstado?: string }
 interface FilaToken { user_id: string; email: string; refresh_token: string; access_token: string | null; expires_at: string | null; conectado_en: string }
 
 const API = 'https://www.googleapis.com/calendar/v3';
@@ -47,6 +49,20 @@ export class GoogleCalendarService {
     return resultado;
   }
 
+  /**
+   * Con qué se firma el state del enlace para conectar. NO el client secret:
+   * la configuración de los módulos la puede leer cualquiera con sesión
+   * (GET /api/v1/plugins), y con él se podría firmar un state ajeno. Al azar
+   * por proceso: si el API se reinicia en esos 10 minutos, se vuelve a intentar.
+   */
+  private readonly llaveAlAzar = randomBytes(32).toString('hex');
+  private llaveEstado(): string {
+    return this.config().llaveEstado || this.llaveAlAzar;
+  }
+
+  /** Para esperar a que Google termine de armar el Meet (las pruebas lo cambian). */
+  dormir = (ms: number) => new Promise<void>(listo => setTimeout(listo, ms));
+
   private llamar(url: string, init: RequestInit = {}): Promise<Response> {
     return this.http(url, { ...init, signal: AbortSignal.timeout(ESPERA_MAX_MS) });
   }
@@ -67,7 +83,7 @@ export class GoogleCalendarService {
     if (!this.configurado()) throw new ErrorGoogle('sin_configurar', 'Google Calendar todavía no está configurado');
     const q = new URLSearchParams({
       client_id: c.clientId, redirect_uri: this.redirect(), response_type: 'code', scope: ALCANCES_GOOGLE.join(' '),
-      access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state: firmarEstado(userId, ahora, c.clientSecret),
+      access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state: firmarEstado(userId, ahora, this.llaveEstado()),
     });
     return `https://accounts.google.com/o/oauth2/v2/auth?${q}`;
   }
@@ -80,7 +96,7 @@ export class GoogleCalendarService {
    */
   async completar(code: string, state: string, sesion: string | null, ahora = Date.now()): Promise<{ userId: string; email: string }> {
     const c = this.config();
-    const userId = leerEstado(state, c.clientSecret, ahora);
+    const userId = leerEstado(state, this.llaveEstado(), ahora);
     if (!userId) throw new ErrorGoogle('estado_invalido');
     if (sesion !== userId) throw new ErrorGoogle('sesion');
     if (!code) throw new ErrorGoogle('sin_codigo');
@@ -97,6 +113,13 @@ export class GoogleCalendarService {
     if (!permisos.includes('calendar.events')) {
       await this.revocar(t.refresh_token);
       throw new ErrorGoogle('sin_permiso');
+    }
+    // Que la API de Calendar responda de verdad (si no está habilitada en
+    // Google Cloud, todo lo demás fallaría en silencio con «conectado»).
+    const prueba = await this.llamar(`${API}/calendars/primary/events?maxResults=1`, { headers: { Authorization: `Bearer ${t.access_token}` } });
+    if (!prueba.ok) {
+      await this.revocar(t.refresh_token);
+      throw new ErrorGoogle('api', `Calendar respondió ${prueba.status}`);
     }
     // Otra cuenta: lo que la oficina puso en la anterior se borra y esa se revoca.
     const anterior = await this.emailDe(userId);
@@ -341,11 +364,18 @@ export class GoogleCalendarService {
         extendedProperties: { private: { vlaOficina: `reunion:${meetingId}` } },
       });
       if (!r) return null;
+      let enlace = r.hangoutLink ?? null;
+      if (!enlace) {
+        // Google puede devolver el Meet «pendiente»: se pregunta una vez más.
+        await this.dormir(1500);
+        const otra = await this.api<{ hangoutLink?: string }>(hostId, 'GET', `/calendars/primary/events/${encodeURIComponent(r.id)}`).catch(() => null);
+        enlace = otra?.hangoutLink ?? null;
+      }
       await this.ctx.query(
         `INSERT INTO office_google_eventos (user_id, clave, event_id, firma, inicio, fin, enlace) VALUES ($1, $2, $3, '', $4::timestamptz, $5::timestamptz, $6)
          ON CONFLICT (user_id, clave) DO NOTHING`,
-        [hostId, `reunion:${meetingId}`, r.id, ahora.toISOString(), fin.toISOString(), r.hangoutLink ?? null]);
-      return r.hangoutLink ?? null;
+        [hostId, `reunion:${meetingId}`, r.id, ahora.toISOString(), fin.toISOString(), enlace]);
+      return enlace;
     });
   }
 
@@ -354,6 +384,8 @@ export class GoogleCalendarService {
    * abiertas (todas, o solo las de `meetingIds`). Va en la misma fila que
    * crearReunion: una que todavía se está creando se cierra cuando termina.
    * Si Google no responde, queda abierta y se reintenta en el próximo cierre.
+   * Se mira `cerrada` y no el fin: una reunión de más de una hora (el fin con
+   * que se crea) también se cierra con la hora real. Solo las del último día.
    */
   cerrarReuniones(hostId: string, meetingIds?: string[], ahora?: Date): Promise<void> {
     const solo = meetingIds ? new Set(meetingIds.map(id => `reunion:${id}`)) : null;
@@ -361,8 +393,9 @@ export class GoogleCalendarService {
     return this.enFila(hostId, async () => {
       const momento = ahora ?? new Date();
       const abiertas = (await this.ctx.query<{ clave: string; event_id: string; inicio: string }>(
-        `SELECT clave, event_id, inicio::text AS inicio FROM office_google_eventos WHERE user_id = $1 AND clave LIKE 'reunion:%' AND fin > $2::timestamptz`,
-        [hostId, momento.toISOString()])).filter(a => !solo || solo.has(a.clave));
+        `SELECT clave, event_id, inicio::text AS inicio FROM office_google_eventos
+          WHERE user_id = $1 AND clave LIKE 'reunion:%' AND NOT cerrada AND inicio > $2::timestamptz`,
+        [hostId, new Date(momento.getTime() - 86_400_000).toISOString()])).filter(a => !solo || solo.has(a.clave));
       for (const a of abiertas) {
         const fin = new Date(Math.max(momento.getTime(), new Date(a.inicio).getTime() + 60_000));
         try {
@@ -373,7 +406,7 @@ export class GoogleCalendarService {
           const yaNoEsta = e instanceof ErrorGoogle && (e.codigo === 'http_404' || e.codigo === 'http_410');
           if (!yaNoEsta) { this.ctx.logger.warn(`Google Calendar: no se cerró la reunión ${a.clave}: ${e}`); continue; }
         }
-        await this.ctx.query(`UPDATE office_google_eventos SET fin = $3::timestamptz WHERE user_id = $1 AND clave = $2`, [hostId, a.clave, fin.toISOString()]);
+        await this.ctx.query(`UPDATE office_google_eventos SET fin = $3::timestamptz, cerrada = true WHERE user_id = $1 AND clave = $2`, [hostId, a.clave, fin.toISOString()]);
       }
     });
   }

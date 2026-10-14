@@ -34,9 +34,9 @@ function armar(google: (url: string, init: any) => { status?: number; body?: any
       eventos.set(`${p[0]}|${p[1]}`, { user_id: p[0], clave: p[1], event_id: p[2], firma: conEnlace ? '' : p[3], inicio: conEnlace ? p[3] : p[4], fin: conEnlace ? p[4] : p[5], enlace: conEnlace ? p[5] : null });
       return [];
     }
-    if (s.startsWith('UPDATE office_google_eventos')) { eventos.get(`${p[0]}|${p[1]}`).fin = p[2]; return []; }
-    if (s.includes("clave LIKE 'reunion:%' AND fin >")) {
-      return [...eventos.values()].filter(e => e.user_id === p[0] && e.clave.startsWith('reunion:') && new Date(e.fin) > new Date(p[1]));
+    if (s.startsWith('UPDATE office_google_eventos')) { Object.assign(eventos.get(`${p[0]}|${p[1]}`), { fin: p[2], cerrada: true }); return []; }
+    if (s.includes("clave LIKE 'reunion:%' AND NOT cerrada")) {
+      return [...eventos.values()].filter(e => e.user_id === p[0] && e.clave.startsWith('reunion:') && !e.cerrada && new Date(e.inicio) > new Date(p[1]));
     }
     if (s.startsWith('SELECT clave, enlace')) return [...eventos.values()].filter(e => e.enlace && p.includes(e.clave));
     if (s.startsWith('SELECT clave, event_id, firma')) return [...eventos.values()].filter(e => e.user_id === p[0]);
@@ -51,7 +51,8 @@ function armar(google: (url: string, init: any) => { status?: number; body?: any
     return { ok: status < 400, status, json: async () => r.body ?? {} } as Response;
   });
   const ctx = { query, logger: { warn: vi.fn(), log: vi.fn(), error: vi.fn() } };
-  const svc = new GoogleCalendarService(ctx as any, () => ({ clientId: 'cid', clientSecret: SECRETO, urlPublica: 'https://system.somosvla.com', tz: 'America/Costa_Rica' }), http as any);
+  const svc = new GoogleCalendarService(ctx as any, () => ({ clientId: 'cid', clientSecret: 'secreto-del-cliente', urlPublica: 'https://system.somosvla.com', tz: 'America/Costa_Rica', llaveEstado: SECRETO }), http as any);
+  svc.dormir = async () => undefined;
   return { svc, tokens, eventos, estado, llamadas };
 }
 
@@ -81,6 +82,25 @@ describe('conectar', () => {
   it('rechaza un state que no firmó la oficina', async () => {
     const { svc } = armar(tokenOk('ana@grupovla.com'));
     await expect(svc.completar('codigo', firmarEstado('ana', AHORA.getTime(), 'otra'), 'ana', AHORA.getTime())).rejects.toBeInstanceOf(ErrorGoogle);
+  });
+
+  it('el state no se firma con el client secret (lo puede leer cualquiera en la configuración)', async () => {
+    const { tokens, llamadas } = armar(tokenOk('ana@grupovla.com'));
+    const sinLlave = new GoogleCalendarService({ query: async () => [], logger: { warn() {}, log() {}, error() {} } } as any,
+      () => ({ clientId: 'cid', clientSecret: 'secreto-del-cliente', urlPublica: 'https://system.somosvla.com', tz: 'America/Costa_Rica' }), (async () => ({ ok: true, json: async () => ({}) })) as any);
+    await expect(sinLlave.completar('codigo', firmarEstado('ana', AHORA.getTime(), 'secreto-del-cliente'), 'ana', AHORA.getTime()))
+      .rejects.toMatchObject({ codigo: 'estado_invalido' });
+    // El que sí arma la oficina vale.
+    const propio = new URL(sinLlave.urlConectar('ana', AHORA.getTime())).searchParams.get('state')!;
+    await expect(sinLlave.completar('', propio, 'ana', AHORA.getTime())).rejects.toMatchObject({ codigo: 'sin_codigo' });
+    expect(tokens.size + llamadas.length).toBe(0);
+  });
+
+  it('si la API de Calendar no responde (no está habilitada), no guarda y revoca', async () => {
+    const { svc, tokens, llamadas } = armar(url => (url.includes('/calendars/primary/events') ? { status: 403, body: { error: { message: 'accessNotConfigured' } } } : tokenOk('ana@grupovla.com')(url)));
+    await expect(svc.completar('codigo', firmarEstado('ana', AHORA.getTime(), SECRETO), 'ana', AHORA.getTime())).rejects.toMatchObject({ codigo: 'api' });
+    expect(tokens.size).toBe(0);
+    expect(llamadas.some(l => l.url.includes('/revoke'))).toBe(true);
   });
 
   it('rechaza la vuelta si en ese navegador hay otra sesión (alguien le pasó su enlace)', async () => {
@@ -223,6 +243,26 @@ describe('reuniones de la oficina', () => {
     await svc.cerrarReuniones('ana', undefined, new Date(AHORA.getTime() + 12 * 60_000));
     expect(llamadas.filter(l => l.metodo === 'PATCH')).toHaveLength(2);
     expect(eventos.get('ana|reunion:m1').fin).toBe('2026-10-14T16:12:00.000Z');
+  });
+
+  it('una reunión de más de una hora también se cierra con la hora real', async () => {
+    const { svc, tokens, llamadas } = armar((url, init) =>
+      init.method === 'POST' ? { body: { id: 'gm', hangoutLink: 'https://meet.google.com/abc-defg-hij' } } : { body: {} });
+    conectar(tokens);
+    await svc.crearReunion('ana', 'm1', 'Planificación', [], AHORA);
+    await svc.cerrarReuniones('ana', undefined, new Date(AHORA.getTime() + 95 * 60_000));
+    expect(llamadas.find(l => l.metodo === 'PATCH')!.cuerpo.end.dateTime).toBe('2026-10-14T17:35:00.000Z');
+  });
+
+  it('si Google devuelve el Meet pendiente, lo vuelve a pedir', async () => {
+    const { svc, tokens } = armar((url, init) => {
+      if (init.method === 'POST') return { body: { id: 'gm', conferenceData: { createRequest: { status: { statusCode: 'pending' } } } } };
+      if (url.includes('/events/gm')) return { body: { id: 'gm', hangoutLink: 'https://meet.google.com/xyz-abcd-efg' } };
+      return { body: {} };
+    });
+    conectar(tokens);
+    expect(await svc.crearReunion('ana', 'm1', 'Revisar', [], AHORA)).toBe('https://meet.google.com/xyz-abcd-efg');
+    expect((await svc.enlacesDe(['m1'])).get('m1')).toBe('https://meet.google.com/xyz-abcd-efg');
   });
 
   it('cerrar espera a la que todavía se está creando', async () => {

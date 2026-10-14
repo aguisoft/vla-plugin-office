@@ -44,7 +44,7 @@ export function GoogleCalendarModal({ onClose, resultado }: { onClose: () => voi
           <p className={`mb-3 rounded-xl px-3 py-2 text-xs ${aviso.tono === 'ok' ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-600'}`}>{aviso.texto}</p>
         )}
         <ul className="mb-3 space-y-1.5 text-[11px] leading-relaxed text-gray-600">
-          <li>🏖️ Tus vacaciones, permisos, citas y feriados aparecen en tu calendario como <b>Fuera de la oficina</b>.</li>
+          <li>🏖️ Tus vacaciones, permisos, citas y feriados, ya aprobados, aparecen en tu calendario como <b>Fuera de la oficina</b>.</li>
           <li>📅 Cuando tenés una reunión en Google, en la oficina aparecés <b>En reunión</b>, y al terminar volvés a Disponible.</li>
           <li>👀 Al invitarte a una reunión, los demás ven si estás ocupado en Google.</li>
           <li>🎥 Las reuniones que armás en la oficina se crean en tu calendario con enlace de <b>Meet</b>.</li>
@@ -73,7 +73,7 @@ export function GoogleCalendarModal({ onClose, resultado }: { onClose: () => voi
           )}
         </div>
         <p className="mt-3 text-[10px] leading-relaxed text-gray-400">
-          Solo cuentas @grupovla.com o @vlacademy.com. La oficina crea y borra únicamente sus propios eventos, y mira la reunión que tenés en el momento para ponerte «En reunión» con su título (si el evento es privado, solo dice «Reunión»).
+          Solo cuentas @grupovla.com o @vlacademy.com. La oficina crea y borra únicamente sus propios eventos, y mira la reunión que tenés en el momento para ponerte «En reunión» con su título, que ve toda la oficina. Si una reunión no se tiene que ver, marcala como privada en Google: entonces solo dice «Reunión».
         </p>
       </div>
     </Shell>

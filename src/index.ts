@@ -916,8 +916,14 @@ const plugin: PluginDefinition = {
       // feriado de hoy está guardado a las 00:00. Un día sin nombre saldría
       // «Feriado» y, al aparecer el nombre, se borraría y crearía de nuevo.
       const margen = 45 * 86_400_000;
+      // Los permisos, citas e incapacidades valen desde que se piden (y tienen
+      // su ausencia aunque estén pendientes): a Google van solo las aprobadas.
+      // Las que no salieron de una solicitud las cargó RRHH: ya están aprobadas.
+      const noAprobadas = await ctx.query<{ absence_id: string }>(
+        `SELECT absence_id FROM office_solicitudes WHERE user_id = $1 AND absence_id IS NOT NULL AND estado <> 'aprobada'`, [userId])
+        .then(fs => new Set(fs.map(f => String(f.absence_id))));
       const [ausencias, fechas, nombres] = await Promise.all([
-        absences.listForUserDetailed(userId, desde, hasta),
+        absences.listForUserDetailed(userId, desde, hasta).then(as => (as as any[]).filter(a => !noAprobadas.has(String(a.id)))),
         holidays.effectiveDatesByUser(new Map([[userId, country]]), desde, hasta).then(m => m.get(userId) ?? new Set<string>()),
         ctx.prisma.holiday.findMany({
           where: { country, date: { gte: new Date(desde.getTime() - margen), lte: new Date(hasta.getTime() + margen) } },
@@ -958,7 +964,20 @@ const plugin: PluginDefinition = {
       const [p, puesto] = await Promise.all([ctx.prisma.presenceStatus.findUnique({ where: { userId } }) as Promise<any>, googleCal.puesto(userId)]);
       if (!p?.isCheckedIn && !puesto) return;   // fuera de la oficina: ni se le pregunta a Google
       const leido = { status: String(p?.status ?? 'OFFLINE'), justification: (p?.justification ?? null) as string | null };
-      const eventos = await googleCal.eventosAhora(userId);
+      let eventos: Awaited<ReturnType<typeof googleCal.eventosAhora>>;
+      try {
+        eventos = await googleCal.eventosAhora(userId);
+      } catch (e) {
+        // Google falla una y otra vez (cliente cambiado, API apagada): si la
+        // reunión que la puso «En reunión» ya tenía que haber terminado, vuelve
+        // a Disponible igual; las reuniones no vencen solas.
+        const termino = p?.statusEndsAt && new Date(p.statusEndsAt).getTime() <= Date.now();
+        if (puesto && !puesto.soltado && termino) {
+          await presence.updateStatusIf(userId, { status: puesto.status, justification: puesto.titulo }, 'AVAILABLE', { source: 'AUTO' });
+          await googleCal.borrarPuesto(userId);
+        }
+        throw e;
+      }
       if (eventos === null) {
         // Se desconectó (o revocó el permiso en Google): si la había puesto
         // «En reunión», vuelve a Disponible; si no, quedaría así para siempre.
@@ -1027,7 +1046,7 @@ const plugin: PluginDefinition = {
       } catch (e) {
         const codigo = e instanceof ErrorGoogle ? e.codigo : 'error';
         ctx.logger.warn(`Google Calendar: no se pudo conectar (${codigo}): ${e}`);
-        destino(codigo === 'dominio' || codigo === 'sesion' ? codigo : 'error');
+        destino(codigo === 'dominio' || codigo === 'sesion' || codigo === 'api' ? codigo : 'error');
       }
     }));
     ctx.router.delete('/google', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
@@ -1039,10 +1058,11 @@ const plugin: PluginDefinition = {
     }));
     /** Al invitar: quién está ocupado en Google ahora y hasta cuándo (cache de un minuto). */
     ctx.router.get('/google/ocupados', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
-      const ids = String(req.query.ids ?? '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 60);
+      // Primero los conectados y después el tope: el selector manda a todos.
       const conectados = new Set(await googleCal.conectados());
+      const ids = [...new Set(String(req.query.ids ?? '').split(',').map(s => s.trim()))].filter(i => conectados.has(i)).slice(0, 60);
       const out: Record<string, string> = {};
-      for (const id of ids.filter(i => conectados.has(i))) {
+      const consultar = async (id: string) => {
         const k = `google:ocupado:${id}`;
         let hasta = await ctx.redis.get(k);
         if (hasta === null) {
@@ -1051,7 +1071,9 @@ const plugin: PluginDefinition = {
           await ctx.redis.set(k, hasta, 60);
         }
         if (hasta) out[id] = hasta;
-      }
+      };
+      // De a 8 a la vez: rápido sin ametrallar a Google.
+      for (let i = 0; i < ids.length; i += 8) await Promise.all(ids.slice(i, i + 8).map(consultar));
       res.json(out);
     }));
 
@@ -1387,6 +1409,8 @@ const plugin: PluginDefinition = {
           // arriba, así que se excluye por id — si no, releaseUser la
           // cancelaría a sí misma.
           await meetings.releaseUser(userId, req.params.id);
+          // Y su reunión propia en Google termina acá (aunque nadie la hubiera aceptado).
+          alTerminarReunionesDe(userId);
 
           // Hereda la justificación y el meetingId del host.
           const hostPresence = await ctx.prisma.presenceStatus.findUnique({

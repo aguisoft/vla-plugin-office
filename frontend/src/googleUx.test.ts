@@ -15,6 +15,8 @@ describe('mensajeResultadoGoogle', () => {
     expect(mensajeResultadoGoogle('listo').tono).toBe('ok');
     expect(mensajeResultadoGoogle('dominio').texto).toContain('@grupovla.com o @vlacademy.com');
     expect(resultadoGoogle('?google=sesion')).toBe('sesion');
+    expect(resultadoGoogle('?google=api')).toBe('api');
+    expect(mensajeResultadoGoogle('api').texto).toContain('administrador');
     expect(mensajeResultadoGoogle('sesion').texto).toContain('tu propia sesión');
   });
 });

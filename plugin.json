@@ -287,7 +287,7 @@
           },
           {
             "key": "GOOGLE_CLIENT_SECRET",
-            "type": "string",
+            "type": "secret",
             "label": "Client secret de Google (opcional)",
             "default": ""
           }

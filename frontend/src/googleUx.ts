@@ -3,14 +3,14 @@
  * persona de Google y el «ocupado» al invitar (14-oct-2026).
  */
 
-export type ResultadoGoogle = 'listo' | 'error' | 'dominio' | 'cancelado' | 'sesion';
+export type ResultadoGoogle = 'listo' | 'error' | 'dominio' | 'cancelado' | 'sesion' | 'api';
 
 /** `?google=…` con el que vuelve de Google (en la URL del iframe o de la página). */
 export function resultadoGoogle(...busquedas: Array<string | null | undefined>): ResultadoGoogle | null {
   for (const b of busquedas) {
     if (!b) continue;
     const v = new URLSearchParams(b).get('google');
-    if (v === 'listo' || v === 'error' || v === 'dominio' || v === 'cancelado' || v === 'sesion') return v;
+    if (v === 'listo' || v === 'error' || v === 'dominio' || v === 'cancelado' || v === 'sesion' || v === 'api') return v;
   }
   return null;
 }
@@ -20,6 +20,7 @@ export function mensajeResultadoGoogle(r: ResultadoGoogle): { tono: 'ok' | 'erro
     case 'listo': return { tono: 'ok', texto: 'Listo: tu Google Calendar quedó conectado.' };
     case 'dominio': return { tono: 'error', texto: 'Esa cuenta no es de VLA. Conectá la de @grupovla.com o @vlacademy.com.' };
     case 'cancelado': return { tono: 'error', texto: 'No se conectó: cancelaste el permiso en Google.' };
+    case 'api': return { tono: 'error', texto: 'Google Calendar todavía no está habilitado para la oficina. Avisale a un administrador.' };
     case 'sesion': return { tono: 'error', texto: 'No se conectó: el enlace era de otra persona. Usá el botón «Conectar» desde tu propia sesión de la oficina.' };
     default: return { tono: 'error', texto: 'Google no completó la conexión. Volvé a intentarlo.' };
   }
