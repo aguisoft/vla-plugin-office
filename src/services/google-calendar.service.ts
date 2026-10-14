@@ -83,8 +83,10 @@ export class GoogleCalendarService {
     if (!this.configurado()) throw new ErrorGoogle('sin_configurar', 'Google Calendar todavía no está configurado');
     const q = new URLSearchParams({
       client_id: c.clientId, redirect_uri: this.redirect(), response_type: 'code', scope: ALCANCES_GOOGLE.join(' '),
-      access_type: 'offline', prompt: 'consent', include_granted_scopes: 'true', state: firmarEstado(userId, ahora, this.llaveEstado()),
+      access_type: 'offline', prompt: 'consent', state: firmarEstado(userId, ahora, this.llaveEstado()),
     });
+    // Sin include_granted_scopes: el proyecto de Google es compartido (quizzes pidió
+    // Drive con el mismo proyecto) y con él el token heredaba esos permisos.
     return `https://accounts.google.com/o/oauth2/v2/auth?${q}`;
   }
 

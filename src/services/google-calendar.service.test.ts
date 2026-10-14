@@ -134,6 +134,8 @@ describe('conectar', () => {
     expect(u.searchParams.get('access_type')).toBe('offline');
     expect(u.searchParams.get('scope')).toContain('calendar.events');
     expect(u.searchParams.get('redirect_uri')).toBe('https://system.somosvla.com/api/v1/p/office/google/callback');
+    // Solo lo suyo: sin heredar lo que otras apps del mismo proyecto pidieron (Drive).
+    expect(u.searchParams.has('include_granted_scopes')).toBe(false);
   });
 });
 
