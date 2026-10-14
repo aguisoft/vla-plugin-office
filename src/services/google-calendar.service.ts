@@ -119,7 +119,9 @@ export class GoogleCalendarService {
     const prueba = await this.llamar(`${API}/calendars/primary/events?maxResults=1`, { headers: { Authorization: `Bearer ${t.access_token}` } });
     if (!prueba.ok) {
       await this.revocar(t.refresh_token);
-      throw new ErrorGoogle('api', `Calendar respondió ${prueba.status}`);
+      // 403: la API no está habilitada en Google Cloud. Otra cosa (429, 5xx):
+      // un tropiezo de Google, que se reintente.
+      throw new ErrorGoogle(prueba.status === 403 ? 'api' : 'prueba', `Calendar respondió ${prueba.status}`);
     }
     // Otra cuenta: lo que la oficina puso en la anterior se borra y esa se revoca.
     const anterior = await this.emailDe(userId);
@@ -383,7 +385,9 @@ export class GoogleCalendarService {
    * Cierra con la hora real las reuniones de la oficina que esa persona tenía
    * abiertas (todas, o solo las de `meetingIds`). Va en la misma fila que
    * crearReunion: una que todavía se está creando se cierra cuando termina.
-   * Si Google no responde, queda abierta y se reintenta en el próximo cierre.
+   * Si Google no responde, queda abierta y se reintenta en el próximo cierre,
+   * con la hora en que terminó de verdad (anotada en `cierre` en el primer
+   * intento), no con la del reintento.
    * Se mira `cerrada` y no el fin: una reunión de más de una hora (el fin con
    * que se crea) también se cierra con la hora real. Solo las del último día.
    */
@@ -392,19 +396,25 @@ export class GoogleCalendarService {
     if (solo && !solo.size) return Promise.resolve();
     return this.enFila(hostId, async () => {
       const momento = ahora ?? new Date();
-      const abiertas = (await this.ctx.query<{ clave: string; event_id: string; inicio: string }>(
-        `SELECT clave, event_id, inicio::text AS inicio FROM office_google_eventos
+      const abiertas = (await this.ctx.query<{ clave: string; event_id: string; inicio: string; cierre: string | null }>(
+        `SELECT clave, event_id, inicio::text AS inicio, cierre::text AS cierre FROM office_google_eventos
           WHERE user_id = $1 AND clave LIKE 'reunion:%' AND NOT cerrada AND inicio > $2::timestamptz`,
         [hostId, new Date(momento.getTime() - 86_400_000).toISOString()])).filter(a => !solo || solo.has(a.clave));
       for (const a of abiertas) {
-        const fin = new Date(Math.max(momento.getTime(), new Date(a.inicio).getTime() + 60_000));
+        const fin = a.cierre ? new Date(a.cierre) : new Date(Math.max(momento.getTime(), new Date(a.inicio).getTime() + 60_000));
         try {
           await this.api(hostId, 'PATCH', `/calendars/primary/events/${encodeURIComponent(a.event_id)}?sendUpdates=none`,
             { end: { dateTime: fin.toISOString(), timeZone: this.config().tz } });
         } catch (e) {
           // Borrada en Google: no hay nada que cerrar.
           const yaNoEsta = e instanceof ErrorGoogle && (e.codigo === 'http_404' || e.codigo === 'http_410');
-          if (!yaNoEsta) { this.ctx.logger.warn(`Google Calendar: no se cerró la reunión ${a.clave}: ${e}`); continue; }
+          if (!yaNoEsta) {
+            this.ctx.logger.warn(`Google Calendar: no se cerró la reunión ${a.clave}: ${e}`);
+            if (!a.cierre) {
+              await this.ctx.query(`UPDATE office_google_eventos SET cierre = $3::timestamptz WHERE user_id = $1 AND clave = $2`, [hostId, a.clave, fin.toISOString()]);
+            }
+            continue;
+          }
         }
         await this.ctx.query(`UPDATE office_google_eventos SET fin = $3::timestamptz, cerrada = true WHERE user_id = $1 AND clave = $2`, [hostId, a.clave, fin.toISOString()]);
       }

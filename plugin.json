@@ -277,18 +277,18 @@
       },
       {
         "title": "Google Calendar",
-        "description": "Cada persona conecta su calendario desde su menú. Si se dejan vacíos, se usa el cliente de Google del inicio de sesión del sistema. En Google Cloud: habilitar la API de Google Calendar y agregar como URI de redirección https://system.somosvla.com/api/v1/p/office/google/callback.",
+        "description": "Cada persona conecta su calendario desde su menú. Si se dejan vacíos (lo recomendado), se usa el cliente de Google del inicio de sesión del sistema. Si se cargan, tienen que ir los dos. En Google Cloud: habilitar la API de Google Calendar y agregar como URI de redirección https://system.somosvla.com/api/v1/p/office/google/callback.",
         "fields": [
           {
             "key": "GOOGLE_CLIENT_ID",
             "type": "string",
-            "label": "Client ID de Google (opcional)",
+            "label": "Client ID de Google (opcional; recomendado: vacío)",
             "default": ""
           },
           {
             "key": "GOOGLE_CLIENT_SECRET",
             "type": "secret",
-            "label": "Client secret de Google (opcional)",
+            "label": "Client secret de Google (opcional; recomendado: vacío)",
             "default": ""
           }
         ]

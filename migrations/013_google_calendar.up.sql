@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS office_google_tokens (
 
 -- Los eventos que creó la oficina en Google, para borrarlos o cerrarlos.
 -- clave: 'ausencia:<id>' | 'feriado:<YYYY-MM-DD>' | 'reunion:<meetingId>'.
--- cerrada: la reunión ya se cerró en Google con la hora real.
+-- cerrada: la reunión ya se cerró en Google con la hora real. cierre: la hora
+-- real en que terminó, si Google no respondió al cerrarla (para el reintento).
 CREATE TABLE IF NOT EXISTS office_google_eventos (
   user_id   text NOT NULL,
   clave     text NOT NULL,
@@ -25,6 +26,7 @@ CREATE TABLE IF NOT EXISTS office_google_eventos (
   fin       timestamptz NOT NULL,
   enlace    text,
   cerrada   boolean NOT NULL DEFAULT false,
+  cierre    timestamptz,
   creado_en timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (user_id, clave)
 );

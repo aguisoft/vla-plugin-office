@@ -34,6 +34,7 @@ function armar(google: (url: string, init: any) => { status?: number; body?: any
       eventos.set(`${p[0]}|${p[1]}`, { user_id: p[0], clave: p[1], event_id: p[2], firma: conEnlace ? '' : p[3], inicio: conEnlace ? p[3] : p[4], fin: conEnlace ? p[4] : p[5], enlace: conEnlace ? p[5] : null });
       return [];
     }
+    if (s.startsWith('UPDATE office_google_eventos SET cierre')) { eventos.get(`${p[0]}|${p[1]}`).cierre = p[2]; return []; }
     if (s.startsWith('UPDATE office_google_eventos')) { Object.assign(eventos.get(`${p[0]}|${p[1]}`), { fin: p[2], cerrada: true }); return []; }
     if (s.includes("clave LIKE 'reunion:%' AND NOT cerrada")) {
       return [...eventos.values()].filter(e => e.user_id === p[0] && e.clave.startsWith('reunion:') && !e.cerrada && new Date(e.inicio) > new Date(p[1]));
@@ -101,6 +102,11 @@ describe('conectar', () => {
     await expect(svc.completar('codigo', firmarEstado('ana', AHORA.getTime(), SECRETO), 'ana', AHORA.getTime())).rejects.toMatchObject({ codigo: 'api' });
     expect(tokens.size).toBe(0);
     expect(llamadas.some(l => l.url.includes('/revoke'))).toBe(true);
+  });
+
+  it('un tropiezo de Google al probar (500) no se confunde con la API apagada', async () => {
+    const { svc } = armar(url => (url.includes('/calendars/primary/events') ? { status: 500 } : tokenOk('ana@grupovla.com')(url)));
+    await expect(svc.completar('codigo', firmarEstado('ana', AHORA.getTime(), SECRETO), 'ana', AHORA.getTime())).rejects.toMatchObject({ codigo: 'prueba' });
   });
 
   it('rechaza la vuelta si en ese navegador hay otra sesión (alguien le pasó su enlace)', async () => {
@@ -227,7 +233,7 @@ describe('reuniones de la oficina', () => {
     expect(llamadas.filter(l => l.metodo === 'PATCH')).toHaveLength(1);
   });
 
-  it('si Google no la cierra, queda abierta y se reintenta en el próximo cierre', async () => {
+  it('si Google no la cierra, queda abierta y se reintenta en el próximo cierre con la hora real', async () => {
     let falla = true;
     const { svc, tokens, eventos, llamadas } = armar((url, init) => {
       if (init.method === 'POST') return { body: { id: 'gm', hangoutLink: 'https://meet.google.com/abc-defg-hij' } };
@@ -242,7 +248,9 @@ describe('reuniones de la oficina', () => {
     falla = false;
     await svc.cerrarReuniones('ana', undefined, new Date(AHORA.getTime() + 12 * 60_000));
     expect(llamadas.filter(l => l.metodo === 'PATCH')).toHaveLength(2);
-    expect(eventos.get('ana|reunion:m1').fin).toBe('2026-10-14T16:12:00.000Z');
+    // Terminó a las +10, no a las +12 del reintento.
+    expect(eventos.get('ana|reunion:m1').fin).toBe('2026-10-14T16:10:00.000Z');
+    expect(llamadas.filter(l => l.metodo === 'PATCH').map(l => l.cuerpo.end.dateTime)).toEqual(['2026-10-14T16:10:00.000Z', '2026-10-14T16:10:00.000Z']);
   });
 
   it('una reunión de más de una hora también se cierra con la hora real', async () => {

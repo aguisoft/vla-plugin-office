@@ -900,11 +900,18 @@ const plugin: PluginDefinition = {
     // «En reunión»; al invitar se ve si está ocupada; las reuniones de la
     // oficina se crean en Google con Meet. Ver lib/google-calendar.ts.
     const urlPublica = () => String(ctx.plugin.config.URL_PUBLICA || 'https://system.somosvla.com').replace(/\/+$/, '');
-    const googleCal = new GoogleCalendarService(ctx, () => ({
-      clientId: String(ctx.plugin.config.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '').trim(),
-      clientSecret: String(ctx.plugin.config.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '').trim(),
-      urlPublica: urlPublica(), tz: tz(),
-    }));
+    const googleCal = new GoogleCalendarService(ctx, () => {
+      // El par de los ajustes o el del servidor, nunca mezclados: un ID con el
+      // secreto de otro cliente hace fallar toda conexión.
+      const id = String(ctx.plugin.config.GOOGLE_CLIENT_ID || '').trim();
+      const secreto = String(ctx.plugin.config.GOOGLE_CLIENT_SECRET || '').trim();
+      const propios = !!id && !!secreto;
+      return {
+        clientId: propios ? id : String(process.env.GOOGLE_CLIENT_ID || '').trim(),
+        clientSecret: propios ? secreto : String(process.env.GOOGLE_CLIENT_SECRET || '').trim(),
+        urlPublica: urlPublica(), tz: tz(),
+      };
+    });
     alTerminarReunionesDe = (hostId, meetingIds) => { void googleCal.cerrarReuniones(hostId, meetingIds).catch(e => ctx.logger.warn(`Google Calendar: cerrar reuniones de ${hostId}: ${e}`)); };
 
     /** Lo que tiene que haber en su Google de hoy a 90 días: ausencias y feriados. */
@@ -955,6 +962,8 @@ const plugin: PluginDefinition = {
       await Promise.race([crear, new Promise(r => setTimeout(r, 5000))]);
     }
 
+    /** Vueltas seguidas en que Google falló, por persona. */
+    const fallasGoogle = new Map<string, number>();
     /**
      * Reuniones de Google → estado, para una persona. Lee su estado y después
      * escribe solo si sigue igual (updateStatusIf): en el medio pudo salir a
@@ -967,12 +976,17 @@ const plugin: PluginDefinition = {
       let eventos: Awaited<ReturnType<typeof googleCal.eventosAhora>>;
       try {
         eventos = await googleCal.eventosAhora(userId);
+        fallasGoogle.delete(userId);
       } catch (e) {
         // Google falla una y otra vez (cliente cambiado, API apagada): si la
         // reunión que la puso «En reunión» ya tenía que haber terminado, vuelve
-        // a Disponible igual; las reuniones no vencen solas.
+        // a Disponible igual; las reuniones no vencen solas. Tres vueltas
+        // seguidas (~6 min): un error pasajero no la saca de una reunión que
+        // se alargó en Google.
+        const fallas = (fallasGoogle.get(userId) ?? 0) + 1;
+        fallasGoogle.set(userId, fallas);
         const termino = p?.statusEndsAt && new Date(p.statusEndsAt).getTime() <= Date.now();
-        if (puesto && !puesto.soltado && termino) {
+        if (fallas >= 3 && puesto && !puesto.soltado && termino) {
           await presence.updateStatusIf(userId, { status: puesto.status, justification: puesto.titulo }, 'AVAILABLE', { source: 'AUTO' });
           await googleCal.borrarPuesto(userId);
         }
@@ -1056,11 +1070,16 @@ const plugin: PluginDefinition = {
       await estadoGoogleDe(yo).catch(e => ctx.logger.warn(`Google Calendar: estado de ${yo} al desconectar: ${e}`));
       res.json({ conectado: false });
     }));
-    /** Al invitar: quién está ocupado en Google ahora y hasta cuándo (cache de un minuto). */
-    ctx.router.get('/google/ocupados', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+    /**
+     * Al invitar: quién está ocupado en Google ahora y hasta cuándo (cache de
+     * un minuto). POST porque el selector manda a todos los candidatos y por
+     * GET la dirección pasaría el límite de nginx con unas 200 personas.
+     */
+    ctx.router.post('/google/ocupados', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       // Primero los conectados y después el tope: el selector manda a todos.
       const conectados = new Set(await googleCal.conectados());
-      const ids = [...new Set(String(req.query.ids ?? '').split(',').map(s => s.trim()))].filter(i => conectados.has(i)).slice(0, 60);
+      const pedidos = Array.isArray(req.body?.ids) ? (req.body.ids as unknown[]).slice(0, 2000).map(String) : [];
+      const ids = [...new Set(pedidos)].filter(i => conectados.has(i)).slice(0, 60);
       const out: Record<string, string> = {};
       const consultar = async (id: string) => {
         const k = `google:ocupado:${id}`;

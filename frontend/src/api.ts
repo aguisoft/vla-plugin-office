@@ -120,7 +120,7 @@ export const conectarGoogle = () => api.get<{ url: string }>(`${PLUGIN}/google/c
 export const desconectarGoogle = () => api.delete<EstadoGoogle>(`${PLUGIN}/google`);
 /** Quién de estos está ocupado en Google ahora: { userId: hasta (ISO) }. */
 export const getOcupadosGoogle = (ids: string[]) =>
-  api.get<Record<string, string>>(`${PLUGIN}/google/ocupados?ids=${encodeURIComponent(ids.join(','))}`);
+  api.post<Record<string, string>>(`${PLUGIN}/google/ocupados`, { ids });
 
 /** Saldo de vacaciones: el propio, o (jefe/RRHH) el de otra persona. */
 export const getSaldoVacaciones = (userId?: string) =>
