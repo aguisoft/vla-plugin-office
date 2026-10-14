@@ -10,7 +10,7 @@ const CERRADA = { STATUS: 'CLOSED', TIME_START: '2026-10-02T08:00:00-06:00', TIM
 
 type Respuestas = Record<string, (params: any) => unknown>;
 
-function armar(respuestas: Respuestas = {}, opciones: { bitrixId?: number | null } = {}) {
+function armar(respuestas: Respuestas = {}, opciones: { bitrixId?: number | null; bitrixIds?: Record<string, number | null> } = {}) {
   const llamadas: Array<{ method: string; params: any }> = [];
   let status: any = ABIERTA;
   const base: Respuestas = {
@@ -44,7 +44,7 @@ function armar(respuestas: Respuestas = {}, opciones: { bitrixId?: number | null
   };
   const salir = vi.fn(async () => undefined);
   const oficina = vi.fn(async () => [{ date: '2026-09-28', minutes: 480 }, { date: '2026-09-29', minutes: 500 }]);
-  const svc = new JornadaService(ctx as any, llamar as any, () => TZ, async () => (opciones.bitrixId === undefined ? 949 : opciones.bitrixId), oficina, salir);
+  const svc = new JornadaService(ctx as any, llamar as any, () => TZ, async (u: string) => (opciones.bitrixIds && u in opciones.bitrixIds ? opciones.bitrixIds[u] : opciones.bitrixId === undefined ? 949 : opciones.bitrixId), oficina, salir);
   return { svc, llamar, llamadas, consultas, salir, ctx, oficina, ponerStatus: (s: any) => { status = s; } };
 }
 
@@ -323,7 +323,7 @@ describe('reporte semanal y mensual', () => {
 describe('pestaña Tareas', () => {
   it('crea una tarea con fecha (18:00 de ese día en Costa Rica) sin sumarla al plan', async () => {
     const { svc, llamadas, consultas } = armar({ 'tasks.task.add': () => ({ task: { id: '900' } }) });
-    expect(await svc.crearTarea('ana', { titulo: ' Informe Q4 ', vence: '2026-10-15' }, AHORA)).toEqual({ taskId: 900 });
+    expect(await svc.crearTarea('ana', { titulo: ' Informe Q4 ', vence: '2026-10-15' }, AHORA)).toEqual({ taskId: 900, taskIds: [900] });
     expect(llamadas.find(l => l.method === 'tasks.task.add')!.params).toEqual({
       fields: { TITLE: 'Informe Q4', RESPONSIBLE_ID: 949, DEADLINE: '2026-10-15T18:00:00-06:00' },
     });
@@ -335,6 +335,39 @@ describe('pestaña Tareas', () => {
     await svc.crearTarea('ana', { titulo: 'Llamar', alPlan: true }, AHORA);
     expect(llamadas.find(l => l.method === 'tasks.task.add')!.params.fields.DEADLINE).toBeUndefined();
     expect(consultas.find(c => /INSERT INTO office_plan_dia/.test(c.sql))!.params).toEqual(['ana', '2026-10-02', 901]);
+  });
+
+  it('con varios responsables crea una tarea por cada uno, con los observadores en todas', async () => {
+    let n = 910;
+    const { svc, llamadas, consultas } = armar({ 'tasks.task.add': () => ({ task: { id: String(n++) } }) },
+      { bitrixIds: { ana: 949, bruno: 12, camila: 13, paula: 20 } });
+    const r = await svc.crearTarea('ana', { titulo: 'Revisar contrato', paraMi: true, responsables: ['bruno'], observadores: ['paula', 'bruno'], alPlan: true }, AHORA);
+    expect(r).toEqual({ taskId: 910, taskIds: [910, 911] });
+    expect(llamadas.filter(l => l.method === 'tasks.task.add').map(l => l.params.fields)).toEqual([
+      { TITLE: 'Revisar contrato', RESPONSIBLE_ID: 949, AUDITORS: [20, 12] },
+      // Bruno es responsable de su copia: no va además como observador.
+      { TITLE: 'Revisar contrato', RESPONSIBLE_ID: 12, AUDITORS: [20] },
+    ]);
+    // Al plan de hoy, solo la propia.
+    expect(consultas.filter(c => /INSERT INTO office_plan_dia/.test(c.sql)).map(c => c.params)).toEqual([['ana', '2026-10-02', 910]]);
+  });
+
+  it('para otra persona: solo ella es responsable', async () => {
+    const { svc, llamadas } = armar({ 'tasks.task.add': () => ({ task: { id: '920' } }) }, { bitrixIds: { ana: 949, camila: 13 } });
+    await svc.crearTarea('ana', { titulo: 'Llamar al cliente', responsables: ['camila'] }, AHORA);
+    expect(llamadas.find(l => l.method === 'tasks.task.add')!.params.fields).toEqual({ TITLE: 'Llamar al cliente', RESPONSIBLE_ID: 13 });
+  });
+
+  it('si alguien no tiene Bitrix vinculado, no crea nada', async () => {
+    const { svc, llamar } = armar({}, { bitrixIds: { ana: 949, luis: null } });
+    await expect(svc.crearTarea('ana', { titulo: 'x', responsables: ['luis'] }, AHORA)).rejects.toMatchObject({ status: 400 });
+    expect(llamar).not.toHaveBeenCalled();
+  });
+
+  it.each([['ana'], [[1, 2]], [Array.from({ length: 21 }, (_, i) => 'p' + i)]])('rechaza responsables %p', async (responsables) => {
+    const { svc, llamar } = armar();
+    await expect(svc.crearTarea('ana', { titulo: 'x', responsables }, AHORA)).rejects.toMatchObject({ status: 400 });
+    expect(llamar).not.toHaveBeenCalled();
   });
 
   it('cambia la fecha o la quita', async () => {

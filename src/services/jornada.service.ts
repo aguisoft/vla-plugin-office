@@ -179,26 +179,55 @@ export class JornadaService {
   }
 
   /**
-   * Tarea nueva desde la pestaña Tareas: con fecha de vencimiento opcional y,
-   * si se pide, también al plan de hoy.
+   * Tarea nueva desde la pestaña Tareas: con fecha de vencimiento opcional,
+   * responsables y observadores, y, si se pide, también al plan de hoy.
+   *
+   * Bitrix admite UN responsable por tarea: con varios se crea una copia para
+   * cada uno, igual que hace Bitrix en la web (14-oct-2026). `responsables` son
+   * los otros (la app no se lista a sí misma); `paraMi` suma una copia para
+   * quien la crea. Sin nadie, es para quien la crea. Los observadores van en
+   * todas las copias.
    */
-  async crearTarea(userId: string, entrada: { titulo?: unknown; vence?: unknown; alPlan?: unknown }, ahora = new Date()): Promise<{ taskId: number }> {
+  async crearTarea(
+    userId: string,
+    entrada: { titulo?: unknown; vence?: unknown; alPlan?: unknown; responsables?: unknown; paraMi?: unknown; observadores?: unknown },
+    ahora = new Date(),
+  ): Promise<{ taskId: number; taskIds: number[] }> {
     const titulo = typeof entrada.titulo === 'string' ? entrada.titulo.trim() : '';
     if (!titulo || titulo.length > 250) throw new JornadaError(400, 'La tarea necesita un nombre (hasta 250 caracteres).');
     const deadline = this.deadlineDe(entrada.vence);
-    const bid = await this.miBitrix(userId);
-    const fields: Record<string, unknown> = { TITLE: titulo, RESPONSIBLE_ID: bid };
-    if (deadline) fields.DEADLINE = deadline;
-    const r = await this.llamar(userId, 'tasks.task.add', { fields });
-    const taskId = Number(r?.task?.id);
-    if (!Number.isInteger(taskId) || taskId <= 0) throw new Error('[tasks.task.add] respuesta sin id');
-    if (entrada.alPlan === true) {
-      await this.ctx.query(
-        `INSERT INTO office_plan_dia (user_id, fecha, task_id) VALUES ($1, $2::date, $3) ON CONFLICT DO NOTHING`,
-        [userId, localDateString(ahora, this.tz()), taskId],
-      );
+    const responsables = this.listaDePersonas(entrada.responsables, 'responsables');
+    const observadores = this.listaDePersonas(entrada.observadores, 'observadores');
+    const miBid = await this.miBitrix(userId);
+    const bitrixDe = async (ids: string[]) => Promise.all(ids.map(async id => {
+      const bid = id === userId ? miBid : await this.bitrixIdDe(id);
+      if (!bid) throw new JornadaError(400, 'Una de las personas elegidas no tiene su Bitrix vinculado.');
+      return bid;
+    }));
+    const quienes = [...new Set([...(entrada.paraMi === true ? [userId] : []), ...responsables])];
+    const paraQuien = await bitrixDe(quienes.length ? quienes : [userId]);
+    const mirones = await bitrixDe(observadores);
+
+    // De a una: el portal tiene ~2 llamadas/s, compartidas con cobros.
+    const taskIds: number[] = [];
+    for (const responsable of paraQuien) {
+      const fields: Record<string, unknown> = { TITLE: titulo, RESPONSIBLE_ID: responsable };
+      if (deadline) fields.DEADLINE = deadline;
+      const auditores = mirones.filter(b => b !== responsable);
+      if (auditores.length) fields.AUDITORS = auditores;
+      const r = await this.llamar(userId, 'tasks.task.add', { fields });
+      const taskId = Number(r?.task?.id);
+      if (!Number.isInteger(taskId) || taskId <= 0) throw new Error('[tasks.task.add] respuesta sin id');
+      taskIds.push(taskId);
+      // Al plan de hoy solo la copia propia: las de otros no son trabajo de quien la crea.
+      if (entrada.alPlan === true && responsable === miBid) {
+        await this.ctx.query(
+          `INSERT INTO office_plan_dia (user_id, fecha, task_id) VALUES ($1, $2::date, $3) ON CONFLICT DO NOTHING`,
+          [userId, localDateString(ahora, this.tz()), taskId],
+        );
+      }
     }
-    return { taskId };
+    return { taskId: taskIds[0], taskIds };
   }
 
   /** Cambiar (o quitar, con `null`) la fecha de vencimiento. */
@@ -318,6 +347,15 @@ export class JornadaService {
       jornada, plan, tareas: abiertas.filter(t => !enPlan.has(t.id)), eventos, hechasHoy,
       planOficina: { ids: deOficina, planBitrix },
     };
+  }
+
+  /** Ids de personas de la oficina, sin repetir; hasta 20 para no saturar Bitrix. */
+  private listaDePersonas(valor: unknown, que: string): string[] {
+    if (valor == null) return [];
+    if (!Array.isArray(valor) || valor.some(v => typeof v !== 'string' || !v.trim())) throw new JornadaError(400, `Los ${que} no son válidos.`);
+    const ids = [...new Set(valor.map(v => v.trim()))];
+    if (ids.length > 20) throw new JornadaError(400, `Hasta 20 ${que} por tarea.`);
+    return ids;
   }
 
   private async miBitrix(userId: string): Promise<number> {
