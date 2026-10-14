@@ -216,6 +216,30 @@ const ESCENAS = {
     await browser.close();
   },
 
+  async '42-google'() {
+    const { browser, page } = await abrir();
+    await page.getByTestId('menu-personal').click();
+    await page.getByTestId('personal-google').click();
+    await page.getByTestId('conectar-google').waitFor();
+    const m = page.getByTestId('google-calendar');
+    await anotar(page, [
+      { n: 1, blanco: m.locator('ul'), pad: 6 },
+      { n: 2, blanco: page.getByTestId('conectar-google'), pad: 4 },
+    ]);
+    await foto(page, '42-google', await recorte(page, modal(page), 30));
+    await browser.close();
+  },
+
+  async '43-google-ocupado'() {
+    const { browser, page } = await abrir();
+    await elegirEstado(page, 'En reunión interna');
+    const o = page.getByTestId('ocupado-google').first();
+    await o.waitFor();
+    await anotar(page, [{ n: 1, blanco: o, pad: 5 }]);
+    await foto(page, '43-google-ocupado', await recorte(page, modal(page), 30));
+    await browser.close();
+  },
+
   async '13-aviso-feriado'() {
     const { browser, page } = await abrir({ feriadoProximo: true });
     await page.waitForTimeout(600);
@@ -292,6 +316,7 @@ const ESCENAS = {
       { n: 1, blanco: page.getByTestId('personal-avatar'), pad: 0 },
       { n: 2, blanco: page.getByTestId('personal-ausencias'), pad: 0 },
       { n: 3, blanco: page.getByTestId('personal-escritorio'), pad: 0 },
+      { n: 4, blanco: page.getByTestId('personal-google'), pad: 0 },
     ]);
     await foto(page, '18-menu-personal', await recorte(page, menu, 40, { alto: 20 }));
     await browser.close();

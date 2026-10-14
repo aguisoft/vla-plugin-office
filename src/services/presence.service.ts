@@ -251,6 +251,40 @@ export class PresenceService {
       update: data,
     });
 
+    return this.trasCambiarEstado(userId, presence, status, now, extra);
+  }
+
+  /**
+   * Un cambio automático (el de Google Calendar): solo si la persona sigue en
+   * la oficina, con el estado `esperado` y sin reunión de la oficina. Compara y
+   * escribe en un solo paso, así no pisa lo que la persona cambió entre que se
+   * leyó su estado y ahora (un almuerzo, una reunión, la salida). No cuenta como
+   * actividad de la persona: no mueve lastActivityAt. null si no se escribió.
+   */
+  async updateStatusIf(
+    userId: string,
+    esperado: { status: string; justification: string | null },
+    status: OfficeStatus,
+    extra: StatusExtra = {},
+  ): Promise<PresenceRecord | null> {
+    const now = new Date();
+    const { count } = await this.ctx.prisma.presenceStatus.updateMany({
+      where: { userId, isCheckedIn: true, status: esperado.status as any, justification: esperado.justification, meetingId: null },
+      data: {
+        status,
+        justification:  extra.justification ?? null,
+        statusStartsAt: inicioDelEstado(status, extra.startsAt, now),
+        statusEndsAt:   extra.endsAt ?? null,
+        meetingId:      null,
+      },
+    });
+    if (!count) return null;
+    const presence = await this.ctx.prisma.presenceStatus.findUnique({ where: { userId } });
+    return this.trasCambiarEstado(userId, presence, status, now, extra);
+  }
+
+  /** Lo que sigue a todo cambio de estado: caché, hook, aviso en vivo y registro. */
+  private async trasCambiarEstado(userId: string, presence: any, status: OfficeStatus, now: Date, extra: StatusExtra): Promise<PresenceRecord> {
     const record = this.toRecord(presence);
     await this.ctx.redis.setJson(`presence:${userId}`, record, PRESENCE_CACHE_TTL);
     await this.ctx.hooks.doAction('office.user.status_changed', { userId, status });

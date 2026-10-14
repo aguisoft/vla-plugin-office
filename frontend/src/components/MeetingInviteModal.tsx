@@ -36,6 +36,12 @@ export function MeetingInviteModal({ invite, onRespond }: {
           {invite.justification}
         </p>
       )}
+      {invite.meet && (
+        <a href={invite.meet} target="_blank" rel="noreferrer" data-testid="unirse-meet"
+          className="mt-2 flex items-center justify-center gap-1.5 rounded-xl border border-gray-200 px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50">
+          🎥 Unirse por Meet
+        </a>
+      )}
       <p className="mt-2 text-[10px] text-gray-400">
         Vence a las {fmtTime(invite.expiresAt)}
       </p>

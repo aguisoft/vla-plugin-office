@@ -1,6 +1,6 @@
 {
   "name": "office",
-  "version": "1.49.0",
+  "version": "1.50.0",
   "description": "Presencia en tiempo real de trabajadores en la oficina virtual. Integración con Bitrix24.",
   "author": "VLA Team",
   "vlaMinVersion": "1.1.0",
@@ -272,6 +272,24 @@
             "label": "Rol de RRHH",
             "description": "Quienes tengan este rol reciben en la oficina y por Bitrix lo que pide quien no tiene jefe directo (el correo va al buzón de RRHH).",
             "default": "RRHH Oficina"
+          }
+        ]
+      },
+      {
+        "title": "Google Calendar",
+        "description": "Cada persona conecta su calendario desde su menú. Si se dejan vacíos, se usa el cliente de Google del inicio de sesión del sistema. En Google Cloud: habilitar la API de Google Calendar y agregar como URI de redirección https://system.somosvla.com/api/v1/p/office/google/callback.",
+        "fields": [
+          {
+            "key": "GOOGLE_CLIENT_ID",
+            "type": "string",
+            "label": "Client ID de Google (opcional)",
+            "default": ""
+          },
+          {
+            "key": "GOOGLE_CLIENT_SECRET",
+            "type": "string",
+            "label": "Client secret de Google (opcional)",
+            "default": ""
           }
         ]
       }

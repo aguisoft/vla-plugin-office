@@ -9,7 +9,7 @@ import type { AvatarCfg } from '../types';
  * nombre aparecían por separado, y «Escritorio» ocupaba un lugar fijo para
  * algo que se configura una vez.
  */
-export function MenuPersonal({ nombre, avatar, photoUrl, status, faltaEscritorio, onAvatar, onAusencias, onEscritorio }: {
+export function MenuPersonal({ nombre, avatar, photoUrl, status, faltaEscritorio, onAvatar, onAusencias, onEscritorio, onGoogle }: {
   nombre: string;
   avatar: AvatarCfg | null;
   photoUrl?: string;
@@ -19,6 +19,7 @@ export function MenuPersonal({ nombre, avatar, photoUrl, status, faltaEscritorio
   onAvatar: () => void;
   onAusencias: () => void;
   onEscritorio: () => void;
+  onGoogle: () => void;
 }) {
   const [abierto, setAbierto] = useState(false);
   const caja = useRef<HTMLDivElement>(null);
@@ -34,6 +35,7 @@ export function MenuPersonal({ nombre, avatar, photoUrl, status, faltaEscritorio
     { id: 'avatar', titulo: 'Personalizar mi avatar', onClick: onAvatar },
     { id: 'ausencias', titulo: 'Mis ausencias y solicitudes', onClick: onAusencias },
     { id: 'escritorio', titulo: faltaEscritorio ? 'Instalar la app de escritorio' : 'App de escritorio y Bitrix', onClick: onEscritorio, marca: faltaEscritorio },
+    { id: 'google', titulo: 'Google Calendar', onClick: onGoogle },
   ];
 
   return (

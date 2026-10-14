@@ -27,6 +27,8 @@ import { HolidayManager } from './components/HolidayManager';
 import { PersonasAdmin, type FiltroPersonas } from './components/PersonasAdmin';
 import { MenuAdministrar, type OpcionAdmin } from './components/MenuAdministrar';
 import { AusenciasAdmin } from './components/AusenciasAdmin';
+import { GoogleCalendarModal } from './components/GoogleCalendarModal';
+import { resultadoGoogle, type ResultadoGoogle } from './googleUx';
 import { MenuPersonal } from './components/MenuPersonal';
 import { MenuGuias } from './components/MenuGuias';
 import { guiasPara } from './guiasUx';
@@ -50,6 +52,18 @@ import { fmtDate, fmtDateOnly, fmtTime, absenceLastDay } from './format';
 export const TILE = 20;
 
 type PendingPick = { status: ResolvedStatus; kind: PayloadKind } | null;
+
+/** Que recargar no vuelva a abrir una ventana con el resultado viejo (en el iframe y en la página). */
+function quitarDeLaUrl(params: string[]) {
+  for (const w of [window, window.parent]) {
+    try {
+      const u = new URL(w.location.href);
+      let cambio = false;
+      for (const p of params) if (u.searchParams.has(p)) { u.searchParams.delete(p); cambio = true; }
+      if (cambio) w.history.replaceState({}, '', u);
+    } catch { /* otro origen */ }
+  }
+}
 
 export default function App() {
   const configMode = new URLSearchParams(window.location.search).get('config') === 'true';
@@ -101,6 +115,13 @@ export default function App() {
     return enlaceEscritorio(window.location.search, dePadre);
   });
   const [showEscritorio, setShowEscritorio] = useState(vueltaBitrix !== null || enlace !== null);
+  // Al volver de Google (?google=…) se abre su ventana con el resultado.
+  const [vueltaGoogle] = useState<ResultadoGoogle | null>(() => {
+    let dePadre: string | null = null;
+    try { dePadre = window.parent !== window ? window.parent.location.search : null; } catch { /* otro origen */ }
+    return resultadoGoogle(window.location.search, dePadre);
+  });
+  const [showGoogle, setShowGoogle] = useState(vueltaGoogle !== null);
   // ¿Tiene la app de escritorio? Para ofrecérsela a quien no.
   const [usoEscritorio, setUsoEscritorio] = useState<UsoEscritorio | null>(null);
   useEffect(() => { getEscritorioMio().then(setUsoEscritorio).catch(() => undefined); }, []);
@@ -679,6 +700,7 @@ export default function App() {
           onAvatar={() => setShowAvatarModal(true)}
           onAusencias={() => setShowAbsences(true)}
           onEscritorio={() => setShowEscritorio(true)}
+          onGoogle={() => setShowGoogle(true)}
         />
       )}
     </div>
@@ -695,15 +717,7 @@ export default function App() {
           autoConectar={enlace?.tipo === 'bitrix'}
           onClose={() => {
             setShowEscritorio(false);
-            // Que recargar no vuelva a abrirla con el resultado viejo.
-            for (const w of [window, window.parent]) {
-              try {
-                const u = new URL(w.location.href);
-                let cambio = false;
-                for (const p of ['bitrix', 'escritorio']) if (u.searchParams.has(p)) { u.searchParams.delete(p); cambio = true; }
-                if (cambio) w.history.replaceState({}, '', u);
-              } catch { /* otro origen */ }
-            }
+            quitarDeLaUrl(['bitrix', 'escritorio']);
           }} />
       )}
       {pidiendoInforme && (
@@ -717,6 +731,7 @@ export default function App() {
         <HolidayManager onClose={() => setShowHolidayAdmin(false)}
           onAbrirPersonas={f => { setShowHolidayAdmin(false); setPersonasAdmin(f); }} />
       )}
+      {showGoogle && <GoogleCalendarModal resultado={vueltaGoogle} onClose={() => { setShowGoogle(false); quitarDeLaUrl(['google']); }} />}
       {showAusenciasAdmin && canManageHolidays && (
         <AusenciasAdmin onClose={() => setShowAusenciasAdmin(false)} onChanged={() => { void loadData(); void cargarBandeja(); }} />
       )}

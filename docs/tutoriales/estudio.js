@@ -301,6 +301,9 @@ async function abrir({ ancho = 1360, alto = 860, ruta = '/', ...esc } = {}) {
     if (q === '/layout') return json({ layout: { id: layoutReal.id, name: layoutReal.name, zones: zonas } });
     if (q === '/snapshot') return json(equipo(e));
     if (q === '/presence/me/aviso') return json(null);
+    // Google Calendar: `google: 'conectado'` en el escenario; Bruno ocupado en Google hasta las 10:30.
+    if (q === '/google/estado') return json(e.google === 'conectado' ? { configurado: true, conectado: true, email: 'ana.rojas@grupovla.com', desde: hace(60 * 24) } : { configurado: true, conectado: false });
+    if (q === '/google/ocupados') return json({ bruno: '2026-11-25T16:30:00.000Z' });
     if (q === '/vacaciones/saldo') return json(u.searchParams.get('userId') ? { cargado: false } : saldoAna(e));
     // `escritorio: 'nueva'`: todavía no instaló la app ni conectó Bitrix.
     if (q === '/escritorio/mio' && e.escritorio === 'nueva') return json({ instalada: false, version: null, ultimaVez: null, alDia: false, companeros: 14, publicada: { version: '0.9.6', tamano: 117000000, tamanoTexto: '112 MB', fecha: '2026-10-13' } });
@@ -314,7 +317,7 @@ async function abrir({ ancho = 1360, alto = 860, ruta = '/', ...esc } = {}) {
     if (q === '/avisos/clave-navegador') return json({ clave: null });
     if (q === '/holidays/movable') return json(e.feriadoProximo ? [{ id: 'h-dic1', date: '2026-12-01T00:00:00.000Z', name: 'Abolición del Ejército', country: 'CR' }] : []);
     if (q === '/holidays/overrides/mine') return json([]);
-    if (q === '/meetings/invites') return json(e.invitacion ? [{ id: 'inv1', meetingId: 'm1', hostId: 'bruno', hostName: 'Bruno Méndez', justification: 'Repasar la propuesta para el cliente', expiresAt: en(5) }] : []);
+    if (q === '/meetings/invites') return json(e.invitacion ? [{ id: 'inv1', meetingId: 'm1', hostId: 'bruno', hostName: 'Bruno Méndez', justification: 'Repasar la propuesta para el cliente', expiresAt: en(5), meet: e.meet ? 'https://meet.google.com/abc-defg-hij' : null }] : []);
     if (q === '/solicitudes/mias') return json([
       { id: 's1', userId: 'ana', tipo: 'VACACIONES', startAt: '2026-12-21T06:00:00Z', endAt: '2026-12-24T05:59:59Z', justificacion: 'Viaje familiar', estado: 'aprobada', absenceId: 'a1', resueltaPor: 'paula', resueltaEn: hace(35), motivoResolucion: null, creadaPor: 'ana', creadaEn: hace(300), nombreResolvio: 'Paula Núñez' },
       { id: 's2', userId: 'ana', tipo: 'CITA_MEDICA', startAt: '2026-11-27T20:00:00Z', endAt: '2026-11-27T21:30:00Z', justificacion: 'Control en la clínica', estado: 'pendiente', absenceId: 'a2', resueltaPor: null, resueltaEn: null, motivoResolucion: null, creadaPor: 'ana', creadaEn: hace(20), adjuntos: [{ id: 'd1', nombre: 'cita-clinica.pdf', tipo: 'application/pdf', bytes: 84000 }] },

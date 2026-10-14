@@ -42,6 +42,8 @@ describe('el manifiesto declara lo que el código lee', () => {
     'CORREO_RRHH',
     // index.ts → rrhhIds (respaldo en duro: «RRHH Oficina»)
     'ROL_RRHH',
+    // index.ts → googleCal (respaldo: el cliente del inicio de sesión del core)
+    'GOOGLE_CLIENT_ID', 'GOOGLE_CLIENT_SECRET',
   ];
 
   it.each(LEIDOS_POR_EL_CODIGO)('declara %s', clave => {

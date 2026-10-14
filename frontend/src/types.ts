@@ -91,6 +91,8 @@ export interface PendingInvite {
   hostName: string;
   justification: string | null;
   expiresAt: string;
+  /** Enlace de Meet, si quien la armó tiene su Google Calendar conectado. */
+  meet?: string | null;
 }
 
 export interface UnavailableParticipant {

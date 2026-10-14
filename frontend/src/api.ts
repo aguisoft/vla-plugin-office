@@ -113,6 +113,15 @@ export const createAbsence = (body: {
 /** URL de descarga de un documento. El servidor decide si quien pide puede verlo. */
 // ── Solicitudes de ausencia (con aprobación del jefe) ─────────────────────
 export const listMisSolicitudes = () => api.get<SolicitudAusencia[]>(`${PLUGIN}/solicitudes/mias`);
+// ── Google Calendar de cada persona ──────────────────────────────────────────
+export interface EstadoGoogle { configurado: boolean; conectado: boolean; email?: string; desde?: string }
+export const getGoogleEstado = () => api.get<EstadoGoogle>(`${PLUGIN}/google/estado`);
+export const conectarGoogle = () => api.get<{ url: string }>(`${PLUGIN}/google/conectar`);
+export const desconectarGoogle = () => api.delete<EstadoGoogle>(`${PLUGIN}/google`);
+/** Quién de estos está ocupado en Google ahora: { userId: hasta (ISO) }. */
+export const getOcupadosGoogle = (ids: string[]) =>
+  api.get<Record<string, string>>(`${PLUGIN}/google/ocupados?ids=${encodeURIComponent(ids.join(','))}`);
+
 /** Saldo de vacaciones: el propio, o (jefe/RRHH) el de otra persona. */
 export const getSaldoVacaciones = (userId?: string) =>
   api.get<SaldoVacaciones>(`${PLUGIN}/vacaciones/saldo${userId ? `?userId=${encodeURIComponent(userId)}` : ''}`);

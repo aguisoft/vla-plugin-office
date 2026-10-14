@@ -148,3 +148,35 @@ describe('PresenceService.escritorioConectado', () => {
     expect(service.conectados()).toEqual([]);
   });
 });
+
+describe('PresenceService.updateStatusIf', () => {
+  function armar(count: number) {
+    const { ctx } = makeCtx({});
+    const updateMany = vi.fn(async () => ({ count }));
+    const doAction = vi.fn(async () => undefined);
+    const fila = { userId: 'ana', isCheckedIn: true, status: 'IN_MEETING_EXTERNAL', justification: 'Demo' };
+    const service = new PresenceService({
+      ...ctx,
+      prisma: { presenceStatus: { updateMany, findUnique: vi.fn(async () => fila) } },
+      redis: { setJson: vi.fn(async () => undefined) },
+      hooks: { doAction },
+    } as unknown as PluginContext);
+    return { service, updateMany, doAction };
+  }
+
+  it('escribe solo si sigue en la oficina con el estado que se leyó y sin reunión de la oficina', async () => {
+    const { service, updateMany } = armar(1);
+    const r = await service.updateStatusIf('ana', { status: 'AVAILABLE', justification: null }, 'IN_MEETING_EXTERNAL', { justification: 'Demo', source: 'AUTO' });
+    expect(r).toMatchObject({ status: 'IN_MEETING_EXTERNAL' });
+    const arg = (updateMany.mock.calls[0] as any[])[0];
+    expect(arg.where).toEqual({ userId: 'ana', isCheckedIn: true, status: 'AVAILABLE', justification: null, meetingId: null });
+    // Un cambio automático no es actividad de la persona.
+    expect(arg.data).not.toHaveProperty('lastActivityAt');
+  });
+
+  it('si la persona lo cambió en el medio, no toca nada ni avisa', async () => {
+    const { service, doAction } = armar(0);
+    expect(await service.updateStatusIf('ana', { status: 'AVAILABLE', justification: null }, 'IN_MEETING_EXTERNAL', { source: 'AUTO' })).toBeNull();
+    expect(doAction).not.toHaveBeenCalled();
+  });
+});

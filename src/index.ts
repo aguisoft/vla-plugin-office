@@ -9,7 +9,7 @@ import { BitrixService } from './services/bitrix.service';
 import { AbsenceService } from './services/absence.service';
 import { OrgService } from './services/org.service';
 import { HolidayService } from './services/holiday.service';
-import { MeetingService } from './services/meeting.service';
+import { MeetingService, cryptoRandomId } from './services/meeting.service';
 import { TimesheetService } from './services/timesheet.service';
 import { TeamService } from './services/team.service';
 import { ComplianceService } from './services/compliance.service';
@@ -33,6 +33,8 @@ import { estadoDePlanta } from './lib/planta';
 import { SolicitudesService, type Solicitud } from './services/solicitudes.service';
 import { textoRango, NOMBRE_TIPO, fraseResolucion, fichaSolicitud, fechaLarga, fraseCargada, aQuienAvisar, textoRecordatorio, fraseCanceladaPorDueno, textoDiasHabiles } from './lib/solicitudes';
 import { resumenRango, saldoDesdeCarga, alcanzaSaldo, type SaldoVacaciones } from './lib/vacaciones';
+import { GoogleCalendarService, ErrorGoogle } from './services/google-calendar.service';
+import { eventosDeAusencias, reunionEnCurso, decidirEstado } from './lib/google-calendar';
 import { nombresPorUsuario } from './lib/user-names';
 import { AdjuntosService } from './services/adjuntos.service';
 import { AvisosService } from './services/avisos.service';
@@ -135,12 +137,20 @@ const plugin: PluginDefinition = {
       ctx,
       (userId, payload) => presence.broadcastToUser(userId, payload),
       (userId) => presence.updateStatus(userId, 'AVAILABLE').then(() => undefined),
+      (hostId, meetingIds) => alTerminarReunionesDe(hostId, meetingIds),
     );
+    // Cierra en Google las reuniones de la oficina de esa persona (todas, o
+    // solo esas). Se completa cuando existe el servicio de Google Calendar (más abajo).
+    let alTerminarReunionesDe: (hostId: string, meetingIds?: string[]) => void = () => undefined;
     // Cierra el ciclo presence ↔ meetings sin dependencia circular en el
     // constructor: checkIn/checkOut ahora liberan reuniones automáticamente,
     // y con eso el cron de inactividad y el webhook de Bitrix (que solo
     // llaman checkIn/checkOut) heredan el release sin tocarlos. Ver Fix #1.
-    presence.setMeetingReleaser((userId) => meetings.releaseUser(userId));
+    // También cierran en Google las que armó (aunque nadie las hubiera aceptado).
+    presence.setMeetingReleaser(async (userId) => {
+      await meetings.releaseUser(userId);
+      alTerminarReunionesDe(userId);
+    });
     // Instanciado después de absences/holidays/org: los recibe en el constructor.
     const snapshot = new SnapshotService(ctx, absences, holidays, org, bitrix, undefined, tz);
     // Las dos últimas son funciones y no valores porque `ctx.plugin.config` se
@@ -593,11 +603,18 @@ const plugin: PluginDefinition = {
       // Bitrix) y en el handler de aceptar invitación — ver
       // MeetingService.releaseUser.
       await meetings.releaseUser(userId);
+      // Su reunión anterior en Google termina acá (aunque nadie la hubiera
+      // aceptado). No hace falta esperarlo: va en la fila de esa persona antes
+      // que la reunión nueva, así que nunca cierra la que se crea abajo.
+      alTerminarReunionesDe(userId);
 
       let meetingId: string | null = null;
       if (status === 'IN_MEETING_INTERNAL' && participantIds.length) {
         const justification = body.justification!.trim();
-        ({ meetingId } = await meetings.invite(userId, participantIds, justification));
+        // Primero el evento de Google con Meet, así la invitación ya lleva el enlace.
+        const idNuevo = cryptoRandomId();
+        await reunionEnGoogle(userId, idNuevo, justification, participantIds);
+        ({ meetingId } = await meetings.invite(userId, participantIds, justification, idNuevo));
         // La app y la oficina muestran la invitación por su cuenta; esto es el
         // aviso del navegador para quien no tiene ninguna de las dos abierta.
         void nombreDe(userId).then(anfitrion => avisos.avisar(participantIds, {
@@ -849,6 +866,7 @@ const plugin: PluginDefinition = {
       if (!solicitudId) return res.status(404).json({ message: 'Ausencia no encontrada' });
       const r = await solicitudes.cancelar(solicitudId, requesterId, String(req.query.motivo ?? ''), can(req, PERMS.MANAGE));
       if (!r.ok) return res.status(r.status).json({ message: r.message });
+      programarSyncGoogle(r.solicitud.userId);
       res.status(204).end();
     }));
 
@@ -875,6 +893,178 @@ const plugin: PluginDefinition = {
       const hasta = new Date(Date.UTC(anio, mes, 2));
       return resumenMensual(await absences.listForUserDetailed(userId, desde, hasta), anio, mes, zona);
     }
+
+    // ── Google Calendar de cada persona (14-oct-2026) ─────────────────────
+    // Cada uno conecta su cuenta (@grupovla.com o @vlacademy.com). Ausencias y
+    // feriados van como «Fuera de la oficina»; una reunión en Google la pone
+    // «En reunión»; al invitar se ve si está ocupada; las reuniones de la
+    // oficina se crean en Google con Meet. Ver lib/google-calendar.ts.
+    const urlPublica = () => String(ctx.plugin.config.URL_PUBLICA || 'https://system.somosvla.com').replace(/\/+$/, '');
+    const googleCal = new GoogleCalendarService(ctx, () => ({
+      clientId: String(ctx.plugin.config.GOOGLE_CLIENT_ID || process.env.GOOGLE_CLIENT_ID || '').trim(),
+      clientSecret: String(ctx.plugin.config.GOOGLE_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET || '').trim(),
+      urlPublica: urlPublica(), tz: tz(),
+    }));
+    alTerminarReunionesDe = (hostId, meetingIds) => { void googleCal.cerrarReuniones(hostId, meetingIds).catch(e => ctx.logger.warn(`Google Calendar: cerrar reuniones de ${hostId}: ${e}`)); };
+
+    /** Lo que tiene que haber en su Google de hoy a 90 días: ausencias y feriados. */
+    async function sincronizarAusenciasGoogle(userId: string): Promise<void> {
+      const desde = new Date();
+      const hasta = new Date(desde.getTime() + 90 * 86_400_000);
+      const country = await org.countryOf(userId);
+      // Los nombres, con margen: effectiveDatesByUser trae meses enteros y el
+      // feriado de hoy está guardado a las 00:00. Un día sin nombre saldría
+      // «Feriado» y, al aparecer el nombre, se borraría y crearía de nuevo.
+      const margen = 45 * 86_400_000;
+      const [ausencias, fechas, nombres] = await Promise.all([
+        absences.listForUserDetailed(userId, desde, hasta),
+        holidays.effectiveDatesByUser(new Map([[userId, country]]), desde, hasta).then(m => m.get(userId) ?? new Set<string>()),
+        ctx.prisma.holiday.findMany({
+          where: { country, date: { gte: new Date(desde.getTime() - margen), lte: new Date(hasta.getTime() + margen) } },
+          select: { date: true, name: true },
+        }).then((hs: any[]) => new Map(hs.map(h => [new Date(h.date).toISOString().slice(0, 10), h.name as string]))).catch(() => new Map<string, string>()),
+      ]);
+      const deseados = eventosDeAusencias(
+        (ausencias as any[]).map(a => ({ id: String(a.id), type: String(a.type), startAt: new Date(a.startAt), endAt: new Date(a.endAt) })),
+        [...fechas].map(fecha => ({ fecha, nombre: nombres.get(fecha) ?? null })), tz());
+      await googleCal.reconciliar(userId, deseados);
+    }
+    const syncPendientes = new Map<string, ReturnType<typeof setTimeout>>();
+    /** Al cambiar una ausencia: en unos segundos, sin repetir si cambian varias juntas. */
+    const programarSyncGoogle = (userId: string) => {
+      clearTimeout(syncPendientes.get(userId));
+      syncPendientes.set(userId, setTimeout(() => {
+        syncPendientes.delete(userId);
+        void googleCal.emailDe(userId).then(email => (email ? sincronizarAusenciasGoogle(userId) : undefined))
+          .catch(e => ctx.logger.warn(`Google Calendar: sincronizar ${userId}: ${e}`));
+      }, 3000));
+    };
+
+    /** El evento en Google (con Meet) de una reunión que arma la oficina; tope de 5 s para no frenar la reunión. */
+    async function reunionEnGoogle(hostId: string, meetingId: string, titulo: string, participantIds: string[]): Promise<void> {
+      if (!(await googleCal.emailDe(hostId).catch(() => null))) return;
+      const usuarios = await ctx.prisma.user.findMany({ where: { id: { in: participantIds } }, select: { email: true } }) as Array<{ email: string }>;
+      const crear = googleCal.crearReunion(hostId, meetingId, titulo, usuarios.map(u => u.email))
+        .catch(e => { ctx.logger.warn(`Google Calendar: no se creó la reunión de ${hostId}: ${e}`); return null; });
+      await Promise.race([crear, new Promise(r => setTimeout(r, 5000))]);
+    }
+
+    /**
+     * Reuniones de Google → estado, para una persona. Lee su estado y después
+     * escribe solo si sigue igual (updateStatusIf): en el medio pudo salir a
+     * almorzar, entrar a una reunión de la oficina o irse.
+     */
+    async function estadoGoogleDe(userId: string): Promise<void> {
+      const [p, puesto] = await Promise.all([ctx.prisma.presenceStatus.findUnique({ where: { userId } }) as Promise<any>, googleCal.puesto(userId)]);
+      if (!p?.isCheckedIn && !puesto) return;   // fuera de la oficina: ni se le pregunta a Google
+      const leido = { status: String(p?.status ?? 'OFFLINE'), justification: (p?.justification ?? null) as string | null };
+      const eventos = await googleCal.eventosAhora(userId);
+      if (eventos === null) {
+        // Se desconectó (o revocó el permiso en Google): si la había puesto
+        // «En reunión», vuelve a Disponible; si no, quedaría así para siempre.
+        if (puesto && !puesto.soltado) {
+          await presence.updateStatusIf(userId, { status: puesto.status, justification: puesto.titulo }, 'AVAILABLE', { source: 'AUTO' });
+        }
+        if (puesto) await googleCal.borrarPuesto(userId);
+        return;
+      }
+      const accion = decidirEstado(reunionEnCurso(eventos, new Date()),
+        p ? { isCheckedIn: !!p.isCheckedIn, status: leido.status, justification: leido.justification } : null, puesto);
+      if (accion.tipo === 'poner') {
+        const r = await presence.updateStatusIf(userId, leido, accion.status, { justification: accion.titulo, endsAt: accion.fin, source: 'AUTO' });
+        if (r) await googleCal.guardarPuesto(userId, { eventId: accion.eventId, status: accion.status, titulo: accion.titulo });
+      } else if (accion.tipo === 'devolver') {
+        await presence.updateStatusIf(userId, leido, 'AVAILABLE', { source: 'AUTO' });
+        await googleCal.borrarPuesto(userId);
+      } else if (accion.tipo === 'soltar') {
+        await googleCal.soltarPuesto(userId);
+      } else if (accion.tipo === 'olvidar') {
+        await googleCal.borrarPuesto(userId);
+      }
+    }
+
+    let estadosGoogleCorriendo = false;
+    /** Cada 2 minutos, para quien está conectado (o quedó «En reunión» por Google). */
+    async function sincronizarEstadosGoogle(): Promise<void> {
+      if (estadosGoogleCorriendo) return;   // la vuelta anterior todavía no terminó
+      estadosGoogleCorriendo = true;
+      try {
+        const ids = [...new Set([...(await googleCal.conectados()), ...(await googleCal.conPuesto())])];
+        for (const userId of ids) {
+          await estadoGoogleDe(userId).catch(e => ctx.logger.warn(`Google Calendar: estado de ${userId}: ${e}`));
+        }
+      } finally {
+        estadosGoogleCorriendo = false;
+      }
+    }
+
+    ctx.router.get('/google/estado', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      res.json(await googleCal.estado((req as any).user?.sub));
+    }));
+    ctx.router.get('/google/conectar', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
+      try {
+        res.json({ url: googleCal.urlConectar((req as any).user?.sub) });
+      } catch (e) {
+        res.status(409).json({ message: e instanceof Error ? e.message : 'No se pudo armar el enlace' });
+      }
+    }));
+    // La vuelta de Google es una redirección del navegador: la firma del state
+    // dice quién pidió el enlace, y la cookie de sesión, quién volvió. Se mira
+    // la sesión sin cortar con un 401: sin ella, se vuelve a la oficina con el aviso.
+    const autenticar = ctx.requireAuth() as any;
+    const sesionDe = (req: any) => new Promise<string | null>(listo => {
+      const sinSesion = { status: () => ({ json: () => listo(null) }) };
+      autenticar(req, sinSesion, () => listo(req.user?.sub ?? null));
+    });
+    ctx.router.get('/google/callback', asyncRoute(async (req, res) => {
+      const destino = (r: string) => res.redirect(`${urlPublica()}/dashboard/office?google=${r}`);
+      if (req.query.error) return destino('cancelado');
+      try {
+        const { userId, email } = await googleCal.completar(String(req.query.code ?? ''), String(req.query.state ?? ''), await sesionDe(req));
+        ctx.logger.log(`Google Calendar: ${userId} conectó ${email}`);
+        programarSyncGoogle(userId);
+        destino('listo');
+      } catch (e) {
+        const codigo = e instanceof ErrorGoogle ? e.codigo : 'error';
+        ctx.logger.warn(`Google Calendar: no se pudo conectar (${codigo}): ${e}`);
+        destino(codigo === 'dominio' || codigo === 'sesion' ? codigo : 'error');
+      }
+    }));
+    ctx.router.delete('/google', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      const yo = (req as any).user?.sub;
+      await googleCal.desconectar(yo);
+      // Si estaba «En reunión» por Google, vuelve a Disponible ya (sin conexión, eventosAhora da null).
+      await estadoGoogleDe(yo).catch(e => ctx.logger.warn(`Google Calendar: estado de ${yo} al desconectar: ${e}`));
+      res.json({ conectado: false });
+    }));
+    /** Al invitar: quién está ocupado en Google ahora y hasta cuándo (cache de un minuto). */
+    ctx.router.get('/google/ocupados', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
+      const ids = String(req.query.ids ?? '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 60);
+      const conectados = new Set(await googleCal.conectados());
+      const out: Record<string, string> = {};
+      for (const id of ids.filter(i => conectados.has(i))) {
+        const k = `google:ocupado:${id}`;
+        let hasta = await ctx.redis.get(k);
+        if (hasta === null) {
+          const h = await googleCal.ocupadoHasta(id).catch(() => null);
+          hasta = h ? h.toISOString() : '';
+          await ctx.redis.set(k, hasta, 60);
+        }
+        if (hasta) out[id] = hasta;
+      }
+      res.json(out);
+    }));
+
+    ctx.hooks.registerAction('office.absence.created', async ({ userId }: { userId: string }) => { programarSyncGoogle(userId); });
+    // Cada 2 minutos, pero NO con «*/2 * * * *»: el core nombra los crons por su
+    // expresión y esa ya la usa la sincronización de jornada de Bitrix (más
+    // abajo); registrar otra igual la reemplaza. «0-58/2» corre en los mismos minutos.
+    ctx.cron('0-58/2 * * * *', () => sincronizarEstadosGoogle().catch(e => ctx.logger.warn(`Google Calendar: estados: ${e}`)));
+    ctx.cron('*/10 * * * *', async () => {
+      for (const userId of await googleCal.conectados().catch(() => [] as string[])) {
+        await sincronizarAusenciasGoogle(userId).catch(e => ctx.logger.warn(`Google Calendar: ausencias de ${userId}: ${e}`));
+      }
+    });
 
     // ── Saldo de vacaciones: lo ve la persona, su jefe y RRHH; lo carga RRHH ──
     ctx.router.get('/vacaciones/saldo', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
@@ -939,6 +1129,7 @@ const plugin: PluginDefinition = {
       ctx.router.post(`/solicitudes/:id/${accion}`, ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
         const r = await solicitudes.resolver(req.params.id, (req as any).user?.sub, accion, String(req.body?.motivo ?? ''), can(req, PERMS.MANAGE));
         if (!r.ok) return res.status(r.status).json({ message: r.message });
+        programarSyncGoogle(r.solicitud.userId);
         res.json(r.solicitud);
       }));
     }
@@ -946,6 +1137,7 @@ const plugin: PluginDefinition = {
     ctx.router.post('/solicitudes/:id/cancelar', ctx.requireAuth(), ctx.requirePermission(PERMS.CHECKIN), asyncRoute(async (req, res) => {
       const r = await solicitudes.cancelar(req.params.id, (req as any).user?.sub, String(req.body?.motivo ?? ''), can(req, PERMS.MANAGE));
       if (!r.ok) return res.status(r.status).json({ message: r.message });
+      programarSyncGoogle(r.solicitud.userId);
       res.json(r.solicitud);
     }));
 
@@ -1071,6 +1263,7 @@ const plugin: PluginDefinition = {
         if (result.ok) {
           const [o] = await ctx.query<{ user_id: string; holiday_id: string; new_date: Date | string; decision_note: string | null }>(
             'SELECT user_id, holiday_id, new_date, decision_note FROM office_holiday_overrides WHERE id = $1', [req.params.id]).catch(() => []);
+          if (o) programarSyncGoogle(o.user_id);
           if (o) {
             const dia = new Intl.DateTimeFormat('es-CR', { timeZone: 'UTC', day: 'numeric', month: 'short' }).format(new Date(o.new_date)).replace('.', '');
             const texto = `Tu pedido de tomar el feriado el ${dia} ${accion === 'approve' ? 'fue aprobado' : 'no fue aprobado'} por ${await nombreDe(userId)}${o.decision_note ? `: «${o.decision_note}»` : ''}`;
@@ -1134,6 +1327,7 @@ const plugin: PluginDefinition = {
           });
         }
       } else if (!tieneJefe) {
+        programarSyncGoogle(userId);
         // Sin jefe queda aprobado solo (no hay quién lo revise), pero RRHH se
         // entera: antes no lo sabía nadie (13-oct-2026).
         const cuerpo = `${texto}. No tiene jefe directo: quedó aprobado`;
@@ -1164,7 +1358,9 @@ const plugin: PluginDefinition = {
     ctx.router.get('/meetings/invites', ctx.requireAuth(), ctx.requirePermission(PERMS.VIEW), asyncRoute(async (req, res) => {
       const userId = (req as any).user?.sub;
       if (!userId) return res.status(401).json({ message: 'Unauthorized' });
-      res.json(await meetings.pendingFor(userId));
+      const pendientes = await meetings.pendingFor(userId);
+      const enlaces = await googleCal.enlacesDe([...new Set(pendientes.map(p => p.meetingId))]).catch(() => new Map<string, string>());
+      res.json(pendientes.map(p => ({ ...p, meet: enlaces.get(p.meetingId) ?? null })));
     }));
 
     for (const action of ['accept', 'decline'] as const) {

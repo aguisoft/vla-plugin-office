@@ -26,14 +26,18 @@ export class MeetingService {
     // un ciclo: PresenceService se construye antes que este servicio). Vuelve
     // a AVAILABLE a los participantes que `cancelMeetingsHostedBy` libera.
     private readonly setAvailable: (userId: string) => Promise<void>,
+    /** Al cancelar reuniones que hospedaba (para cerrar su evento de Google), con sus ids. */
+    private readonly alTerminarHospedadas: (hostId: string, meetingIds: string[]) => void = () => undefined,
   ) {}
 
   async invite(
     hostId: string,
     participantIds: string[],
     _justification: string,
+    /** Si ya se eligió (para crear antes el evento de Google con Meet). */
+    meetingIdElegido?: string,
   ): Promise<{ meetingId: string }> {
-    const meetingId = cryptoRandomId();
+    const meetingId = meetingIdElegido ?? cryptoRandomId();
 
     // Si el host ya tenía una reunión abierta, se cierra antes de abrir otra
     // y quien la había aceptado vuelve a AVAILABLE. Pasa por el mismo helper
@@ -159,6 +163,8 @@ export class MeetingService {
     if (!toCancel.length) return [];
 
     const accepted = toCancel.filter(r => r.state === 'ACCEPTED').map(r => r.inviteeId);
+    // Solo las que de verdad se cancelan: una reunión que recién se crea todavía no tiene filas.
+    this.alTerminarHospedadas(hostId, [...new Set(toCancel.map(r => String(r.meetingId)))]);
 
     await this.ctx.prisma.meetingInvite.updateMany({
       where: { id: { in: toCancel.map(r => r.id) } },
@@ -219,7 +225,7 @@ export class MeetingService {
   }
 }
 
-function cryptoRandomId(): string {
+export function cryptoRandomId(): string {
   // El core corre en Node 18+, así que randomUUID está disponible sin import.
   return globalThis.crypto.randomUUID();
 }

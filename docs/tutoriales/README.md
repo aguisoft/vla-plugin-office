@@ -80,4 +80,7 @@ toda la empresa y Ausencias con las solicitudes de Bruno (`rutasRrhh`,
   vacaciones (`alcanzaSaldo`, servidor y pantalla); sin saldo cargado no se
   bloquea. En el estudio: `saldoAna` en el escenario (11, 2 o 'ninguno') y la
   carga de Bruno en `rutasRrhh`.
+  Desde 1.50.0: Google Calendar (capturas 42–43; `google: 'conectado'` y
+  `meet: true` en el escenario; Bruno sale ocupado en Google). La app de
+  escritorio y la llave de Bitrix: capturas 41 (`escritorio: 'nueva'`).
   Si cambian ahí, hay que cambiar el texto.

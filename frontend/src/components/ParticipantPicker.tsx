@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { MIN_JUSTIFICATION, cfgOf } from '../statusConfig';
 import { Shell, Actions, missingLabel } from './modalParts';
 import { absenceLastDay } from '../format';
 import type { UserSnapshot } from '../types';
+import { getOcupadosGoogle } from '../api';
+import { textoOcupado } from '../googleUx';
 
 /**
  * Selector de compañeros para "En reunión interna". Los ausentes salen
@@ -25,6 +27,13 @@ export function ParticipantPicker({ users, currentUserId, onClose, onConfirm }: 
   const missing = Math.max(0, MIN_JUSTIFICATION - text.trim().length);
 
   const candidates = users.filter(u => u.userId !== currentUserId);
+  // Quién está ocupado en Google ahora (solo quien conectó su calendario). Avisa, no bloquea.
+  const [ocupados, setOcupados] = useState<Record<string, string>>({});
+  useEffect(() => {
+    const ids = candidates.filter(u => !u.isAbsent).map(u => u.userId);
+    if (ids.length) getOcupadosGoogle(ids).then(setOcupados).catch(() => undefined);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <Shell title="En reunión interna" onClose={onClose}>
@@ -58,6 +67,9 @@ export function ParticipantPicker({ users, currentUserId, onClose, onConfirm }: 
                 }}
               />
               <span className="text-gray-700">{u.firstName} {u.lastName}</span>
+              {!blocked && ocupados[u.userId] && (
+                <span className="ml-auto text-[10px] text-amber-700" data-testid="ocupado-google">📅 {textoOcupado(ocupados[u.userId])}</span>
+              )}
               {blocked && (
                 <span className={`ml-auto ${cfg.text}`}>
                   {cfg.icon} {cfg.label}
