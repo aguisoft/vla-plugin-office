@@ -1,6 +1,7 @@
 import type { PluginContext } from '@vla/plugin-sdk';
 import { countryFromPhone, phoneShape, prefixOf } from '../lib/phone-country';
 import { emparejarUsuarios } from '../lib/emparejar-bitrix';
+import { jornadaBitrix, type JornadaBitrix } from '../lib/inactividad';
 
 export interface BitrixUser {
   ID: string;
@@ -454,12 +455,12 @@ export class BitrixService {
   // ── Timeman bulk sync (matches by email) ───────────────────────────────────
 
   /**
-   * `isOpen: null` = no se pudo leer (cuota de Bitrix, red): quien llama no debe
+   * `jornada: null` = no se pudo leer (cuota de Bitrix, red): quien llama no debe
    * deducir nada. Antes un error contaba como jornada cerrada y sacaba de la
    * oficina a gente trabajando. Las consultas van de a una: en ráfaga se
    * comían el cupo de ~2 por segundo del portal, compartido con cobros.
    */
-  async syncTimemanStatuses(): Promise<Array<{ userId: string; isOpen: boolean | null }>> {
+  async syncTimemanStatuses(): Promise<Array<{ userId: string; jornada: JornadaBitrix | null }>> {
     if (!this.isConfigured()) return [];
 
     const [bitrixUsers, vlaByEmail] = await Promise.all([
@@ -481,18 +482,16 @@ export class BitrixService {
     const porVinculo = matched.filter(m => m.por === 'vinculo').length;
     this.ctx.logger.log(`Timeman sync: ${matched.length} usuarios (${porVinculo} por vínculo, ${matched.length - porVinculo} por email)`);
 
-    const resultados: Array<{ userId: string; isOpen: boolean | null }> = [];
+    const resultados: Array<{ userId: string; jornada: JornadaBitrix | null }> = [];
     for (const { bitrix, userId } of matched) {
       const bu = bitrix as BitrixUser;
       const status = await this.getTimemanStatusForUser(Number(bu.ID));
-      const isOpen = !status?.STATUS ? null
-        : status.STATUS === 'OPENED'
-          || status.STATUS === 'PAUSED'
-          || (status.STATUS === 'EXPIRED' && status.ACTIVE === true);
+      // Ver lib/inactividad.ts: una jornada vencida ya no cuenta como abierta.
+      const jornada = jornadaBitrix(status?.STATUS);
       this.ctx.logger.log(
-        `Timeman [${bu.EMAIL}] bitrixId=${bu.ID} STATUS=${status?.STATUS ?? 'null'} ACTIVE=${status?.ACTIVE} → isOpen=${isOpen}`,
+        `Timeman [${bu.EMAIL}] bitrixId=${bu.ID} STATUS=${status?.STATUS ?? 'null'} ACTIVE=${status?.ACTIVE} → ${jornada ?? 'sin dato'}`,
       );
-      resultados.push({ userId, isOpen });
+      resultados.push({ userId, jornada });
     }
     return resultados;
   }

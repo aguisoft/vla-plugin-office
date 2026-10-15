@@ -65,6 +65,8 @@ function can(req: any, permission: string): boolean {
 const claveAvisoVencido = (userId: string) => `aviso-vencido:${userId}`;
 /** Hasta qué fin ya se le avisó «tu almuerzo terminó» (uno solo por estado). */
 const claveVueltaAvisada = (userId: string) => `vuelta-avisada:${userId}`;
+/** Su jornada de Bitrix según la última sincronización: 'abierta' | 'cerrada' | 'vencida'. */
+const claveJornadaBitrix = (userId: string) => `jornada-bitrix:${userId}`;
 
 const plugin: PluginDefinition = {
   async register(ctx) {
@@ -2657,8 +2659,11 @@ const plugin: PluginDefinition = {
           ultimaConexion: await presence.ultimaConexion(userId),
           conectado: conectados.has(userId),
           checkInAt: abierta?.checkInAt ?? null,
+          // La anota la sincronización de jornada (cada 2 min, vale 10 min).
+          jornadaAbierta: (await ctx.redis.get(claveJornadaBitrix(userId)).catch(() => null)) === 'abierta',
         });
-        // Con la oficina o la app abiertas, o vista hace poco: está trabajando.
+        // Con la oficina o la app abiertas, con la jornada de Bitrix abierta, o
+        // vista hace poco: está trabajando.
         if (!motivo) continue;
         ctx.logger.warn(`Auto checkout (${motivo}): ${userId}`);
         await presence.checkOut(userId, 'WEB');
@@ -2733,7 +2738,7 @@ const plugin: PluginDefinition = {
       // de promesas en handlers async; el cron sí tiene su propio wrapper).
       // Verificado en vivo: POST /timeman/sync contra el stub de Bitrix
       // (dominio nonexistent.invalid) mató el servidor antes de este guard.
-      let statuses: Array<{ userId: string; isOpen: boolean | null }>;
+      let statuses: Awaited<ReturnType<typeof bitrix.syncTimemanStatuses>>;
       try {
         statuses = await bitrix.syncTimemanStatuses();
       } catch (e) {
@@ -2741,10 +2746,16 @@ const plugin: PluginDefinition = {
         return { synced, errors, skipped, skippedByAbsence };
       }
 
-      for (const { userId, isOpen } of statuses) {
+      for (const { userId, jornada } of statuses) {
         try {
           // No se pudo leer su jornada: no se deduce nada (antes era «cerrada» y lo sacaba).
-          if (isOpen === null) { errors++; continue; }
+          if (jornada === null) { errors++; continue; }
+          // Para la salida por inactividad (cron de cada 5 min): con la jornada
+          // abierta en Bitrix está trabajando aunque no tenga la oficina abierta.
+          await ctx.redis.set(claveJornadaBitrix(userId), jornada, 600).catch(() => undefined);
+          // Vencida (de un día anterior, sin cerrar): ni mete ni saca.
+          if (jornada === 'vencida') { skipped++; continue; }
+          const isOpen = jornada === 'abierta';
           // Una ausencia o un feriado gana sobre lo que diga timeman.
           if (absent.has(userId)) { skippedByAbsence++; continue; }
 
