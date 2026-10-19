@@ -33,6 +33,8 @@ export interface FilaEquipo {
   estado: EstadoFila;
   totalMinutes: number;
   openSessionCapped: boolean;
+  /** A cuántas horas se acota una sesión sin salida (para el texto de la tabla). */
+  openSessionCapHours?: number;
   variacion: Variacion;
   diasConRegistro: number;
   diasHabiles: number;
@@ -483,6 +485,7 @@ export class TeamService {
         estado: estadoRegistro(sesiones, efectivo),
         totalMinutes: totalActual,
         openSessionCapped: acotadas.has(userId),
+        openSessionCapHours: capHours,
         variacion: variacion(totalActual, norma),
         ...(() => {
           // El numerador tiene que salir del MISMO conjunto que el denominador

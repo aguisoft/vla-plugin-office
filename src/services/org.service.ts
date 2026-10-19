@@ -4,6 +4,7 @@ import {
   type CountrySource, type ManagerSource, type DepartmentSource,
 } from '../lib/country-source';
 import { resolveZone, type ZoneRef, type ZoneSource } from '../lib/zone-match';
+import { cadenaDeMando } from '../lib/timesheet';
 
 export interface RosterEntry {
   userId: string;
@@ -192,6 +193,25 @@ export class OrgService {
     }
 
     return result;
+  }
+
+  /**
+   * Toda la gente debajo del viewer, en todos los niveles: el alcance de
+   * Tiempos (ver lib/timesheet.ts cadenaDeMando). Usa la misma regla de jefe
+   * que managedUserIds; aprobar y ver motivos sigue siendo solo del directo.
+   */
+  async cadenaDeMando(viewerId: string): Promise<Set<string>> {
+    const snap = await this.snapshot();
+    const jefeDe = new Map<string, string | null>();
+    for (const userId of new Set<string>([...snap.deptOf.keys(), ...snap.managerOverrideOf.keys()])) {
+      jefeDe.set(userId, resolveManager(
+        userId,
+        snap.managerOverrideOf.get(userId),
+        snap.deptOf.get(userId),
+        snap.headByDept,
+      ).managerUserId);
+    }
+    return cadenaDeMando(viewerId, jefeDe);
   }
 
   async countryOf(userId: string): Promise<string> {

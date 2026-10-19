@@ -143,6 +143,34 @@ export function resolveScope(
   return new Set<string>([viewerId, ...managedUserIds]);
 }
 
+/**
+ * Toda la gente debajo del viewer en el organigrama, en todos los niveles (no
+ * solo sus directos). Para Tiempos (19-oct-2026): Daniela es jefa de José y José
+ * de cuatro personas; cuando José no está, ella tiene que ver a esas cuatro.
+ * Aprobar solicitudes y ver los motivos de ausencia siguen siendo del jefe
+ * directo (managedUserIds).
+ *
+ * `jefeDe`: el jefe resuelto de cada persona. Un ciclo en el organigrama (dos
+ * jefes manuales que se apuntan entre sí) no cuelga: cada persona se visita una
+ * vez, y el viewer nunca se incluye a sí mismo.
+ */
+export function cadenaDeMando(viewerId: string, jefeDe: Map<string, string | null>): Set<string> {
+  const aCargoDe = new Map<string, string[]>();
+  for (const [persona, jefe] of jefeDe) {
+    if (!jefe || jefe === persona) continue;
+    (aCargoDe.get(jefe) ?? aCargoDe.set(jefe, []).get(jefe)!).push(persona);
+  }
+  const equipo = new Set<string>();
+  const pendientes = [...(aCargoDe.get(viewerId) ?? [])];
+  while (pendientes.length) {
+    const p = pendientes.pop()!;
+    if (p === viewerId || equipo.has(p)) continue;
+    equipo.add(p);
+    pendientes.push(...(aCargoDe.get(p) ?? []));
+  }
+  return equipo;
+}
+
 /** `scope === null` (ADMIN) ve a cualquiera; si no, solo a quien está adentro. */
 export function canSee(scope: Set<string> | null, userId: string): boolean {
   return scope === null || scope.has(userId);

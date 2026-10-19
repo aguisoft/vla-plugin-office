@@ -1828,7 +1828,7 @@ const plugin: PluginDefinition = {
       }
 
       const isAdmin = (req as any).user?.role === 'ADMIN';
-      const scope = resolveScope(viewerId, await org.managedUserIds(viewerId), isAdmin);
+      const scope = resolveScope(viewerId, await org.cadenaDeMando(viewerId), isAdmin);
 
       const target = (req.query.userId as string) || viewerId;
       if (!canSee(scope, target)) {
@@ -1910,19 +1910,19 @@ const plugin: PluginDefinition = {
       }
 
       const isAdmin = (req as any).user?.role === 'ADMIN';
-      const scope = resolveScope(viewerId, await org.managedUserIds(viewerId), isAdmin);
+      const scope = resolveScope(viewerId, await org.cadenaDeMando(viewerId), isAdmin);
 
       // I3/M4: mismo patrón que /timesheet/scope (línea de abajo, `where`),
-      // en vez de `[...scope]` tal cual. `managedUserIds` no filtra
-      // `isActive` -- sale de `BitrixUserMapping` ∪ `UserProfileOverride`,
-      // que no se borran al desactivar a alguien -- así que la rama del jefe
-      // colaba ex-empleados como filas "sin registrar" permanentes (I3) y,
-      // sin ORDER BY, la tabla se reordenaba entre recargas según el orden
-      // del `Set` (M4). Se filtra y se ordena ACÁ, no dentro de
-      // `managedUserIds`: ese método también alimenta `/timesheet/office`
-      // (un jefe pidiendo el detalle de un ex-subordinado puntual es
-      // inofensivo) y `SnapshotService` (visibilidad de justificaciones), y
-      // ninguno de los dos necesita este filtro.
+      // en vez de `[...scope]` tal cual. `cadenaDeMando` (como
+      // `managedUserIds`) no filtra `isActive` -- sale de `BitrixUserMapping`
+      // ∪ `UserProfileOverride`, que no se borran al desactivar a alguien --
+      // así que la rama del jefe colaba ex-empleados como filas "sin
+      // registrar" permanentes (I3) y, sin ORDER BY, la tabla se reordenaba
+      // entre recargas según el orden del `Set` (M4). Se filtra y se ordena
+      // ACÁ: `cadenaDeMando` también alimenta `/timesheet/office` (un jefe
+      // pidiendo el detalle de un ex-subordinado puntual es inofensivo).
+      // Desde el 19-oct-2026 Tiempos ve toda la cadena de mando, no solo los
+      // directos; aprobar y ver motivos (`managedUserIds`) no cambió.
       const where = scope === null
         ? { isActive: true }
         : { isActive: true, id: { in: [...scope] } };
@@ -2025,7 +2025,7 @@ const plugin: PluginDefinition = {
       if (!viewerId) return res.status(401).json({ message: 'Unauthorized' });
 
       const isAdmin = (req as any).user?.role === 'ADMIN';
-      const scope = resolveScope(viewerId, await org.managedUserIds(viewerId), isAdmin);
+      const scope = resolveScope(viewerId, await org.cadenaDeMando(viewerId), isAdmin);
 
       const where = scope === null ? { isActive: true } : { isActive: true, id: { in: [...scope] } };
       const users = await ctx.prisma.user.findMany({

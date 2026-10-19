@@ -347,6 +347,8 @@ async function abrir({ ancho = 1360, alto = 860, ruta = '/', ...esc } = {}) {
     });
     if (q.startsWith('/timesheet/')) return json({ message: 'Solo para jefes' }, 403);
     if (q === '/planta') return json({ estado: 'sed', horasSinAgua: 27, puedeRegar: true, seriaRescate: false, ultimoRiegoPor: 'Bruno Méndez', ultimoRiegoEn: hace(27 * 60), misRiegos: 4 });
+    // `sinBitrix: true`: no conectó su Bitrix (el servidor responde 409 con `conectar`).
+    if (q === '/jornada/borrador' && e.sinBitrix) return json({ message: 'Conectá tu Bitrix para usar la jornada', conectar: '/api/v1/p/office/bitrix/oauth/start' }, 409);
     if (q === '/jornada/borrador') return json({ jornada: { estado: e.jornadaAbierta ? 'trabajando' : 'sin_iniciar', trabajadoSeg: 7.6 * 3600 }, reporte: '• Seguimiento a 12 prospectos\n• Propuesta para Clínica Santa Ana\n• Capacitación de producto', pideHora: false, horaSugerida: '17:02' });
     if (q === '/bitrix/oauth/estado') return json({ conectado: true });
     if (req.method() === 'GET') return json([]);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { periodBounds, clipSpan, splitByLocalDay, spanMinutes, aggregateSessions, resolveScope, canSee, aggregateIntervals, reconcile, tallyAbsences, capOpenSession } from './timesheet';
+import { periodBounds, clipSpan, splitByLocalDay, spanMinutes, aggregateSessions, resolveScope, canSee, aggregateIntervals, reconcile, tallyAbsences, capOpenSession, cadenaDeMando } from './timesheet';
 import { DEFAULT_TZ } from './local-date';
 
 const TZ = DEFAULT_TZ;
@@ -384,5 +384,28 @@ describe('tallyAbsences: días de trabajo (13-oct-2026)', () => {
   });
   it('con sábado de medio día: 5,5 jornadas', () => {
     expect(tallyAbsences(vac, semana, 8, 'America/Costa_Rica', 0.5)).toEqual([{ type: 'VACACIONES', days: 5.5, minutes: 5.5 * 8 * 60 }]);
+  });
+});
+
+describe('cadenaDeMando', () => {
+  // El caso real del 19-oct: Daniela → José → cuatro personas.
+  const jefeDe = new Map<string, string | null>([
+    ['jose', 'daniela'], ['facundo', 'jose'], ['maria', 'jose'], ['yara', 'jose'], ['yeraldine', 'jose'],
+    ['daniela', 'josue'], ['joseph', 'josue'], ['sabrina', 'joseph'], ['josue', null],
+  ]);
+  it('la jefa de José ve a José y a los cuatro de José', () => {
+    expect([...cadenaDeMando('daniela', jefeDe)].sort()).toEqual(['facundo', 'jose', 'maria', 'yara', 'yeraldine']);
+  });
+  it('José ve solo a los suyos; quien no tiene gente, a nadie', () => {
+    expect([...cadenaDeMando('jose', jefeDe)].sort()).toEqual(['facundo', 'maria', 'yara', 'yeraldine']);
+    expect(cadenaDeMando('maria', jefeDe).size).toBe(0);
+  });
+  it('arriba de todo se ve a toda la empresa, sin incluirse', () => {
+    expect(cadenaDeMando('josue', jefeDe).size).toBe(8);
+    expect(cadenaDeMando('josue', jefeDe).has('josue')).toBe(false);
+  });
+  it('un ciclo en el organigrama no cuelga ni se incluye a sí mismo', () => {
+    const ciclo = new Map<string, string | null>([['a', 'b'], ['b', 'a'], ['c', 'a']]);
+    expect([...cadenaDeMando('a', ciclo)].sort()).toEqual(['b', 'c']);
   });
 });

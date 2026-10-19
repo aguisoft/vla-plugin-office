@@ -436,7 +436,7 @@ export function TimesheetScreen({ onClose, canManageOffice }: {
                     sin que nadie sepa por qué. */}
                 {data?.office.openSessionCapped && (
                   <p className="mt-3 text-[10px] text-gray-400">
-                    Una sesión quedó abierta sin marcar salida; se acotó a {data.office.openSessionCapHours} horas.
+                    Hay una entrada sin salida marcada: de esa sesión se cuentan como máximo {data.office.openSessionCapHours} horas.
                   </p>
                 )}
 

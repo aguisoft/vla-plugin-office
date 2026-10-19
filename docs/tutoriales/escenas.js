@@ -338,6 +338,20 @@ const ESCENAS = {
     await browser.close();
   },
 
+  async '44-salir-sin-bitrix'() {
+    const { browser, page } = await abrir({ sinBitrix: true });
+    await page.getByRole('button', { name: 'Salir' }).click();
+    await page.waitForTimeout(800);
+    const m = modal(page);
+    await m.getByTestId('informe-sin-bitrix').waitFor();
+    await anotar(page, [
+      { n: 1, blanco: m.getByRole('button', { name: 'Conectar mi Bitrix' }) },
+      { n: 2, blanco: m.getByRole('button', { name: /Salir sin informe/ }) },
+    ]);
+    await foto(page, '44-salir-sin-bitrix', await recorte(page, m));
+    await browser.close();
+  },
+
   async '20-planta'() {
     const { browser, page } = await abrir();
 

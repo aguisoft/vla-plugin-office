@@ -271,6 +271,8 @@ export interface FilaEquipo {
   estado: EstadoFila;
   totalMinutes: number;
   openSessionCapped: boolean;
+  /** A cuántas horas se acota una sesión sin salida. */
+  openSessionCapHours?: number;
   variacion: Variacion;
   diasConRegistro: number;
   diasHabiles: number;

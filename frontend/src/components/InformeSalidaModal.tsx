@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Shell } from './modalParts';
-import { api, ApiError } from '../api';
+import { api, ApiError, conectarBitrixUrl } from '../api';
 
 interface Borrador {
   jornada: { estado: string; trabajadoSeg: number };
@@ -21,7 +21,11 @@ function duracion(seg: number): string {
 /**
  * «Salir» de la oficina, como en Bitrix: si la jornada está abierta pide el
  * informe del día (viene armado con las tareas y reuniones) y lo manda al
- * cerrar. Si no hay jornada abierta o Bitrix no está conectado, sale directo.
+ * cerrar. Si no hay jornada abierta o Bitrix no contesta, sale directo.
+ *
+ * Sin su Bitrix conectado no se puede mandar el informe en su nombre. Antes
+ * salía directo sin decir nada y la persona creía que hacía algo mal (Daniela,
+ * 15-oct-2026); ahora se le ofrece conectarlo o salir sin informe.
  */
 export function InformeSalidaModal({ onClose, onSalio, salirSinInforme }: {
   onClose: () => void;
@@ -30,6 +34,7 @@ export function InformeSalidaModal({ onClose, onSalio, salirSinInforme }: {
   salirSinInforme: () => Promise<void>;
 }) {
   const [b, setB] = useState<Borrador | null>(null);
+  const [sinBitrix, setSinBitrix] = useState(false);
   const [reporte, setReporte] = useState('');
   const [hora, setHora] = useState('');
   const [error, setError] = useState<string | null>(null);
@@ -43,13 +48,48 @@ export function InformeSalidaModal({ onClose, onSalio, salirSinInforme }: {
         if (!ABIERTA.has(r.jornada.estado)) { await salirSinInforme(); onSalio(); return; }
         setB(r); setReporte(r.reporte); setHora(r.horaSugerida ?? '');
       })
-      .catch(async () => {
-        // Sin Bitrix conectado (409) o Bitrix caído: no se traba a nadie en la oficina.
+      .catch(async e => {
         if (!vivo) return;
+        // No conectó su Bitrix: el servidor lo marca con `conectar`.
+        if (e instanceof ApiError && e.status === 409 && (e.detail as { conectar?: string } | undefined)?.conectar) {
+          setSinBitrix(true);
+          return;
+        }
+        // Bitrix caído u otro tropiezo: no se traba a nadie en la oficina.
         await salirSinInforme(); onSalio();
       });
     return () => { vivo = false; };
   }, []);
+
+  function conectar() {
+    // La oficina corre en un iframe y Bitrix no se deja enmarcar.
+    try {
+      (window.top ?? window).location.href = conectarBitrixUrl;
+    } catch {
+      window.location.href = conectarBitrixUrl;
+    }
+  }
+
+  if (sinBitrix) {
+    return (
+      <Shell title="Terminar la jornada" onClose={onClose}>
+        <div className="space-y-3" data-testid="informe-sin-bitrix">
+          <p className="text-xs leading-relaxed text-gray-700">
+            Para mandar tu <b>informe del día</b> a Bitrix, la oficina necesita tu cuenta de Bitrix
+            conectada. Se hace una sola vez: te lleva a Bitrix, aceptás y volvés acá.
+          </p>
+          <button onClick={conectar} data-testid="conectar-bitrix-informe"
+            className="w-full rounded-xl bg-gray-900 px-3 py-2.5 text-xs font-semibold text-white hover:bg-gray-700">
+            Conectar mi Bitrix
+          </button>
+          <button disabled={enviando} onClick={async () => { setEnviando(true); try { await salirSinInforme(); onSalio(); } finally { setEnviando(false); } }}
+            className="w-full text-center text-[11px] text-gray-500 underline hover:text-gray-700 disabled:opacity-50">
+            Salir sin informe (la jornada de Bitrix se cierra igual)
+          </button>
+        </div>
+      </Shell>
+    );
+  }
 
   async function enviar() {
     if (!b) return;

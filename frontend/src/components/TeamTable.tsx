@@ -111,7 +111,10 @@ function CeldaEstado({ fila }: { fila: FilaEquipo }) {
       <div className="flex flex-col gap-0.5">
         <span className="text-xs font-semibold tabular-nums text-gray-800">{fmtPeriodoConRegistro(fila.totalMinutes)}</span>
         {fila.openSessionCapped && (
-          <span className="text-[10px] leading-tight text-gray-400">sesión abierta, acotada</span>
+          // «Acotada» no se entendía (Daniela, 19-oct-2026): lo que pasó es que no marcó la salida.
+          <span className="text-[10px] leading-tight text-gray-400" title="Marcó entrada y no marcó salida: de esa sesión se cuentan como máximo estas horas.">
+            no marcó salida · se cuentan {fila.openSessionCapHours ?? 12} h
+          </span>
         )}
       </div>
     );
