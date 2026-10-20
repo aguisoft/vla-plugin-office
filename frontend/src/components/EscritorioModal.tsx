@@ -4,9 +4,13 @@ import {
   ApiError, conectarBitrixUrl, confirmarDispositivo, desconectarBitrix, getEstadoBitrix, type EstadoBitrix,
 } from '../api';
 import {
-  mensajeDeVinculacion, normalizarCodigo, problemaDelCodigo, textoEstadoBitrix, type ResultadoBitrix, type UsoEscritorio,
+  mensajeDeVinculacion, normalizarCodigo, problemaDelCodigo, textoEstadoBitrix, sistemaDelNavegador, publicadaPara,
+  type ResultadoBitrix, type UsoEscritorio,
 } from '../lib/escritorio';
-import { descargaEscritorioUrl } from '../api';
+import { descargaEscritorioUrl, descargaEscritorioLinuxUrl } from '../api';
+
+/** Windows o Linux, según desde dónde se abre la oficina. */
+const SISTEMA = sistemaDelNavegador(typeof navigator === 'undefined' ? '' : navigator.userAgent);
 
 /**
  * La puesta en marcha de la app de escritorio, en el orden en que se hace:
@@ -92,7 +96,7 @@ export function EscritorioModal({ onClose, resultado, codigoInicial, autoConecta
 
   return (
     <Shell title="App de escritorio" onClose={onClose}>
-      {uso?.publicada && (
+      {uso && publicadaPara(uso, SISTEMA) && (
         <section className="mb-4" data-testid="paso-descargar">
           {uso.instalada ? (
             <p className="rounded-xl bg-green-50 px-3 py-2 text-xs text-green-700">
@@ -103,11 +107,24 @@ export function EscritorioModal({ onClose, resultado, codigoInicial, autoConecta
               <p className="mb-2 text-xs text-gray-500">
                 ¿Todavía no la tenés? Bajala, abrila y tocá <b>Entrar con Bitrix</b>: con eso quedan hechos los dos pasos de abajo.
               </p>
-              <a href={descargaEscritorioUrl} download
+              <a href={SISTEMA === 'linux' ? descargaEscritorioLinuxUrl : descargaEscritorioUrl} download data-testid="descargar-sistema"
                 className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-gray-900 px-3 py-2 text-xs font-semibold text-white hover:bg-gray-700">
-                Descargar VLA Oficina para Windows{uso.publicada.tamanoTexto ? ` · ${uso.publicada.tamanoTexto}` : ''}
+                Descargar VLA Oficina para {SISTEMA === 'linux' ? 'Linux' : 'Windows'}
+                {publicadaPara(uso, SISTEMA)!.tamanoTexto ? ` · ${publicadaPara(uso, SISTEMA)!.tamanoTexto}` : ''}
               </a>
-              <p className="mt-1.5 text-[11px] text-gray-500">Si Windows dice «Windows protegió su PC»: <b>Más información</b> → <b>Ejecutar de todos modos</b>.</p>
+              {SISTEMA === 'linux' ? (
+                <p className="mt-1.5 text-[11px] text-gray-500">
+                  Guardalo en tu carpeta personal: desde ahí se actualiza solo. Para abrirlo, clic derecho → <b>Propiedades</b> →
+                  <b> Permitir ejecutar como programa</b>, y doble clic. Si no abre, instalá <b>libfuse2</b>.
+                </p>
+              ) : (
+                <p className="mt-1.5 text-[11px] text-gray-500">Si Windows dice «Windows protegió su PC»: <b>Más información</b> → <b>Ejecutar de todos modos</b>.</p>
+              )}
+              {SISTEMA === 'win' && uso.publicadaLinux && (
+                <a href={descargaEscritorioLinuxUrl} download className="mt-1 block text-[11px] text-gray-500 underline hover:text-gray-700">
+                  ¿Usás Linux? Bajá la versión para Linux
+                </a>
+              )}
             </>
           )}
         </section>

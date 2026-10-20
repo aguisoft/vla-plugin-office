@@ -373,8 +373,9 @@ export class PresenceService {
    * Hay una versión nueva de la app de escritorio: cada widget conectado la
    * busca, verifica la firma y se actualiza. La web lo ignora.
    */
-  anunciarActualizacionEscritorio(version: string): void {
-    this.broadcast({ type: 'app:update', version });
+  anunciarActualizacionEscritorio(version: string, plataforma: string = 'win'): void {
+    // Las apps viejas ignoran `plataforma` y piden la de Windows: no cambia nada para ellas.
+    this.broadcast({ type: 'app:update', version, plataforma });
   }
 
   /** Quiénes tienen ahora al menos una pantalla abierta (oficina o widget). */

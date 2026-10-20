@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import {
+  sistemaDelNavegador, publicadaPara,
   debeOfrecer, posponerHasta, leerPospuesto, textoCompaneros, ofertaForzada,
   normalizarCodigo, problemaDelCodigo, mensajeDeVinculacion, resultadoBitrix, textoEstadoBitrix, enlaceEscritorio,
 } from './escritorio';
@@ -136,5 +137,25 @@ describe('ofertaForzada', () => {
     expect(ofertaForzada('', '?x=1&ver-oferta=1')).toBe(true);
     expect(ofertaForzada('?escritorio=bitrix', '')).toBe(false);
     expect(ofertaForzada(null, undefined)).toBe(false);
+  });
+});
+
+describe('la app para cada sistema (20-oct-2026)', () => {
+  it('reconoce Linux por el navegador, pero no un celular Android', () => {
+    expect(sistemaDelNavegador('Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/141 Safari/537.36')).toBe('linux');
+    expect(sistemaDelNavegador('Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/141')).toBe('win');
+    expect(sistemaDelNavegador('Mozilla/5.0 (Linux; Android 14; Pixel 8) Chrome/141 Mobile')).toBe('win');
+  });
+
+  it('ofrece lo publicado para su sistema', () => {
+    const win = { version: '0.10.0', tamano: 1, tamanoTexto: '1 MB', fecha: 'f' };
+    const lin = { ...win, tamanoTexto: '2 MB' };
+    const uso = { instalada: false, version: null, ultimaVez: null, alDia: false, companeros: 0, publicada: win, publicadaLinux: lin };
+    expect(publicadaPara(uso, 'linux')).toBe(lin);
+    expect(publicadaPara(uso, 'win')).toBe(win);
+    expect(publicadaPara({ ...uso, publicadaLinux: null }, 'linux')).toBeNull();
+    // Sin AppImage publicado no se le ofrece nada a quien usa Linux.
+    expect(debeOfrecer({ ...uso, publicadaLinux: null }, null, 0, 'linux')).toBe(false);
+    expect(debeOfrecer(uso, null, 0, 'linux')).toBe(true);
   });
 });

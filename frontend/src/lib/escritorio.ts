@@ -98,7 +98,23 @@ export interface UsoEscritorio {
   ultimaVez: string | null;
   alDia: boolean;
   companeros: number;
-  publicada: { version: string; tamano: number; tamanoTexto: string; fecha: string } | null;
+  publicada: Publicada | null;
+  /** El AppImage de Linux, si está publicado (20-oct-2026). */
+  publicadaLinux?: Publicada | null;
+}
+
+export interface Publicada { version: string; tamano: number; tamanoTexto: string; fecha: string }
+
+export type SistemaPc = 'win' | 'linux';
+
+/** El sistema de esta computadora según el navegador. Android también dice «Linux»: no cuenta. */
+export function sistemaDelNavegador(userAgent: string): SistemaPc {
+  return /Linux/i.test(userAgent) && !/Android/i.test(userAgent) ? 'linux' : 'win';
+}
+
+/** Lo publicado para ese sistema. */
+export function publicadaPara(uso: UsoEscritorio | null, sistema: SistemaPc): Publicada | null {
+  return (sistema === 'linux' ? uso?.publicadaLinux : uso?.publicada) ?? null;
 }
 
 export const CLAVE_POSPONER = 'vla-escritorio-posponer';
@@ -108,8 +124,8 @@ export const DIAS_POSPONER = 3;
  * Se ofrece si hay una versión publicada, la persona no la tiene, y no dijo
  * «Ahora no» hace menos de `DIAS_POSPONER` días.
  */
-export function debeOfrecer(uso: UsoEscritorio | null, pospuestoHasta: number | null, ahora: number): boolean {
-  if (!uso?.publicada || uso.instalada) return false;
+export function debeOfrecer(uso: UsoEscritorio | null, pospuestoHasta: number | null, ahora: number, sistema: SistemaPc = 'win'): boolean {
+  if (!publicadaPara(uso, sistema) || uso?.instalada) return false;
   return !pospuestoHasta || ahora >= pospuestoHasta;
 }
 

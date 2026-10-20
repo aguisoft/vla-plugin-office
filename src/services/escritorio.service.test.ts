@@ -42,7 +42,7 @@ describe('EscritorioService', () => {
     svc.revisar(aviso);
     svc.revisar(aviso);
     expect(aviso).toHaveBeenCalledTimes(1);
-    expect(aviso).toHaveBeenCalledWith('0.2.1');
+    expect(aviso).toHaveBeenCalledWith('0.2.1', 'win');
   });
 
   /** Si el aviso saliera antes de que esté el .exe, 23 apps pedirían un archivo inexistente. */
@@ -56,7 +56,7 @@ describe('EscritorioService', () => {
     expect(aviso).not.toHaveBeenCalled();
     fs.writeFileSync(path.join(dir, 'VLA-Oficina-Setup-0.2.1.exe'), 'exe');
     svc.revisar(aviso);
-    expect(aviso).toHaveBeenCalledWith('0.2.1');
+    expect(aviso).toHaveBeenCalledWith('0.2.1', 'win');
   });
 
   it('la primera publicación de todas avisa', () => {
@@ -65,6 +65,23 @@ describe('EscritorioService', () => {
     svc.revisar(aviso);
     publicar('0.2.0');
     svc.revisar(aviso);
-    expect(aviso).toHaveBeenCalledWith('0.2.0');
+    expect(aviso).toHaveBeenCalledWith('0.2.0', 'win');
+  });
+
+  it('Linux tiene su propia publicación, y avisa diciendo que es de Linux', () => {
+    publicar('0.2.0');
+    const svc = new EscritorioService(ctx, dir);
+    const aviso = vi.fn();
+    svc.revisar(aviso);
+    const manifiesto = JSON.stringify({ version: '0.3.0', archivo: 'VLA-Oficina-0.3.0.AppImage', sha512: 'x', tamano: 3, fecha: 'f', plataforma: 'linux' });
+    fs.writeFileSync(path.join(dir, 'VLA-Oficina-0.3.0.AppImage'), 'img');
+    fs.writeFileSync(path.join(dir, 'publicacion-linux.json'), JSON.stringify({ manifiesto, firma: 'f' }));
+    svc.revisar(aviso);
+    expect(aviso).toHaveBeenCalledTimes(1);
+    expect(aviso).toHaveBeenCalledWith('0.3.0', 'linux');
+    // Cada sistema ve la suya: Windows sigue en 0.2.0.
+    expect(svc.leer()!.meta.version).toBe('0.2.0');
+    expect(svc.leer('linux')!.meta.version).toBe('0.3.0');
+    expect(svc.rutaInstalador(svc.leer('linux')!)).toBe(path.join(dir, 'VLA-Oficina-0.3.0.AppImage'));
   });
 });

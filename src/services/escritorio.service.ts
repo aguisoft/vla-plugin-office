@@ -1,7 +1,9 @@
 import fs from 'fs';
 import path from 'path';
 import type { PluginContext } from '@vla/plugin-sdk';
-import { leerPublicacion, huboPublicacionNueva, type Publicacion } from '../lib/publicacion-escritorio';
+import {
+  leerPublicacion, huboPublicacionNueva, archivoPublicacion, PLATAFORMAS, type Publicacion, type Plataforma,
+} from '../lib/publicacion-escritorio';
 
 /**
  * Dónde viven los instaladores publicados de la app de escritorio.
@@ -15,18 +17,17 @@ export function carpetaEscritorio(): string {
   return process.env.VLA_ESCRITORIO_DIR || path.resolve(process.cwd(), 'storage', 'plugins', '.escritorio');
 }
 
-const ARCHIVO_PUBLICACION = 'publicacion.json';
-
 export class EscritorioService {
-  /** `undefined` = todavía no se leyó nunca (primera lectura en silencio). */
-  private versionVista: string | null | undefined = undefined;
+  /** Por sistema. `undefined` = todavía no se leyó nunca (primera lectura en silencio). */
+  private readonly versionVista = new Map<Plataforma, string | null | undefined>();
   private pendiente: NodeJS.Timeout | null = null;
 
   constructor(private readonly ctx: PluginContext, private readonly dir = carpetaEscritorio()) {}
 
-  leer(): Publicacion | null {
+  /** La publicación de ese sistema (Windows si no se dice: las apps viejas no lo dicen). */
+  leer(plataforma: Plataforma = 'win'): Publicacion | null {
     try {
-      return leerPublicacion(fs.readFileSync(path.join(this.dir, ARCHIVO_PUBLICACION), 'utf8'));
+      return leerPublicacion(fs.readFileSync(path.join(this.dir, archivoPublicacion(plataforma)), 'utf8'), plataforma);
     } catch {
       return null;
     }
@@ -45,7 +46,7 @@ export class EscritorioService {
    * acto; `revisar()` lo llama además el cron cada minuto por si el watch se
    * pierde (pasa con algunos volúmenes).
    */
-  vigilar(alPublicar: (version: string) => void): void {
+  vigilar(alPublicar: (version: string, plataforma: Plataforma) => void): void {
     this.revisar(alPublicar);
     try {
       fs.mkdirSync(this.dir, { recursive: true });
@@ -59,14 +60,17 @@ export class EscritorioService {
     }
   }
 
-  revisar(alPublicar: (version: string) => void): void {
-    const p = this.leer();
-    const actual = p && this.rutaInstalador(p) ? p.meta.version : null;
-    if (huboPublicacionNueva(this.versionVista, actual)) {
-      this.ctx.logger.log(`App de escritorio ${actual} publicada: avisando a los widgets conectados`);
-      alPublicar(actual!);
+  revisar(alPublicar: (version: string, plataforma: Plataforma) => void): void {
+    for (const plataforma of PLATAFORMAS) {
+      const p = this.leer(plataforma);
+      const actual = p && this.rutaInstalador(p) ? p.meta.version : null;
+      const vista = this.versionVista.get(plataforma);
+      if (huboPublicacionNueva(vista, actual)) {
+        this.ctx.logger.log(`App de escritorio ${actual} (${plataforma}) publicada: avisando a los widgets conectados`);
+        alPublicar(actual!, plataforma);
+      }
+      // Si desapareció, se recuerda la última buena para no re-avisar al volver.
+      if (actual !== null || vista === undefined) this.versionVista.set(plataforma, actual);
     }
-    // Si desapareció, se recuerda la última buena para no re-avisar al volver.
-    if (actual !== null || this.versionVista === undefined) this.versionVista = actual;
   }
 }

@@ -18,6 +18,7 @@ import { MensajeriaService, SinBitrixError } from './services/mensajeria.service
 import { JornadaService, JornadaError } from './services/jornada.service';
 import { EscritorioService } from './services/escritorio.service';
 import { versionValida, estadoDeUso, textoTamano, DIAS_VIGENTE } from './lib/escritorio-uso';
+import { plataformaDe } from './lib/publicacion-escritorio';
 import { motivoDeCierre, estadosVencidos } from './lib/inactividad';
 import { avisoDeVuelta, quedaVolviendo, JUSTIFICACION_VUELTA } from './lib/vuelta-manual';
 import { horaTexto } from './lib/jornada';
@@ -379,7 +380,7 @@ const plugin: PluginDefinition = {
     // Actualizaciones de la app de escritorio (OTA). Office solo sirve lo
     // publicado; la firma la verifica cada app.
     const escritorio = new EscritorioService(ctx);
-    escritorio.vigilar(version => presence.anunciarActualizacionEscritorio(version));
+    escritorio.vigilar((version, plataforma) => presence.anunciarActualizacionEscritorio(version, plataforma));
 
     // ── Helper: configuración en horas ────────────────────────────────────────
     /**
@@ -2338,8 +2339,9 @@ const plugin: PluginDefinition = {
     }));
 
     // ── App de escritorio: versión publicada y descarga ───────────────────────
-    ctx.router.get('/escritorio/version', ...conVista, asyncRoute(async (_req, res) => {
-      const p = escritorio.leer();
+    // `?plataforma=linux` lo manda la app de Linux; sin nada es Windows (las apps viejas no lo mandan).
+    ctx.router.get('/escritorio/version', ...conVista, asyncRoute(async (req, res) => {
+      const p = escritorio.leer(plataformaDe(req.query.plataforma));
       if (!p || !escritorio.rutaInstalador(p)) {
         res.status(404).json({ message: 'No hay una versión publicada de la app de escritorio' });
         return;
@@ -2386,6 +2388,8 @@ const plugin: PluginDefinition = {
       const userId = (req as any).user?.sub;
       const p = escritorio.leer();
       const publicada = p && escritorio.rutaInstalador(p) ? p.meta : null;
+      const pl = escritorio.leer('linux');
+      const publicadaLinux = pl && escritorio.rutaInstalador(pl) ? pl.meta : null;
       const [fila] = await ctx.query<any>(`SELECT version, ultima_vez FROM office_escritorio_uso WHERE user_id = $1`, [userId]);
       const [cuenta] = await ctx.query<any>(
         `SELECT count(*)::int AS n FROM office_escritorio_uso
@@ -2399,11 +2403,14 @@ const plugin: PluginDefinition = {
         publicada: publicada
           ? { version: publicada.version, tamano: publicada.tamano, tamanoTexto: textoTamano(publicada.tamano), fecha: publicada.fecha }
           : null,
+        publicadaLinux: publicadaLinux
+          ? { version: publicadaLinux.version, tamano: publicadaLinux.tamano, tamanoTexto: textoTamano(publicadaLinux.tamano), fecha: publicadaLinux.fecha }
+          : null,
       });
     }));
 
-    ctx.router.get('/escritorio/descarga', ...conVista, asyncRoute(async (_req, res) => {
-      const p = escritorio.leer();
+    ctx.router.get('/escritorio/descarga', ...conVista, asyncRoute(async (req, res) => {
+      const p = escritorio.leer(plataformaDe(req.query.plataforma));
       const ruta = p ? escritorio.rutaInstalador(p) : null;
       if (!p || !ruta) {
         res.status(404).json({ message: 'No hay una versión publicada de la app de escritorio' });
@@ -2628,7 +2635,7 @@ const plugin: PluginDefinition = {
       await ventanaDeAusencias();
       await avisarEstadosVencidos();
       try {
-        escritorio.revisar(version => presence.anunciarActualizacionEscritorio(version));
+        escritorio.revisar((version, plataforma) => presence.anunciarActualizacionEscritorio(version, plataforma));
       } catch (e) {
         ctx.logger.warn(`Cron de publicación de escritorio: ${e}`);
       }

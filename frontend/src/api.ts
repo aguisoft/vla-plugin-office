@@ -319,6 +319,7 @@ export const getEscritorioMio = () => api.get<import('./lib/escritorio').UsoEscr
 
 /** Se navega (un <a download>): la cookie de sesión autoriza la descarga. */
 export const descargaEscritorioUrl = `${BASE}${PLUGIN}/escritorio/descarga`;
+export const descargaEscritorioLinuxUrl = `${descargaEscritorioUrl}?plataforma=linux`;
 
 // ── La planta de la oficina ──────────────────────────────────────────────────
 
