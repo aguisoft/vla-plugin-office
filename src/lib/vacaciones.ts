@@ -288,3 +288,12 @@ export function resumenRango(
     reintegro: diaDeReintegro(hasta, noLaborables, tz, sabado),
   };
 }
+
+/**
+ * Un saldo que RRHH puede cargar: entre -60 y 120 días, hasta dos decimales.
+ * Los dos decimales se miran con tolerancia: 8.12 × 100 da 811.9999… en la
+ * computadora y la comparación exacta rechazaba saldos válidos (Milady, 27-oct-2026).
+ */
+export function saldoCargable(dias: number): boolean {
+  return Number.isFinite(dias) && dias >= -60 && dias <= 120 && Math.abs(dias * 100 - Math.round(dias * 100)) < 1e-6;
+}

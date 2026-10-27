@@ -33,7 +33,7 @@ import { validarAdjuntos } from './lib/adjuntos';
 import { estadoDePlanta } from './lib/planta';
 import { SolicitudesService, type Solicitud } from './services/solicitudes.service';
 import { textoRango, NOMBRE_TIPO, fraseResolucion, fichaSolicitud, fechaLarga, fraseCargada, aQuienAvisar, textoRecordatorio, fraseCanceladaPorDueno, textoDiasHabiles } from './lib/solicitudes';
-import { resumenRango, saldoDesdeCarga, alcanzaSaldo, type SaldoVacaciones } from './lib/vacaciones';
+import { resumenRango, saldoDesdeCarga, alcanzaSaldo, saldoCargable, type SaldoVacaciones } from './lib/vacaciones';
 import { GoogleCalendarService, ErrorGoogle } from './services/google-calendar.service';
 import { eventosDeAusencias, reunionEnCurso, decidirEstado } from './lib/google-calendar';
 import { nombresPorUsuario } from './lib/user-names';
@@ -1123,7 +1123,7 @@ const plugin: PluginDefinition = {
 
     ctx.router.put('/vacaciones/saldo/:userId', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {
       const dias = Number(req.body?.dias);
-      if (!Number.isFinite(dias) || dias < -60 || dias > 120 || Math.round(dias * 100) !== dias * 100) {
+      if (!saldoCargable(dias)) {
         return res.status(400).json({ message: 'El saldo tiene que ser un número de días entre -60 y 120 (hasta dos decimales)' });
       }
       const motivo = String(req.body?.motivo ?? '').trim().slice(0, 300) || null;

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import {
   diaDeReintegro, resumenRango,
   diasHabiles, mesesCumplidos, calcularSaldo, validarSolicitud, ajustePara, saldoDesdeCarga, alcanzaSaldo,
-  SALDO_INICIAL, DEVENGO_MENSUAL, TOPE_ALERTA,
+  SALDO_INICIAL, DEVENGO_MENSUAL, TOPE_ALERTA, saldoCargable,
 } from './vacaciones';
 
 const TZ = 'America/Costa_Rica';
@@ -273,5 +273,14 @@ describe('alcanzaSaldo', () => {
     expect(alcanzaSaldo(s, 3.5)).toBe(true);
     expect(alcanzaSaldo(s, 4)).toBe(false);
     expect(alcanzaSaldo(null, 30)).toBe(true);
+  });
+});
+
+describe('saldoCargable', () => {
+  it('acepta hasta dos decimales, aunque la computadora no los represente exactos', () => {
+    for (const d of [8.12, 1.15, 0.29, 8.5, 10.33, 0, -3.75, 120]) expect(saldoCargable(d)).toBe(true);
+  });
+  it('rechaza más decimales, fuera de rango o lo que no es un número', () => {
+    for (const d of [8.123, 120.5, -61, NaN, Infinity]) expect(saldoCargable(d)).toBe(false);
   });
 });
