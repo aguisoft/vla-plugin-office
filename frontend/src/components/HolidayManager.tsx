@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { listHolidays, createHoliday, deleteHoliday, getOrgRoster, ApiError } from '../api';
+import { listHolidays, createHoliday, deleteHoliday, moveHoliday, getOrgRoster, ApiError } from '../api';
 import type { StatusError } from '../api';
 import { COUNTRIES, countryOf } from '../countries';
 import { monthOf, dayOf } from '../calendar';
@@ -136,6 +136,20 @@ export function HolidayManager({ onClose, onAbrirPersonas }: {
     } finally {
       setCreating(false);
     }
+  }
+
+  // Trasladar un feriado: los gobiernos lo deciden a último momento.
+  const [cambiando, setCambiando] = useState<string | null>(null);
+  const [nuevaFecha, setNuevaFecha] = useState('');
+  async function handleMove(id: string) {
+    setError(null);
+    try {
+      await moveHoliday(id, nuevaFecha);
+      setCambiando(null);
+    } catch (e) {
+      setError(errorMessage(e, 'No se pudo cambiar la fecha'));
+    }
+    await reloadHolidays();
   }
 
   async function handleDelete(id: string) {
@@ -394,7 +408,7 @@ export function HolidayManager({ onClose, onAbrirPersonas }: {
                                         onClick={() => void handleDelete(h.id)}
                                         className="rounded-lg bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold text-white"
                                       >
-                                        borrar
+                                        quitar
                                       </button>
                                       <button
                                         onClick={() => setConfirmDelete(null)}
@@ -403,16 +417,45 @@ export function HolidayManager({ onClose, onAbrirPersonas }: {
                                         no
                                       </button>
                                     </span>
-                                  ) : (
-                                    <button
-                                      onClick={() => setConfirmDelete(h.id)}
-                                      aria-label={`Borrar ${h.name}`}
-                                      className="flex-shrink-0 text-[10px] text-gray-300 opacity-0 transition-opacity hover:text-red-500 group-hover:opacity-100"
-                                    >
-                                      ✕
-                                    </button>
+                                  ) : cambiando !== h.id && (
+                                    // Siempre visibles (antes era una ✕ que solo aparecía al pasar
+                                    // el mouse, y RRHH no la encontraba). 27-oct-2026.
+                                    <span className="flex flex-shrink-0 items-center gap-2">
+                                      <button
+                                        onClick={() => { setCambiando(h.id); setNuevaFecha(String(h.date).slice(0, 10)); }}
+                                        data-testid="feriado-cambiar-fecha"
+                                        className="text-[10px] text-sky-700 hover:underline"
+                                      >
+                                        cambiar fecha
+                                      </button>
+                                      <button
+                                        onClick={() => setConfirmDelete(h.id)}
+                                        aria-label={`Quitar ${h.name}`}
+                                        data-testid="feriado-quitar"
+                                        className="text-[10px] text-gray-400 hover:text-red-500"
+                                      >
+                                        quitar
+                                      </button>
+                                    </span>
                                   )}
                                 </div>
+                                {cambiando === h.id && (
+                                  <div className="mt-1.5 flex flex-wrap items-center gap-2 pl-5">
+                                    <span className="text-[10px] text-gray-500">Se traslada al</span>
+                                    <input type="date" value={nuevaFecha} onChange={e => setNuevaFecha(e.target.value)}
+                                      data-testid="feriado-nueva-fecha"
+                                      className="rounded-lg border border-gray-200 px-1.5 py-0.5 text-[11px]" />
+                                    <button
+                                      onClick={() => void handleMove(h.id)}
+                                      disabled={!nuevaFecha || nuevaFecha === String(h.date).slice(0, 10)}
+                                      data-testid="feriado-guardar-fecha"
+                                      className="rounded-lg bg-gray-800 px-2 py-0.5 text-[10px] font-semibold text-white disabled:bg-gray-300"
+                                    >
+                                      guardar
+                                    </button>
+                                    <button onClick={() => setCambiando(null)} className="text-[10px] text-gray-400">cancelar</button>
+                                  </div>
+                                )}
                               </li>
                             ))}
                           </ul>

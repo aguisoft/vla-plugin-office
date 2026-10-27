@@ -179,6 +179,7 @@ export const createHoliday = (body: { date: string; name: string; country: strin
   api.post<{ id: string }>(`${PLUGIN}/holidays`, body);
 
 export const deleteHoliday = (id: string) => api.delete<void>(`${PLUGIN}/holidays/${id}`);
+export const moveHoliday = (id: string, date: string) => api.patch<{ ok: true }>(`${PLUGIN}/holidays/${id}`, { date });
 
 /**
  * Pide mover un feriado. Devuelve el estado con que quedó: `PENDING` si tiene

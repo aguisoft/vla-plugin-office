@@ -105,6 +105,20 @@ export class HolidayService {
     return (row as any).id;
   }
 
+  /**
+   * Cambiarle la fecha a un feriado (27-oct-2026): los gobiernos trasladan
+   * feriados a último momento. Conserva el feriado (y lo que cuelga de él);
+   * 'ocupada' si ese país ya tiene otro feriado ese día.
+   */
+  async moverA(id: string, date: Date): Promise<'ok' | 'no-existe' | 'ocupada'> {
+    const row = await this.ctx.prisma.holiday.findUnique({ where: { id } }) as any;
+    if (!row) return 'no-existe';
+    const choca = await this.ctx.prisma.holiday.findFirst({ where: { country: row.country, date, NOT: { id } } });
+    if (choca) return 'ocupada';
+    await this.ctx.prisma.holiday.update({ where: { id }, data: { date } });
+    return 'ok';
+  }
+
   async remove(id: string): Promise<boolean> {
     const row = await this.ctx.prisma.holiday.findUnique({ where: { id } });
     if (!row) return false;

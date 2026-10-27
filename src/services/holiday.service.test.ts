@@ -139,3 +139,31 @@ describe('el SQL que sale hacia el driver', () => {
     expect(llamadas[0].params).toContain(null);
   });
 });
+
+describe('HolidayService.moverA (traslado de feriado, 27-oct-2026)', () => {
+  function armar(filas: Array<{ id: string; country: string; date: Date }>) {
+    const update = vi.fn(async () => ({}));
+    const prisma = {
+      holiday: {
+        findUnique: vi.fn(async ({ where }: any) => filas.find(f => f.id === where.id) ?? null),
+        findFirst: vi.fn(async ({ where }: any) => filas.find(f => f.country === where.country && +f.date === +where.date && f.id !== where.NOT.id) ?? null),
+        update,
+      },
+    };
+    return { svc: new HolidayService({ prisma } as unknown as PluginContext), update };
+  }
+  const d = (s: string) => new Date(`${s}T00:00:00Z`);
+
+  it('lo mueve a la fecha nueva', async () => {
+    const { svc, update } = armar([{ id: 'h1', country: 'AR', date: d('2026-11-23') }]);
+    expect(await svc.moverA('h1', d('2026-11-20'))).toBe('ok');
+    expect(update).toHaveBeenCalledWith({ where: { id: 'h1' }, data: { date: d('2026-11-20') } });
+  });
+
+  it('no lo pisa con otro feriado del mismo país, ni mueve uno que no existe', async () => {
+    const { svc, update } = armar([{ id: 'h1', country: 'AR', date: d('2026-11-23') }, { id: 'h2', country: 'AR', date: d('2026-12-08') }]);
+    expect(await svc.moverA('h1', d('2026-12-08'))).toBe('ocupada');
+    expect(await svc.moverA('nada', d('2026-12-01'))).toBe('no-existe');
+    expect(update).not.toHaveBeenCalled();
+  });
+});

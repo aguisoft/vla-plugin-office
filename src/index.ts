@@ -1258,6 +1258,17 @@ const plugin: PluginDefinition = {
       }
     });
 
+    // Trasladar un feriado a otra fecha (decretos de último momento).
+    ctx.router.patch('/holidays/:id', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {
+      const date = String(req.body?.date ?? '');
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return res.status(400).json({ message: 'Fecha inválida' });
+      // Igual que el alta: la fecha pura, a medianoche UTC (columna @db.Date).
+      const r = await holidays.moverA(req.params.id, new Date(`${date}T00:00:00Z`));
+      if (r === 'no-existe') return res.status(404).json({ message: 'Feriado no encontrado' });
+      if (r === 'ocupada') return res.status(409).json({ message: 'Ese país ya tiene un feriado ese día' });
+      res.json({ ok: true });
+    }));
+
     ctx.router.delete('/holidays/:id', ctx.requireAuth(), ctx.requirePermission(PERMS.MANAGE), asyncRoute(async (req, res) => {
       const done = await holidays.remove(req.params.id);
       if (!done) return res.status(404).json({ message: 'Feriado no encontrado' });
